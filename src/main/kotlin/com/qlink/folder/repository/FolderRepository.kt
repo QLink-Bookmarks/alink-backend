@@ -1,8 +1,8 @@
 package com.qlink.folder.repository
 
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
-import com.qlink.folder.dto.FolderSearchOrder
 import com.qlink.folder.dto.SearchFoldersQuery
 import kotlin.time.Instant
 
@@ -37,7 +37,7 @@ interface FolderRepository {
     suspend fun search(
         ownerId: Long,
         query: String?,
-        order: FolderSearchOrder,
+        sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
     ): List<SearchFoldersQuery>

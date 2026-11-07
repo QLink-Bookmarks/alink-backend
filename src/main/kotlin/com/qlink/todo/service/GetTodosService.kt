@@ -8,7 +8,6 @@ import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.todo.domain.TodoOrderKey
 import com.qlink.todo.domain.TodoSort
 import com.qlink.todo.domain.TodoStatus
 import com.qlink.todo.dto.DEFAULT_TODO_SCROLL_SIZE
@@ -86,21 +85,15 @@ class GetTodosService(
         return TodoStatus.from(status) ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER)
     }
 
-    private suspend fun decodeCursor(
+    private fun decodeCursor(
         encoded: String,
         sort: TodoSort,
     ): TodoSearchCursor {
         val cursor = Base64CursorCodec.decode<TodoSearchCursor>(encoded)
         sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
-        val id = cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
+        cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
 
-        if (sort.orderKey != TodoOrderKey.CREATED_AT || cursor.value.createdAt != null) {
-            return cursor
-        }
-
-        val createdAt = todoRepository.findCreatedAtById(id) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
-
-        return cursor.copy(value = cursor.value.copy(createdAt = createdAt))
+        return cursor
     }
 
     private fun encodeCursor(
@@ -114,7 +107,6 @@ class GetTodosService(
                 value =
                     TodoSearchCursorValue(
                         id = query.id,
-                        createdAt = query.createdAt,
                         reminderAt = query.reminderAt,
                         completedAt = query.completedAt,
                     ),

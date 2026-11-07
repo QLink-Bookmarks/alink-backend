@@ -1,11 +1,11 @@
 package com.qlink.post.repository
 
-import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortDirection
 import com.qlink.post.domain.Post
 import com.qlink.post.domain.PostImage
+import com.qlink.post.domain.PostSort
 import com.qlink.post.domain.PostType
 import com.qlink.post.dto.PostSearchCursor
-import com.qlink.post.dto.PostSearchOrder
 import com.qlink.post.dto.SearchPostsQuery
 import com.qlink.post.repository.table.PostImages
 import com.qlink.post.repository.table.Posts
@@ -13,10 +13,12 @@ import com.qlink.post.repository.table.fromDomain
 import com.qlink.post.repository.table.toPostDomain
 import com.qlink.post.repository.table.toPostImageDomain
 import com.qlink.user.repository.table.Users
+import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.jdbc.andWhere
@@ -57,11 +59,12 @@ class DbPostRepository : PostRepository {
     override suspend fun search(
         type: PostType,
         query: String?,
-        order: PostSearchOrder,
+        sort: PostSort,
         cursor: PostSearchCursor?,
         size: Int,
     ): List<SearchPostsQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
+        val sortOrder = sort.direction.sortOrder()
 
         return Posts
             .join(
@@ -74,15 +77,10 @@ class DbPostRepository : PostRepository {
                 normalizedQuery?.let { keyword ->
                     andWhere { Posts.title like "%$keyword%" }
                 }
-                cursor?.value?.id?.let { cursorId ->
-                    andWhere {
-                        when (order) {
-                            SearchOrder.LATEST -> Posts.id less cursorId
-                            else -> Posts.id less cursorId
-                        }
-                    }
+                cursor?.value?.let { cursorValue ->
+                    andWhere { Posts.id.beyond(cursorValue.id!!, sort.direction) }
                 }
-            }.orderBy(Posts.id to SortOrder.DESC)
+            }.orderBy(Posts.id to sortOrder)
             .limit(size + 1)
             .map {
                 SearchPostsQuery(
@@ -93,4 +91,19 @@ class DbPostRepository : PostRepository {
                 )
             }
     }
+
+    private fun <T : Comparable<T>, S : T?> ExpressionWithColumnType<in S>.beyond(
+        value: T,
+        direction: SortDirection,
+    ): Op<Boolean> =
+        when (direction) {
+            SortDirection.ASC -> this greater value
+            SortDirection.DESC -> this less value
+        }
+
+    private fun SortDirection.sortOrder(): SortOrder =
+        when (this) {
+            SortDirection.ASC -> SortOrder.ASC
+            SortDirection.DESC -> SortOrder.DESC
+        }
 }

@@ -1,18 +1,25 @@
 package com.qlink.notification.repository
 
+import com.qlink.common.search.SortDirection
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.domain.NotificationOrderKey
+import com.qlink.notification.domain.NotificationSort
 import com.qlink.notification.dto.NotificationSearchCursor
-import com.qlink.notification.dto.NotificationSearchOrder
+import com.qlink.notification.dto.NotificationSearchCursorValue
 import com.qlink.notification.dto.SearchNotificationsQuery
 import com.qlink.notification.repository.table.Notifications
 import com.qlink.notification.repository.table.fromDomain
 import com.qlink.notification.repository.table.refreshNotificationUpdatedAt
 import com.qlink.notification.repository.table.toNotificationDomain
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -95,7 +102,7 @@ class DbNotificationRepository : NotificationRepository {
         userId: Long,
         query: String?,
         type: NotificationContext?,
-        order: NotificationSearchOrder,
+        sort: NotificationSort,
         cursor: NotificationSearchCursor?,
         size: Int,
     ): List<SearchNotificationsQuery> {
@@ -122,15 +129,10 @@ class DbNotificationRepository : NotificationRepository {
                             (Notifications.message like "%$keyword%")
                     }
                 }
-                cursor?.value?.id?.let { cursorId ->
-                    andWhere {
-                        when (order) {
-                            com.qlink.common.search.SearchOrder.LATEST -> Notifications.id less cursorId
-                            else -> Notifications.id less cursorId
-                        }
-                    }
+                cursor?.value?.let { cursorValue ->
+                    andWhere { cursorFilter(sort, cursorValue) }
                 }
-            }.orderBy(Notifications.id to SortOrder.DESC)
+            }.orderBy(*orderBy(sort))
             .limit(size + 1)
             .map {
                 SearchNotificationsQuery(
@@ -144,6 +146,47 @@ class DbNotificationRepository : NotificationRepository {
                 )
             }
     }
+
+    private fun cursorFilter(
+        sort: NotificationSort,
+        cursorValue: NotificationSearchCursorValue,
+    ): Op<Boolean> =
+        when (sort.orderKey) {
+            NotificationOrderKey.CREATED_AT -> {
+                Notifications.id.beyond(cursorValue.id!!, sort.direction)
+            }
+
+            NotificationOrderKey.FIRED_AT -> {
+                val firedAt = cursorValue.firedAt!!.toJavaInstant()
+
+                Notifications.firedAt.beyond(firedAt, sort.direction) or
+                    ((Notifications.firedAt eq firedAt) and Notifications.id.beyond(cursorValue.id!!, sort.direction))
+            }
+        }
+
+    private fun orderBy(sort: NotificationSort): Array<Pair<Expression<*>, SortOrder>> {
+        val sortOrder = sort.direction.sortOrder()
+
+        return when (sort.orderKey) {
+            NotificationOrderKey.CREATED_AT -> arrayOf(Notifications.id to sortOrder)
+            NotificationOrderKey.FIRED_AT -> arrayOf(Notifications.firedAt to sortOrder, Notifications.id to sortOrder)
+        }
+    }
+
+    private fun <T : Comparable<T>, S : T?> ExpressionWithColumnType<in S>.beyond(
+        value: T,
+        direction: SortDirection,
+    ): Op<Boolean> =
+        when (direction) {
+            SortDirection.ASC -> this greater value
+            SortDirection.DESC -> this less value
+        }
+
+    private fun SortDirection.sortOrder(): SortOrder =
+        when (this) {
+            SortDirection.ASC -> SortOrder.ASC
+            SortDirection.DESC -> SortOrder.DESC
+        }
 
     override suspend fun countUnread(userId: Long): Int =
         Notifications

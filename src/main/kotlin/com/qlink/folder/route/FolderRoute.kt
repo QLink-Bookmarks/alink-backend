@@ -46,6 +46,7 @@ fun Route.folderRoutes() {
                 getFoldersService.getFolders(
                     loginId = principal.userId,
                     query = resource.query,
+                    orderKey = resource.orderKey,
                     order = resource.order,
                     scrollRequest =
                         ScrollRequest(

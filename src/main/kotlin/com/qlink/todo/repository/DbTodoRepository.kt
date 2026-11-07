@@ -46,7 +46,6 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
-import kotlin.time.toKotlinInstant
 
 class DbTodoRepository : TodoRepository {
     override suspend fun insert(todo: Todo): Todo =
@@ -140,13 +139,6 @@ class DbTodoRepository : TodoRepository {
             .where { Todos.ownerId eq ownerId }
             .map { it.toTodoDomain() }
 
-    override suspend fun findCreatedAtById(todoId: Long): Instant? =
-        Todos
-            .select(Todos.createdAt)
-            .where { Todos.id eq todoId }
-            .singleOrNull()
-            ?.let { it[Todos.createdAt].toKotlinInstant() }
-
     override suspend fun search(
         ownerId: Long,
         sort: TodoSort,
@@ -164,8 +156,6 @@ class DbTodoRepository : TodoRepository {
                 additionalConstraint = { Todos.linkId eq Links.id },
             )
         val linkTitle = Links.title.alias("link_title")
-        val orderColumn = sort.orderKey.column()
-        val sortOrder = sort.direction.sortOrder()
         val nowValue = now.toJavaInstant()
 
         return joined
@@ -207,17 +197,10 @@ class DbTodoRepository : TodoRepository {
                 }
                 cursor?.value?.let { cursorValue ->
                     cursorValue.id?.let { cursorId ->
-                        andWhere {
-                            keysetAfter(
-                                column = orderColumn,
-                                value = cursorValue.valueOf(sort.orderKey)?.toJavaInstant(),
-                                id = cursorId,
-                                direction = sort.direction,
-                            )
-                        }
+                        andWhere { cursorFilter(sort = sort, cursorValue = cursorValue, cursorId = cursorId) }
                     }
                 }
-            }.orderBy(orderColumn to sortOrder, Todos.id to sortOrder)
+            }.orderBy(*orderBy(sort))
             .limit(size + 1)
             .map { it.toSearchTodosQuery(linkTitle) }
     }
@@ -241,19 +224,37 @@ class DbTodoRepository : TodoRepository {
             TodoStatus.ACTIVE -> Todos.completedAt.isNull() and (Todos.reminderAt.isNull() or (Todos.reminderAt greaterEq now))
         }
 
-    private fun TodoOrderKey.column(): Expression<*> =
-        when (this) {
-            TodoOrderKey.REMINDER_AT -> Todos.reminderAt
-            TodoOrderKey.CREATED_AT -> Todos.createdAt
-            TodoOrderKey.COMPLETED_AT -> Todos.completedAt
-        }
+    private fun cursorFilter(
+        sort: TodoSort,
+        cursorValue: TodoSearchCursorValue,
+        cursorId: Long,
+    ): Op<Boolean> {
+        val idBeyond = beyond(expression = Todos.id, cursorValue = longLiteral(cursorId), direction = sort.direction)
 
-    private fun TodoSearchCursorValue.valueOf(orderKey: TodoOrderKey): Instant? =
-        when (orderKey) {
-            TodoOrderKey.REMINDER_AT -> reminderAt
-            TodoOrderKey.CREATED_AT -> createdAt
-            TodoOrderKey.COMPLETED_AT -> completedAt
+        return when (sort.orderKey) {
+            TodoOrderKey.REMINDER_AT -> {
+                keysetAfter(column = Todos.reminderAt, value = cursorValue.reminderAt, idBeyond = idBeyond, direction = sort.direction)
+            }
+
+            TodoOrderKey.CREATED_AT -> {
+                idBeyond
+            }
+
+            TodoOrderKey.COMPLETED_AT -> {
+                keysetAfter(column = Todos.completedAt, value = cursorValue.completedAt, idBeyond = idBeyond, direction = sort.direction)
+            }
         }
+    }
+
+    private fun orderBy(sort: TodoSort): Array<Pair<Expression<*>, SortOrder>> {
+        val sortOrder = sort.direction.sortOrder()
+
+        return when (sort.orderKey) {
+            TodoOrderKey.REMINDER_AT -> arrayOf(Todos.reminderAt to sortOrder, Todos.id to sortOrder)
+            TodoOrderKey.CREATED_AT -> arrayOf(Todos.id to sortOrder)
+            TodoOrderKey.COMPLETED_AT -> arrayOf(Todos.completedAt to sortOrder, Todos.id to sortOrder)
+        }
+    }
 
     private fun SortDirection.sortOrder(): SortOrder =
         when (this) {
@@ -263,17 +264,15 @@ class DbTodoRepository : TodoRepository {
 
     private fun keysetAfter(
         column: Expression<*>,
-        value: java.time.Instant?,
-        id: Long,
+        value: Instant?,
+        idBeyond: Op<Boolean>,
         direction: SortDirection,
     ): Op<Boolean> {
-        val idBeyond = beyond(expression = Todos.id, cursorValue = longLiteral(id), direction = direction)
-
         if (value == null) {
             return IsNullOp(column) and idBeyond
         }
 
-        val cursorValue = QueryParameter(value, JavaInstantColumnType())
+        val cursorValue = QueryParameter(value.toJavaInstant(), JavaInstantColumnType())
 
         return beyond(expression = column, cursorValue = cursorValue, direction = direction) or
             (EqOp(column, cursorValue) and idBeyond) or
