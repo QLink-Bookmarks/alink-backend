@@ -7,6 +7,7 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.search.SearchCursorCodec
 import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
 import com.qlink.common.search.SortDirection
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
@@ -28,6 +29,8 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.update
 import kotlin.time.Clock
@@ -205,7 +208,7 @@ class GetNotificationsServiceTest :
             }
         }
 
-        Given("생성 순서와 발송 순서가 다른 발송된 알림(같은 생성일·같은 발송일 포함)") {
+        Given("생성 시각이 id 순서와 다르고 발송 순서도 다른 발송된 알림(같은 발송일 포함)") {
             lateinit var user: User
             lateinit var firedIds: List<Long>
             lateinit var todoIds: List<Long>
@@ -235,16 +238,16 @@ class GetNotificationsServiceTest :
                     return notification.id!!
                 }
 
-                val createdFirstFiredLast =
-                    insertNotificationAt(userId = user.id!!, createdHours = 0, firedHours = 5, context = NotificationContext.TODO)
+                val firedLast =
+                    insertNotificationAt(userId = user.id!!, createdHours = 2, firedHours = 5, context = NotificationContext.TODO)
                 val createdLastFiredFirst =
                     insertNotificationAt(userId = user.id!!, createdHours = 3, firedHours = 1, context = NotificationContext.ANNOUNCE)
                 val firedMiddle =
                     insertNotificationAt(userId = user.id!!, createdHours = 1, firedHours = 3, context = NotificationContext.TODO)
                 val sameCreatedSameFired =
                     insertNotificationAt(userId = user.id!!, createdHours = 3, firedHours = 3, context = NotificationContext.ANNOUNCE)
-                firedIds = listOf(createdFirstFiredLast, createdLastFiredFirst, firedMiddle, sameCreatedSameFired)
-                todoIds = listOf(createdFirstFiredLast, firedMiddle)
+                firedIds = listOf(firedLast, createdLastFiredFirst, firedMiddle, sameCreatedSameFired)
+                todoIds = listOf(firedLast, firedMiddle)
                 pendingId =
                     insertNotificationAt(userId = user.id!!, createdHours = 6, firedHours = null, context = NotificationContext.TODO)
                 otherUserId =
@@ -291,10 +294,11 @@ class GetNotificationsServiceTest :
             When("정렬 없이 조회하면") {
                 val get = suspend { getNotifications() to getNotifications(order = "latest") }
 
-                Then("생성일 최신순이고 기존 latest와 같은 순서다") {
+                Then("생성 시각과 무관하게 id 내림차순이고 기존 latest와 같은 순서다") {
                     val (actual, legacy) = get()
 
-                    actual.contents.map { it.id } shouldBe stored(firedIds, createdAtDesc)
+                    actual.contents.map { it.id } shouldBe firedIds.sortedDescending()
+                    actual.contents.map { it.id } shouldNotBe stored(firedIds, createdAtDesc)
                     legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
                 }
             }
@@ -302,16 +306,19 @@ class GetNotificationsServiceTest :
             When("생성일 오름차순으로 조회하면") {
                 val get = suspend { getNotifications(orderKey = "created_at", order = "asc") }
 
-                Then("오래된 알림부터 나온다") {
-                    get().contents.map { it.id } shouldBe stored(firedIds, createdAtDesc).reversed()
+                Then("생성 시각과 무관하게 id 오름차순이다") {
+                    get().contents.map { it.id } shouldBe firedIds.sorted()
                 }
             }
 
             When("type과 함께 생성일 오름차순으로 조회하면") {
                 val get = suspend { getNotifications(type = "todo", order = "asc") }
 
-                Then("그 타입의 알림만 오래된 순으로 나온다") {
-                    get().contents.map { it.id } shouldBe stored(todoIds, createdAtDesc).reversed()
+                Then("그 타입의 알림만 생성 시각과 무관하게 id 오름차순으로 나온다") {
+                    val actual = get().contents.map { it.id }
+
+                    actual shouldBe todoIds.sorted()
+                    actual shouldNotBe stored(todoIds, createdAtDesc).reversed()
                 }
             }
 
@@ -340,23 +347,11 @@ class GetNotificationsServiceTest :
             When("발송일과 생성일 순서가 다를 때 정렬 없이 조회하면") {
                 val get = suspend { getNotifications() }
 
-                Then("발송일과 무관하게 생성일 최신순이다") {
+                Then("발송일과 무관하게 id 내림차순이다") {
                     val actual = get().contents.map { it.id }
 
-                    actual shouldBe stored(firedIds, createdAtDesc)
+                    actual shouldBe firedIds.sortedDescending()
                     actual shouldNotBe stored(firedIds, firedAtDesc)
-                }
-            }
-
-            When("생성일 오름차순·내림차순으로 조회하면") {
-                val get = suspend { getNotifications(order = "asc") to getNotifications(order = "desc") }
-
-                Then("같은 생성일끼리는 id가 각각 오름차순·내림차순이다") {
-                    val (ascending, descending) = get()
-                    val sameCreated = listOf(firedIds[1], firedIds[3])
-
-                    ascending.contents.map { it.id }.filter { it in sameCreated } shouldBe sameCreated.sorted()
-                    descending.contents.map { it.id }.filter { it in sameCreated } shouldBe sameCreated.sortedDescending()
                 }
             }
 
@@ -378,7 +373,7 @@ class GetNotificationsServiceTest :
                 Then("겹치거나 빠지는 알림이 없고 마지막 페이지는 다음 커서가 없다") {
                     val pages = get()
 
-                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe stored(firedIds, createdAtDesc).reversed()
+                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe firedIds.sorted()
                     pages.last().hasNext shouldBe false
                     pages.last().nextCursor shouldBe null
                 }
@@ -404,7 +399,7 @@ class GetNotificationsServiceTest :
             When("기존 형식 id만 든 LATEST 커서로 정렬 없이 조회하면") {
                 val get =
                     suspend {
-                        val cursorId = stored(firedIds, createdAtDesc)[1]
+                        val cursorId = firedIds.sortedDescending()[1]
                         val cursor =
                             SearchCursorCodec.encode(
                                 order = SearchOrder.LATEST,
@@ -413,10 +408,36 @@ class GetNotificationsServiceTest :
                         cursorId to getNotifications(cursor = cursor)
                     }
 
-                Then("커서 알림 다음부터 생성일 최신순으로 이어진다") {
+                Then("커서 알림 다음부터 id 내림차순으로 이어진다") {
                     val (cursorId, actual) = get()
 
-                    actual.contents.map { it.id } shouldBe stored(firedIds, createdAtDesc).dropWhile { it != cursorId }.drop(1)
+                    actual.contents.map { it.id } shouldBe firedIds.sortedDescending().filter { it < cursorId }
+                }
+            }
+
+            When("생성 시각이 든 생성일 내림차순 커서로 조회하면") {
+                val get =
+                    suspend {
+                        val cursorId = firedIds.sortedDescending()[1]
+                        val cursor =
+                            Base64CursorCodec.encode(
+                                SortCursor(
+                                    orderKey = NotificationOrderKey.CREATED_AT,
+                                    direction = SortDirection.DESC,
+                                    value =
+                                        buildJsonObject {
+                                            put("id", cursorId)
+                                            put("createdAt", RandomFixture.randomPastInstant().toString())
+                                        },
+                                ),
+                            )
+                        cursorId to getNotifications(cursor = cursor)
+                    }
+
+                Then("생성 시각은 무시하고 커서 알림 다음부터 id 내림차순으로 이어진다") {
+                    val (cursorId, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe firedIds.sortedDescending().filter { it < cursorId }
                 }
             }
 
@@ -430,7 +451,7 @@ class GetNotificationsServiceTest :
                 Then("커서 알림 다음부터 이어진다") {
                     val (firstPage, secondPage) = get()
 
-                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe stored(firedIds, createdAtDesc)
+                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe firedIds.sortedDescending()
                 }
             }
 
@@ -440,15 +461,13 @@ class GetNotificationsServiceTest :
                         val cursor =
                             SearchCursorCodec.encode(
                                 order = SearchOrder.LATEST,
-                                value = NotificationSearchCursorValue(id = RandomFixture.randomId()),
+                                value = NotificationSearchCursorValue(id = Long.MAX_VALUE),
                             )
                         getNotifications(cursor = cursor)
                     }
 
-                Then("예외를 반환한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        get()
-                    }
+                Then("예외 없이 그 id 다음부터 이어진다") {
+                    get().contents.map { it.id } shouldBe firedIds.sortedDescending()
                 }
             }
 
@@ -460,7 +479,7 @@ class GetNotificationsServiceTest :
                                 NotificationSearchCursor(
                                     orderKey = NotificationOrderKey.CREATED_AT,
                                     direction = SortDirection.DESC,
-                                    value = NotificationSearchCursorValue(createdAt = RandomFixture.randomPastInstant()),
+                                    value = NotificationSearchCursorValue(type = NotificationContext.TODO),
                                 ),
                             )
                         getNotifications(cursor = cursor)

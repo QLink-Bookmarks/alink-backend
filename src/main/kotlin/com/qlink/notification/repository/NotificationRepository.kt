@@ -12,8 +12,6 @@ interface NotificationRepository {
 
     suspend fun findById(notificationId: Long): Notification?
 
-    suspend fun findCreatedAtById(id: Long): Instant?
-
     suspend fun findPendingById(notificationId: Long): Notification?
 
     suspend fun findPendingBetween(

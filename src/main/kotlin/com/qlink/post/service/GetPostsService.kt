@@ -55,21 +55,15 @@ class GetPostsService(
             )
         }
 
-    private suspend fun decodeCursor(
+    private fun decodeCursor(
         encoded: String,
         sort: PostSort,
     ): PostSearchCursor {
         val cursor = Base64CursorCodec.decode<PostSearchCursor>(encoded)
         sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
-        val id = cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
+        cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
 
-        if (cursor.value.createdAt != null) {
-            return cursor
-        }
-
-        val createdAt = postRepository.findCreatedAtById(id) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
-
-        return cursor.copy(value = cursor.value.copy(createdAt = createdAt))
+        return cursor
     }
 
     private fun encodeCursor(
@@ -86,7 +80,6 @@ class GetPostsService(
                         id = query.id,
                         type = type,
                         title = query.title,
-                        createdAt = query.createdAt,
                     ),
             ),
         )

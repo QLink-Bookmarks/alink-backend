@@ -18,7 +18,6 @@ data class PostSearchCursorValue(
     val id: Long? = null,
     val type: PostType? = null,
     val title: String? = null,
-    val createdAt: Instant? = null,
 )
 
 data class SearchPostsQuery(

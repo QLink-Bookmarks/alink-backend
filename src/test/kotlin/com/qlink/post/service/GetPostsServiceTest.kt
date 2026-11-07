@@ -8,6 +8,7 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.search.SearchCursorCodec
 import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
 import com.qlink.common.search.SortDirection
 import com.qlink.post.domain.Post
 import com.qlink.post.domain.PostOrderKey
@@ -29,6 +30,8 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.update
 import kotlin.time.Duration.Companion.hours
@@ -151,7 +154,7 @@ class GetPostsServiceTest :
             }
         }
 
-        Given("생성일이 서로 다른 공지 게시글 여러 개(같은 생성일 포함)와 피드백 게시글") {
+        Given("생성 시각이 id 순서와 다른 공지 게시글 여러 개와 피드백 게시글") {
             val keyword = "kw${RandomFixture.randomId()}"
             lateinit var announcementIds: List<Long>
             lateinit var matchedIds: List<Long>
@@ -210,10 +213,11 @@ class GetPostsServiceTest :
             When("정렬 없이 조회하면") {
                 val get = suspend { getPosts() to getPosts(order = "latest") }
 
-                Then("생성일 최신순이고 기존 latest와 같은 순서다") {
+                Then("생성 시각과 무관하게 id 내림차순이고 기존 latest와 같은 순서다") {
                     val (actual, legacy) = get()
 
-                    actual.contents.map { it.id } shouldBe createdAtDesc(announcementIds)
+                    actual.contents.map { it.id } shouldBe announcementIds.sortedDescending()
+                    actual.contents.map { it.id } shouldNotBe createdAtDesc(announcementIds)
                     legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
                 }
             }
@@ -221,29 +225,16 @@ class GetPostsServiceTest :
             When("생성일 오름차순으로 조회하면") {
                 val get = suspend { getPosts(orderKey = "created_at", order = "asc") }
 
-                Then("오래된 게시글부터 나온다") {
-                    get().contents.map { it.id } shouldBe createdAtDesc(announcementIds).reversed()
+                Then("생성 시각과 무관하게 id 오름차순이다") {
+                    get().contents.map { it.id } shouldBe announcementIds.sorted()
                 }
             }
 
             When("검색어와 함께 생성일 오름차순으로 조회하면") {
                 val get = suspend { getPosts(query = keyword, order = "asc") }
 
-                Then("제목에 검색어가 든 게시글만 오래된 순으로 나온다") {
-                    get().contents.map { it.id } shouldBe createdAtDesc(matchedIds).reversed()
-                }
-            }
-
-            When("생성일 오름차순·내림차순으로 조회하면") {
-                val get = suspend { getPosts(order = "asc") to getPosts(order = "desc") }
-
-                Then("같은 생성일끼리는 id가 각각 오름차순·내림차순이다") {
-                    val (ascending, descending) = get()
-                    val sameCreatedAt = announcementIds.filterIndexed { index, _ -> index == 0 || index == 2 }
-
-                    ascending.contents.map { it.id }.filter { it in sameCreatedAt } shouldBe sameCreatedAt.sorted()
-                    descending.contents.map { it.id }.filter { it in sameCreatedAt } shouldBe sameCreatedAt.sortedDescending()
-                    postRepository.findById(sameCreatedAt[0])!!.createdAt shouldBe postRepository.findById(sameCreatedAt[1])!!.createdAt
+                Then("제목에 검색어가 든 게시글만 id 오름차순으로 나온다") {
+                    get().contents.map { it.id } shouldBe matchedIds.sorted()
                 }
             }
 
@@ -264,7 +255,7 @@ class GetPostsServiceTest :
                     val pages = get()
 
                     pages shouldHaveSize 2
-                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe createdAtDesc(announcementIds).reversed()
+                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe announcementIds.sorted()
                     pages.last().hasNext shouldBe false
                     pages.last().nextCursor shouldBe null
                 }
@@ -273,15 +264,41 @@ class GetPostsServiceTest :
             When("기존 형식 id만 든 LATEST 커서로 정렬 없이 조회하면") {
                 val get =
                     suspend {
-                        val cursorId = createdAtDesc(announcementIds)[1]
+                        val cursorId = announcementIds.sortedDescending()[1]
                         val cursor = SearchCursorCodec.encode(order = SearchOrder.LATEST, value = PostSearchCursorValue(id = cursorId))
                         cursorId to getPosts(cursor = cursor)
                     }
 
-                Then("커서 게시글 다음부터 생성일 최신순으로 이어진다") {
+                Then("커서 게시글 다음부터 id 내림차순으로 이어진다") {
                     val (cursorId, actual) = get()
 
-                    actual.contents.map { it.id } shouldBe createdAtDesc(announcementIds).dropWhile { it != cursorId }.drop(1)
+                    actual.contents.map { it.id } shouldBe announcementIds.sortedDescending().filter { it < cursorId }
+                }
+            }
+
+            When("생성 시각이 든 생성일 내림차순 커서로 조회하면") {
+                val get =
+                    suspend {
+                        val cursorId = announcementIds.sortedDescending()[1]
+                        val cursor =
+                            Base64CursorCodec.encode(
+                                SortCursor(
+                                    orderKey = PostOrderKey.CREATED_AT,
+                                    direction = SortDirection.DESC,
+                                    value =
+                                        buildJsonObject {
+                                            put("id", cursorId)
+                                            put("createdAt", RandomFixture.randomPastInstant().toString())
+                                        },
+                                ),
+                            )
+                        cursorId to getPosts(cursor = cursor)
+                    }
+
+                Then("생성 시각은 무시하고 커서 게시글 다음부터 id 내림차순으로 이어진다") {
+                    val (cursorId, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe announcementIds.sortedDescending().filter { it < cursorId }
                 }
             }
 
@@ -295,7 +312,7 @@ class GetPostsServiceTest :
                 Then("커서 게시글 다음부터 이어진다") {
                     val (firstPage, secondPage) = get()
 
-                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe createdAtDesc(announcementIds)
+                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe announcementIds.sortedDescending()
                 }
             }
 
@@ -306,15 +323,13 @@ class GetPostsServiceTest :
                             cursor =
                                 SearchCursorCodec.encode(
                                     order = SearchOrder.LATEST,
-                                    value = PostSearchCursorValue(id = RandomFixture.randomId()),
+                                    value = PostSearchCursorValue(id = Long.MAX_VALUE),
                                 ),
                         )
                     }
 
-                Then("예외를 반환한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        get()
-                    }
+                Then("예외 없이 그 id 다음부터 이어진다") {
+                    get().contents.map { it.id } shouldBe announcementIds.sortedDescending()
                 }
             }
 
@@ -327,7 +342,7 @@ class GetPostsServiceTest :
                                     PostSearchCursor(
                                         orderKey = PostOrderKey.CREATED_AT,
                                         direction = SortDirection.DESC,
-                                        value = PostSearchCursorValue(createdAt = RandomFixture.randomPastInstant()),
+                                        value = PostSearchCursorValue(title = RandomFixture.randomSentenceWithMax(50)),
                                     ),
                                 ),
                         )
@@ -361,8 +376,8 @@ class GetPostsServiceTest :
             When("관리자가 피드백을 생성일 오름차순으로 조회하면") {
                 val get = suspend { getPosts(role = Role.ADMIN, type = "FEEDBACK", order = "asc") }
 
-                Then("피드백만 오래된 순으로 나온다") {
-                    get().contents.map { it.id } shouldBe createdAtDesc(feedbackIds).reversed()
+                Then("피드백만 id 오름차순으로 나온다") {
+                    get().contents.map { it.id } shouldBe feedbackIds.sorted()
                 }
             }
         }

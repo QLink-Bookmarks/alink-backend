@@ -103,7 +103,8 @@ below is written in section 2 with its reason.
   values (`latest`, `earliest`, `laxico`, `similar`) are backward-compatible aliases of a key and
   direction, accepted in `order` only when `orderKey` is absent. Unsupported key, direction or
   alias, or `orderKey` with an alias → `COMMON_INVALID_SORT_ORDER`. Equal values continue by `id`
-  in the same direction. The cursor is opaque and bound to the key and direction; a mismatch →
+  in the same direction. A key names the order, not the column: where rows are never imported,
+  `created_at` sorts by `id`. The cursor is opaque and bound to the key and direction; a mismatch →
   `COMMON_CURSOR_ORDER_MISMATCH`.
 - L4. A filter is named after the response field it filters (`folderId`, `isFavorite`,
   `isCompleted`, `type`). Free-text search is `query`. An invalid value → `COMMON_INVALID_FILTER`.

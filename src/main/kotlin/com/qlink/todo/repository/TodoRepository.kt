@@ -33,8 +33,6 @@ interface TodoRepository {
 
     suspend fun findAllByOwnerId(ownerId: Long): List<Todo>
 
-    suspend fun findCreatedAtById(todoId: Long): Instant?
-
     suspend fun search(
         ownerId: Long,
         sort: TodoSort,

@@ -12,6 +12,7 @@ import com.qlink.notification.repository.table.Notifications
 import com.qlink.notification.repository.table.fromDomain
 import com.qlink.notification.repository.table.refreshNotificationUpdatedAt
 import com.qlink.notification.repository.table.toNotificationDomain
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -49,13 +50,6 @@ class DbNotificationRepository : NotificationRepository {
             .where { Notifications.id eq notificationId }
             .singleOrNull()
             ?.toNotificationDomain()
-
-    override suspend fun findCreatedAtById(id: Long): Instant? =
-        Notifications
-            .select(Notifications.createdAt)
-            .where { Notifications.id eq id }
-            .singleOrNull()
-            ?.let { it[Notifications.createdAt].toKotlinInstant() }
 
     override suspend fun findPendingById(notificationId: Long): Notification? =
         Notifications
@@ -113,8 +107,6 @@ class DbNotificationRepository : NotificationRepository {
         size: Int,
     ): List<SearchNotificationsQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
-        val orderColumn = sort.orderKey.column()
-        val sortOrder = sort.direction.sortOrder()
 
         return Notifications
             .select(
@@ -125,7 +117,6 @@ class DbNotificationRepository : NotificationRepository {
                 Notifications.readAt,
                 Notifications.context,
                 Notifications.contextId,
-                Notifications.createdAt,
             ).where {
                 (Notifications.userId eq userId) and Notifications.firedAt.isNotNull()
             }.apply {
@@ -139,14 +130,9 @@ class DbNotificationRepository : NotificationRepository {
                     }
                 }
                 cursor?.value?.let { cursorValue ->
-                    andWhere {
-                        val value = cursorValue.valueOf(sort.orderKey)!!.toJavaInstant()
-
-                        orderColumn.beyond(value, sort.direction) or
-                            ((orderColumn eq value) and Notifications.id.beyond(cursorValue.id!!, sort.direction))
-                    }
+                    andWhere { cursorFilter(sort, cursorValue) }
                 }
-            }.orderBy(orderColumn to sortOrder, Notifications.id to sortOrder)
+            }.orderBy(*orderBy(sort))
             .limit(size + 1)
             .map {
                 SearchNotificationsQuery(
@@ -157,22 +143,35 @@ class DbNotificationRepository : NotificationRepository {
                     readAt = it[Notifications.readAt]?.toKotlinInstant(),
                     context = it[Notifications.context],
                     contextId = it[Notifications.contextId],
-                    createdAt = it[Notifications.createdAt].toKotlinInstant(),
                 )
             }
     }
 
-    private fun NotificationOrderKey.column(): ExpressionWithColumnType<in java.time.Instant> =
-        when (this) {
-            NotificationOrderKey.CREATED_AT -> Notifications.createdAt
-            NotificationOrderKey.FIRED_AT -> Notifications.firedAt
+    private fun cursorFilter(
+        sort: NotificationSort,
+        cursorValue: NotificationSearchCursorValue,
+    ): Op<Boolean> =
+        when (sort.orderKey) {
+            NotificationOrderKey.CREATED_AT -> {
+                Notifications.id.beyond(cursorValue.id!!, sort.direction)
+            }
+
+            NotificationOrderKey.FIRED_AT -> {
+                val firedAt = cursorValue.firedAt!!.toJavaInstant()
+
+                Notifications.firedAt.beyond(firedAt, sort.direction) or
+                    ((Notifications.firedAt eq firedAt) and Notifications.id.beyond(cursorValue.id!!, sort.direction))
+            }
         }
 
-    private fun NotificationSearchCursorValue.valueOf(orderKey: NotificationOrderKey): Instant? =
-        when (orderKey) {
-            NotificationOrderKey.CREATED_AT -> createdAt
-            NotificationOrderKey.FIRED_AT -> firedAt
+    private fun orderBy(sort: NotificationSort): Array<Pair<Expression<*>, SortOrder>> {
+        val sortOrder = sort.direction.sortOrder()
+
+        return when (sort.orderKey) {
+            NotificationOrderKey.CREATED_AT -> arrayOf(Notifications.id to sortOrder)
+            NotificationOrderKey.FIRED_AT -> arrayOf(Notifications.firedAt to sortOrder, Notifications.id to sortOrder)
         }
+    }
 
     private fun <T : Comparable<T>, S : T?> ExpressionWithColumnType<in S>.beyond(
         value: T,

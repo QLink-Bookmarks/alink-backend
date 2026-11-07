@@ -17,18 +17,14 @@ import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import kotlin.time.Instant
-import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbPostRepository : PostRepository {
@@ -52,13 +48,6 @@ class DbPostRepository : PostRepository {
             .where { Posts.id eq postId }
             .singleOrNull()
             ?.toPostDomain()
-
-    override suspend fun findCreatedAtById(id: Long): Instant? =
-        Posts
-            .select(Posts.createdAt)
-            .where { Posts.id eq id }
-            .singleOrNull()
-            ?.let { it[Posts.createdAt].toKotlinInstant() }
 
     override suspend fun findImagesByPostId(postId: Long): List<PostImage> =
         PostImages
@@ -89,14 +78,9 @@ class DbPostRepository : PostRepository {
                     andWhere { Posts.title like "%$keyword%" }
                 }
                 cursor?.value?.let { cursorValue ->
-                    andWhere {
-                        val createdAt = cursorValue.createdAt!!.toJavaInstant()
-
-                        Posts.createdAt.beyond(createdAt, sort.direction) or
-                            ((Posts.createdAt eq createdAt) and Posts.id.beyond(cursorValue.id!!, sort.direction))
-                    }
+                    andWhere { Posts.id.beyond(cursorValue.id!!, sort.direction) }
                 }
-            }.orderBy(Posts.createdAt to sortOrder, Posts.id to sortOrder)
+            }.orderBy(Posts.id to sortOrder)
             .limit(size + 1)
             .map {
                 SearchPostsQuery(

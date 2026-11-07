@@ -58,26 +58,19 @@ class GetNotificationsService(
             )
         }
 
-    private suspend fun decodeCursor(
+    private fun decodeCursor(
         encoded: String,
         sort: NotificationSort,
     ): NotificationSearchCursor {
         val cursor = Base64CursorCodec.decode<NotificationSearchCursor>(encoded)
         sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
-        val id = cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
+        cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
 
         if (sort.orderKey == NotificationOrderKey.FIRED_AT) {
             cursor.value.firedAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
-            return cursor
         }
 
-        if (cursor.value.createdAt != null) {
-            return cursor
-        }
-
-        val createdAt = notificationRepository.findCreatedAtById(id) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
-
-        return cursor.copy(value = cursor.value.copy(createdAt = createdAt))
+        return cursor
     }
 
     private fun encodeCursor(
@@ -93,7 +86,6 @@ class GetNotificationsService(
                     NotificationSearchCursorValue(
                         id = query.id,
                         type = type,
-                        createdAt = query.createdAt,
                         firedAt = query.firedAt,
                     ),
             ),

@@ -16,7 +16,6 @@ typealias NotificationSearchCursor = SortCursor<NotificationOrderKey, Notificati
 data class NotificationSearchCursorValue(
     val id: Long? = null,
     val type: NotificationContext? = null,
-    val createdAt: Instant? = null,
     val firedAt: Instant? = null,
 )
 
@@ -28,5 +27,4 @@ data class SearchNotificationsQuery(
     val readAt: Instant?,
     val context: NotificationContext,
     val contextId: Long,
-    val createdAt: Instant,
 )
