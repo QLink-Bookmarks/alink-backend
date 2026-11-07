@@ -7,6 +7,7 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.search.SearchCursorCodec
 import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
 import com.qlink.common.search.SortDirection
 import com.qlink.link.domain.Link
 import com.qlink.link.repository.LinkRepository
@@ -36,6 +37,9 @@ import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.update
 import java.time.LocalTime
@@ -441,9 +445,10 @@ class GetTodosServiceTest :
                 val actual = getTodos(ownerId = todos.ownerId)
                 val legacy = getTodos(ownerId = todos.ownerId, order = "latest")
 
-                Then("만든 날 최신순, 같으면 id 내림차순이고 기존 latest와 같은 순서다") {
-                    actual.ids() shouldContainExactly todos.createdAtDesc
-                    legacy.ids() shouldContainExactly todos.createdAtDesc
+                Then("만든 날 값과 무관하게 id 내림차순이고 기존 latest와 같은 순서다") {
+                    actual.ids() shouldContainExactly todos.idDesc
+                    actual.ids() shouldNotBe todos.createdAtDesc
+                    legacy.ids() shouldContainExactly todos.idDesc
                 }
             }
 
@@ -451,8 +456,8 @@ class GetTodosServiceTest :
                 val todos = insertMixedTodos()
                 val actual = getTodos(ownerId = todos.ownerId, orderKey = "created_at", order = "asc")
 
-                Then("오래된 액션부터 나온다") {
-                    actual.ids() shouldContainExactly todos.createdAtDesc.reversed()
+                Then("만든 날 값과 무관하게 id 오름차순이다") {
+                    actual.ids() shouldContainExactly todos.idDesc.reversed()
                 }
             }
 
@@ -620,7 +625,7 @@ class GetTodosServiceTest :
             }
         }
 
-        Given("같은 알림 시각·같은 만든 날의 액션들") {
+        Given("같은 알림 시각의 액션들과 만든 날 값이 id와 반대 순서인 액션들") {
             When("알림일 오름차순·내림차순으로 조회하면") {
                 val owner = insertOwner()
                 val reminderAt = Clock.System.now() + 3.hours
@@ -638,13 +643,13 @@ class GetTodosServiceTest :
 
             When("만든 날 오름차순·내림차순으로 조회하면") {
                 val owner = insertOwner()
-                val createdAt = RandomFixture.randomPastInstant()
-                val ids = List(3) { insertTodoOf(owner = owner, createdAt = createdAt) }
+                val base = RandomFixture.randomPastInstant()
+                val ids = List(3) { index -> insertTodoOf(owner = owner, createdAt = base - index.hours) }
                 val asc = getTodos(ownerId = owner.userId, orderKey = "created_at", order = "asc")
                 val desc = getTodos(ownerId = owner.userId, orderKey = "created_at", order = "desc")
                 val descPages = allPages(ownerId = owner.userId, orderKey = "created_at", order = "desc", size = 1)
 
-                Then("같은 만든 날끼리는 id가 각각 오름차순·내림차순이다") {
+                Then("만든 날 값과 무관하게 id가 각각 오름차순·내림차순이다") {
                     asc.ids() shouldContainExactly ids.sorted()
                     desc.ids() shouldContainExactly ids.sortedDescending()
                     descPages.flatten() shouldContainExactly ids.sortedDescending()
@@ -691,26 +696,46 @@ class GetTodosServiceTest :
 
             When("기존 형식 id만 든 LATEST 커서로 정렬 없이 조회하면") {
                 val todos = insertMixedTodos()
-                val cursorId = todos.createdAtDesc[2]
+                val cursorId = todos.idDesc[2]
                 val legacyCursor = SearchCursorCodec.encode(order = SearchOrder.LATEST, value = TodoSearchCursorValue(id = cursorId))
                 val actual = getTodos(ownerId = todos.ownerId, cursor = legacyCursor)
 
-                Then("커서 액션 다음부터 만든 날 최신순으로 이어진다") {
-                    actual.ids() shouldContainExactly todos.createdAtDesc.drop(3)
+                Then("커서 액션 다음부터 id 내림차순으로 이어진다") {
+                    actual.ids() shouldContainExactly todos.idDesc.drop(3)
+                }
+            }
+
+            When("만든 날 값이 든 만든 날 내림차순 커서로 조회하면") {
+                val todos = insertMixedTodos()
+                val cursorId = todos.idDesc[2]
+                val cursor =
+                    Base64CursorCodec.encode(
+                        SortCursor(
+                            orderKey = TodoOrderKey.CREATED_AT,
+                            direction = SortDirection.DESC,
+                            value =
+                                buildJsonObject {
+                                    put("id", cursorId)
+                                    put("createdAt", RandomFixture.randomPastInstant().toString())
+                                },
+                        ),
+                    )
+                val actual = getTodos(ownerId = todos.ownerId, cursor = cursor)
+
+                Then("만든 날 값은 무시하고 커서 액션 다음부터 id 내림차순으로 이어진다") {
+                    actual.ids() shouldContainExactly todos.idDesc.drop(3)
                 }
             }
 
             When("기존 형식 id 커서의 액션이 삭제되었으면") {
                 val todos = insertMixedTodos()
-                val deletedId = todos.createdAtDesc[2]
+                val deletedId = todos.idDesc[2]
                 todoRepository.deleteById(deletedId)
                 val legacyCursor = SearchCursorCodec.encode(order = SearchOrder.LATEST, value = TodoSearchCursorValue(id = deletedId))
-                val get = suspend { getTodos(ownerId = todos.ownerId, cursor = legacyCursor) }
+                val actual = getTodos(ownerId = todos.ownerId, cursor = legacyCursor)
 
-                Then("예외를 반환한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        get()
-                    }
+                Then("예외 없이 지운 액션 다음부터 id 내림차순으로 이어진다") {
+                    actual.ids() shouldContainExactly todos.idDesc.drop(3)
                 }
             }
 
@@ -737,7 +762,7 @@ class GetTodosServiceTest :
         Given("목록을 읽은 뒤 상태를 정하기 전에 다른 기기에서 지운 액션") {
             When("조회하면") {
                 val todos = insertMixedTodos()
-                val deletedId = todos.createdAtDesc.first()
+                val deletedId = todos.idDesc.first()
                 val racingService =
                     GetTodosService(
                         tx = koinGet(),
@@ -759,7 +784,7 @@ class GetTodosServiceTest :
                     )
 
                 Then("지운 액션만 빠지고 나머지는 그대로 나온다") {
-                    actual.ids() shouldContainExactly todos.createdAtDesc.drop(1)
+                    actual.ids() shouldContainExactly todos.idDesc.drop(1)
                 }
             }
         }
@@ -830,6 +855,17 @@ private class MixedTodos(
 ) {
     val createdAtDesc: List<Long> =
         listOf(repeatEnded, upcoming, completedEarlier, repeatOverdue, noReminder, completedLater, upcomingLater, overdue)
+    val idDesc: List<Long> =
+        listOf(
+            noReminder,
+            overdue,
+            upcoming,
+            upcomingLater,
+            completedEarlier,
+            completedLater,
+            repeatOverdue,
+            repeatEnded,
+        ).sortedDescending()
     val withoutReminder: List<Long> = listOf(noReminder, completedLater, repeatEnded)
     val incomplete: List<Long> = listOf(noReminder, overdue, upcoming, upcomingLater, repeatOverdue, repeatEnded)
     val active: List<Long> = listOf(noReminder, upcoming, upcomingLater, repeatEnded)

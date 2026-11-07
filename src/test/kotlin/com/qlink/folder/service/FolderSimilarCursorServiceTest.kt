@@ -2,7 +2,7 @@ package com.qlink.folder.service
 
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
-import com.qlink.folder.dto.FolderSearchOrder
+import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.repository.LinkRepository
@@ -85,7 +85,7 @@ class FolderSimilarCursorServiceTest :
                             folderRepository.search(
                                 ownerId = user.id!!,
                                 query = if (hasQuery) keyword else null,
-                                order = FolderSearchOrder.SIMILAR,
+                                sort = FolderSort.of(orderKey = "similarity", order = null),
                                 cursor = null,
                                 size = 10,
                             )
