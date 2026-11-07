@@ -103,7 +103,8 @@ below is written in section 2 with its reason.
   values (`latest`, `earliest`, `laxico`, `similar`) are backward-compatible aliases of a key and
   direction, accepted in `order` only when `orderKey` is absent. Unsupported key, direction or
   alias, or `orderKey` with an alias → `COMMON_INVALID_SORT_ORDER`. Equal values continue by `id`
-  in the same direction. The cursor is opaque and bound to the key and direction; a mismatch →
+  in the same direction. A key names the order, not the column: where rows are never imported,
+  `created_at` sorts by `id`. The cursor is opaque and bound to the key and direction; a mismatch →
   `COMMON_CURSOR_ORDER_MISMATCH`.
 - L4. A filter is named after the response field it filters (`folderId`, `isFavorite`,
   `isCompleted`, `type`). Free-text search is `query`. An invalid value → `COMMON_INVALID_FILTER`.
@@ -174,8 +175,8 @@ below is written in section 2 with its reason.
 | O3 | `UpdateLinkResponse`, `UpdateTodoResponse` | echo the request | O3 |
 | O3 | `UpdateFolderResponse`, `AcceptFolderInvitationResponse` | echo the path id; `sharedAt` is derived but not returned | O3 |
 | O6 | `CompleteTodoResponse` | `completeAt` | `completedAt` |
-| L3 | `GET /folders`, `GET /posts`, `GET /notifications` | `order` takes only `SearchOrder` values | `orderKey` + `order` |
 | L2 | `TodoResources` | `size` defaults to 50 | 15 |
+| L2 | `NotificationResources` | `size` defaults to 30 | 15 |
 | F4 | `ApiExceptionHandler`, `respondError` | 5xx bodies expose `cause` / `causeMessage` | removed |
 | F | `AUTH_PROVIDER_COMMUNICATION_FAILED`, `AI_VENDOR_TEMPORARY_UNAVAILABLE` | 422 | 502 / 503 |
 

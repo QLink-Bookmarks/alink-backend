@@ -5,10 +5,14 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
+import com.qlink.common.search.SearchCursorCodec
+import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.domain.FolderOrderKey
+import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
-import com.qlink.folder.dto.FolderSearchOrder
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.MemberRole
@@ -25,7 +29,9 @@ import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.ints.shouldBeInRange
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -41,6 +47,58 @@ class GetFoldersServiceTest :
         val folderMemberRepository = koinGet<FolderMemberRepository>()
         val tx = koinGet<com.qlink.common.transaction.TransactionRunner>()
         val userRepository = koinGet<UserRepository>()
+
+        Given("한글·라틴·숫자가 섞인 이름의 폴더들") {
+            lateinit var user: User
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                SORT_ORDER_FOLDER_NAMES.shuffled().forEach {
+                    folderRepository.insert(FolderFixture.createFolderWith(ownerId = user.id!!, name = it))
+                }
+            }
+
+            suspend fun getLaxico(
+                cursor: String? = null,
+                size: Int = 20,
+            ): ScrollResponse<GetFoldersContentResponse> =
+                getFoldersService.getFolders(
+                    loginId = user.id!!,
+                    query = null,
+                    order = "laxico",
+                    scrollRequest = ScrollRequest(cursor = cursor, size = size),
+                )
+
+            suspend fun allLaxicoPages(size: Int): List<List<Long>> {
+                val pages = mutableListOf<List<Long>>()
+                var cursor: String? = null
+                do {
+                    val page = getLaxico(cursor = cursor, size = size)
+                    pages += page.contents.map { it.id }
+                    cursor = page.nextCursor
+                } while (cursor != null)
+                return pages
+            }
+
+            When("laxico로 조회하면") {
+                val get = suspend { getLaxico() }
+
+                Then("이름이 한국어 사전순이다") {
+                    get().contents.map { it.name } shouldBe SORT_ORDER_FOLDER_NAMES
+                }
+            }
+
+            When("laxico 커서로 다음 페이지를 끝까지 조회하면") {
+                val get = suspend { getLaxico().contents to listOf(1, 2, 3).map { allLaxicoPages(size = it) } }
+
+                Then("이어 붙인 결과가 한 번에 조회한 순서와 같고 빠지거나 겹친 폴더가 없다") {
+                    val (expected, pages) = get()
+
+                    expected.map { it.name } shouldBe SORT_ORDER_FOLDER_NAMES
+                    pages.forEach { it.flatten() shouldBe expected.map { folder -> folder.id } }
+                }
+            }
+        }
 
         Given("폴더 목록 조회 서비스 테스트") {
             lateinit var user: User
@@ -363,7 +421,7 @@ class GetFoldersServiceTest :
                     folderRepository.search(
                         ownerId = user.id!!,
                         query = null,
-                        order = FolderSearchOrder.LATEST,
+                        sort = FolderSort.of(orderKey = null, order = null),
                         cursor = null,
                         size = 10,
                     ) shouldHaveSize 0
@@ -430,7 +488,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.EARLIEST,
+                                    order = SearchOrder.EARLIEST,
                                     value = FolderSearchCursorValue(id = RandomFixture.randomId()),
                                 ),
                             )
@@ -455,7 +513,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.LATEST,
+                                    order = SearchOrder.LATEST,
                                     value = FolderSearchCursorValue(name = "folder"),
                                 ),
                             )
@@ -480,7 +538,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.EARLIEST,
+                                    order = SearchOrder.EARLIEST,
                                     value = FolderSearchCursorValue(name = "folder"),
                                 ),
                             )
@@ -505,7 +563,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.LAXICO,
+                                    order = SearchOrder.LAXICO,
                                     value = FolderSearchCursorValue(id = RandomFixture.randomId()),
                                 ),
                             )
@@ -530,7 +588,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.LAXICO,
+                                    order = SearchOrder.LAXICO,
                                     value = FolderSearchCursorValue(name = "folder"),
                                 ),
                             )
@@ -555,7 +613,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.SIMILAR,
+                                    order = SearchOrder.SIMILAR,
                                     value = FolderSearchCursorValue(id = RandomFixture.randomId(), name = "folder"),
                                 ),
                             )
@@ -580,7 +638,7 @@ class GetFoldersServiceTest :
                         val cursor =
                             Base64CursorCodec.encode(
                                 FolderSearchCursor(
-                                    order = FolderSearchOrder.SIMILAR,
+                                    order = SearchOrder.SIMILAR,
                                     value = FolderSearchCursorValue(name = "folder", score = 0.9),
                                 ),
                             )
@@ -678,7 +736,7 @@ class GetFoldersServiceTest :
                             cursor =
                                 Base64CursorCodec.encode(
                                     FolderSearchCursor(
-                                        order = FolderSearchOrder.LATEST,
+                                        order = SearchOrder.LATEST,
                                         value = FolderSearchCursorValue(id = folders[3].id),
                                     ),
                                 ),
@@ -701,7 +759,7 @@ class GetFoldersServiceTest :
                             order = "latest",
                             cursor =
                                 Base64CursorCodec.encode(
-                                    FolderSearchCursor(order = FolderSearchOrder.LATEST, value = FolderSearchCursorValue(id = deletedId)),
+                                    FolderSearchCursor(order = SearchOrder.LATEST, value = FolderSearchCursorValue(id = deletedId)),
                                 ),
                         )
                     }
@@ -1020,7 +1078,7 @@ class GetFoldersServiceTest :
                 folderRepository.insert(FolderFixture.createFolderWith(ownerId = user.id!!, name = RandomFixture.randomFixedSentence(7)))
             }
 
-            for (order in FolderSearchOrder.entries) {
+            for (order in SearchOrder.entries) {
                 When("검색과 $order 정렬로 여러 페이지를 조회하면") {
                     val get =
                         suspend {
@@ -1052,30 +1110,30 @@ class GetFoldersServiceTest :
                         val storedFolders = folderRepository.findAllByIds(folders.map { it.id!! })
                         val expectedIds =
                             when (order) {
-                                FolderSearchOrder.LATEST -> {
+                                SearchOrder.LATEST -> {
                                     storedFolders
                                         .sortedWith(compareByDescending<Folder> { it.createdAt }.thenByDescending { it.id })
                                         .map { it.id!! }
                                 }
 
-                                FolderSearchOrder.EARLIEST -> {
+                                SearchOrder.EARLIEST -> {
                                     storedFolders
                                         .sortedWith(compareBy<Folder> { it.createdAt }.thenBy { it.id })
                                         .map { it.id!! }
                                 }
 
-                                FolderSearchOrder.LAXICO -> {
+                                SearchOrder.LAXICO -> {
                                     storedFolders
                                         .sortedWith(compareBy<Folder> { it.name }.thenBy { it.id })
                                         .map { it.id!! }
                                 }
 
-                                FolderSearchOrder.SIMILAR -> {
+                                SearchOrder.SIMILAR -> {
                                     folderRepository
                                         .search(
                                             ownerId = user.id!!,
                                             query = keyword,
-                                            order = order,
+                                            sort = FolderSort.of(orderKey = null, order = order.name),
                                             cursor = null,
                                             size = 10,
                                         ).map { it.id }
@@ -1098,4 +1156,415 @@ class GetFoldersServiceTest :
                 }
             }
         }
+
+        Given("로그인 사용자의 생성일·이름이 서로 다른 폴더(같은 이름·같은 생성일, 참여한 공유 폴더 포함)") {
+            val keyword = "tag"
+            lateinit var user: User
+            lateinit var visibleIds: List<Long>
+            lateinit var sharedFolder: Folder
+            lateinit var hiddenFolder: Folder
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                val otherUser = userRepository.insert(UserFixture.createRandomValidUser())
+                val base = RandomFixture.randomPastInstant()
+                val ownFolders =
+                    listOf(
+                        FolderFixture.createFolderWith(ownerId = user.id!!, name = "blue $keyword", createdAt = base + 1.hours),
+                        FolderFixture.createFolderWith(ownerId = user.id!!, name = "apple $keyword", createdAt = base + 3.hours),
+                        FolderFixture.createFolderWith(ownerId = user.id!!, name = "blue $keyword", createdAt = base + 3.hours),
+                        FolderFixture.createFolderWith(ownerId = user.id!!, name = "cherry", createdAt = base),
+                    ).map { folderRepository.insert(it) }
+                sharedFolder =
+                    folderRepository.insert(
+                        FolderFixture.createFolderWith(
+                            ownerId = otherUser.id!!,
+                            name = "apple $keyword",
+                            sharedAt = base,
+                            createdAt = base + 2.hours,
+                        ),
+                    )
+                folderMemberRepository.insertIfAbsent(
+                    FolderMemberFixture.createMember(folderId = sharedFolder.id!!, userId = user.id!!),
+                )
+                hiddenFolder =
+                    folderRepository.insert(
+                        FolderFixture.createFolderWith(ownerId = otherUser.id!!, name = "apple $keyword", createdAt = base + 5.hours),
+                    )
+                visibleIds = ownFolders.map { it.id!! } + sharedFolder.id!!
+            }
+
+            suspend fun getFolders(
+                orderKey: String? = null,
+                order: String? = null,
+                query: String? = null,
+                cursor: String? = null,
+                size: Int = 10,
+            ) = getFoldersService.getFolders(
+                loginId = user.id!!,
+                query = query,
+                orderKey = orderKey,
+                order = order,
+                scrollRequest = ScrollRequest(cursor = cursor, size = size),
+            )
+
+            suspend fun readAll(
+                orderKey: String? = null,
+                order: String? = null,
+                size: Int,
+            ): List<ScrollResponse<GetFoldersContentResponse>> {
+                val pages = mutableListOf<ScrollResponse<GetFoldersContentResponse>>()
+                var cursor: String? = null
+                do {
+                    val page = getFolders(orderKey = orderKey, order = order, cursor = cursor, size = size)
+                    pages += page
+                    cursor = page.nextCursor
+                } while (cursor != null)
+                return pages
+            }
+
+            suspend fun stored(comparator: Comparator<Folder>): List<Long> =
+                folderRepository.findAllByIds(visibleIds).sortedWith(comparator).map { it.id!! }
+
+            val createdAtDesc = compareByDescending<Folder> { it.createdAt }.thenByDescending { it.id }
+            val createdAtAsc = compareBy<Folder> { it.createdAt }.thenBy { it.id }
+            val collatedNames = listOf("apple $keyword", "blue $keyword", "cherry")
+            val nameAsc = compareBy<Folder> { collatedNames.indexOf(it.name) }.thenBy { it.id }
+            val nameDesc = compareByDescending<Folder> { collatedNames.indexOf(it.name) }.thenByDescending { it.id }
+
+            When("정렬 없이 조회하면") {
+                val get = suspend { getFolders() to getFolders(order = "latest") }
+
+                Then("생성일 최신순이고 기존 latest와 같은 순서다") {
+                    val (actual, legacy) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(createdAtDesc)
+                    legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
+                }
+            }
+
+            When("생성일 오름차순으로 조회하면") {
+                val get = suspend { getFolders(orderKey = "created_at", order = "asc") to getFolders(order = "earliest") }
+
+                Then("기존 earliest와 같은 순서다") {
+                    val (actual, legacy) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(createdAtAsc)
+                    legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
+                }
+            }
+
+            When("이름 오름차순으로 조회하면") {
+                val get = suspend { getFolders(orderKey = "name") to getFolders(order = "laxico") }
+
+                Then("기존 laxico와 같은 순서다") {
+                    val (actual, legacy) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(nameAsc)
+                    legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
+                }
+            }
+
+            When("이름 내림차순으로 조회하면") {
+                val get = suspend { getFolders(orderKey = "name", order = "desc") to getFolders(orderKey = "name") }
+
+                Then("이름 오름차순의 역순이다") {
+                    val (actual, ascending) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(nameDesc)
+                    actual.contents.map { it.id } shouldBe ascending.contents.map { it.id }.reversed()
+                }
+            }
+
+            When("검색어와 함께 유사도로 조회하면") {
+                val get = suspend { getFolders(orderKey = "similarity", query = keyword) to getFolders(order = "similar", query = keyword) }
+
+                Then("기존 similar와 같은 순서다") {
+                    val (actual, legacy) = get()
+
+                    val matchedIds = folderRepository.findAllByIds(visibleIds).filter { keyword in it.name }.map { it.id!! }
+
+                    actual.contents.map { it.id }.toSet() shouldBe matchedIds.toSet()
+                    legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
+                }
+            }
+
+            When("검색어 없이 유사도로 조회하면") {
+                val get = suspend { getFolders(orderKey = "similarity") }
+
+                Then("id 내림차순이다") {
+                    get().contents.map { it.id } shouldBe visibleIds.sortedDescending()
+                }
+            }
+
+            When("검색어와 함께 이름 내림차순으로 조회하면") {
+                val get = suspend { getFolders(orderKey = "name", order = "desc", query = keyword) }
+
+                Then("검색어가 든 폴더만 이름 내림차순으로 나온다") {
+                    val matched = folderRepository.findAllByIds(visibleIds).filter { keyword in it.name }
+
+                    get().contents.map { it.id } shouldBe matched.sortedWith(nameDesc).map { it.id!! }
+                }
+            }
+
+            When("이름 오름차순·내림차순으로 조회하면") {
+                val get = suspend { getFolders(orderKey = "name", order = "asc") to getFolders(orderKey = "name", order = "desc") }
+
+                Then("같은 이름끼리는 id가 각각 오름차순·내림차순이다") {
+                    val (ascending, descending) = get()
+
+                    ascending.contents.groupBy { it.name }.values.filter { it.size > 1 }.forEach { group ->
+                        group.map { it.id } shouldBe group.map { it.id }.sorted()
+                    }
+                    descending.contents.groupBy { it.name }.values.filter { it.size > 1 }.forEach { group ->
+                        group.map { it.id } shouldBe group.map { it.id }.sortedDescending()
+                    }
+                    ascending.contents
+                        .groupBy { it.name }
+                        .values
+                        .count { it.size > 1 } shouldBe 2
+                }
+            }
+
+            When("생성일 오름차순·내림차순으로 조회하면") {
+                val get =
+                    suspend {
+                        getFolders(orderKey = "created_at", order = "asc") to
+                            getFolders(orderKey = "created_at", order = "desc")
+                    }
+
+                Then("같은 생성일끼리는 id가 각각 오름차순·내림차순이다") {
+                    val (ascending, descending) = get()
+                    val createdAtById = folderRepository.findAllByIds(visibleIds).associate { it.id!! to it.createdAt }
+
+                    ascending.contents.map { it.id }.groupBy { createdAtById[it] }.values.filter { it.size > 1 }.forEach { ids ->
+                        ids shouldBe ids.sorted()
+                    }
+                    descending.contents.map { it.id }.groupBy { createdAtById[it] }.values.filter { it.size > 1 }.forEach { ids ->
+                        ids shouldBe ids.sortedDescending()
+                    }
+                    ascending.contents
+                        .map { it.id }
+                        .groupBy { createdAtById[it] }
+                        .values
+                        .count { it.size > 1 } shouldBe 1
+                }
+            }
+
+            When("이름 내림차순으로 다음 커서를 따라 끝까지 조회하면") {
+                val get = suspend { readAll(orderKey = "name", order = "desc", size = 2) }
+
+                Then("페이지 경계에 같은 이름이 걸려도 겹치거나 빠지는 폴더가 없다") {
+                    val pages = get()
+
+                    pages shouldHaveSize 3
+                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe stored(nameDesc)
+                    pages.last().nextCursor shouldBe null
+                }
+            }
+
+            When("생성일 오름차순으로 다음 커서를 따라 끝까지 조회하면") {
+                val get = suspend { readAll(orderKey = "created_at", order = "asc", size = 2) }
+
+                Then("겹치거나 빠지는 폴더가 없고 마지막 페이지는 다음 커서가 없다") {
+                    val pages = get()
+
+                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe stored(createdAtAsc)
+                    pages.dropLast(1).all { it.hasNext && it.nextCursor != null } shouldBe true
+                    pages.last().hasNext shouldBe false
+                    pages.last().nextCursor shouldBe null
+                }
+            }
+
+            When("기존 형식 LATEST 커서(생성 시각 없음)로 생성일 내림차순을 조회하면") {
+                val get =
+                    suspend {
+                        val cursorId = stored(createdAtDesc)[1]
+                        cursorId to
+                            getFolders(
+                                orderKey = "created_at",
+                                order = "desc",
+                                cursor =
+                                    SearchCursorCodec.encode(
+                                        order = SearchOrder.LATEST,
+                                        value = FolderSearchCursorValue(id = cursorId),
+                                    ),
+                            )
+                    }
+
+                Then("커서 폴더 다음부터 이어진다") {
+                    val (cursorId, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(createdAtDesc).dropWhile { it != cursorId }.drop(1)
+                }
+            }
+
+            When("기존 형식 LAXICO 커서로 이름 오름차순을 조회하면") {
+                val get =
+                    suspend {
+                        val cursorFolder = folderRepository.findById(stored(nameAsc)[1]).shouldNotBeNull()
+                        cursorFolder.id!! to
+                            getFolders(
+                                orderKey = "name",
+                                cursor =
+                                    SearchCursorCodec.encode(
+                                        order = SearchOrder.LAXICO,
+                                        value = FolderSearchCursorValue(id = cursorFolder.id, name = cursorFolder.name),
+                                    ),
+                            )
+                    }
+
+                Then("커서 폴더 다음부터 이어진다") {
+                    val (cursorId, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe stored(nameAsc).dropWhile { it != cursorId }.drop(1)
+                }
+            }
+
+            When("기존 형식 SIMILAR 커서로 검색어와 함께 유사도를 조회하면") {
+                val get =
+                    suspend {
+                        val unpaged =
+                            folderRepository.search(
+                                ownerId = user.id!!,
+                                query = keyword,
+                                sort = FolderSort.of(orderKey = "similarity", order = null),
+                                cursor = null,
+                                size = 10,
+                            )
+                        val cursorRow = unpaged[1]
+                        unpaged.map { it.id } to
+                            getFolders(
+                                orderKey = "similarity",
+                                query = keyword,
+                                cursor =
+                                    SearchCursorCodec.encode(
+                                        order = SearchOrder.SIMILAR,
+                                        value = FolderSearchCursorValue(id = cursorRow.id, score = cursorRow.score),
+                                    ),
+                            )
+                    }
+
+                Then("커서 폴더 다음부터 이어진다") {
+                    val (unpagedIds, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe unpagedIds.drop(2)
+                }
+            }
+
+            When("생성일 내림차순 새 커서로 기존 값 latest를 조회하면") {
+                val get =
+                    suspend {
+                        val firstPage = getFolders(orderKey = "created_at", size = 2)
+                        firstPage to getFolders(order = "latest", cursor = firstPage.nextCursor, size = 10)
+                    }
+
+                Then("커서 폴더 다음부터 이어진다") {
+                    val (firstPage, secondPage) = get()
+
+                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe stored(createdAtDesc)
+                }
+            }
+
+            When("이름 커서에 이름 값이 없으면") {
+                val get =
+                    suspend {
+                        getFolders(
+                            orderKey = "name",
+                            cursor =
+                                Base64CursorCodec.encode(
+                                    FolderSearchCursor(
+                                        orderKey = FolderOrderKey.NAME,
+                                        direction = SortDirection.ASC,
+                                        value = FolderSearchCursorValue(id = visibleIds.first()),
+                                    ),
+                                ),
+                        )
+                    }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_FIELD_MISSING.message) {
+                        get()
+                    }
+                }
+            }
+
+            When("유사도 커서에 점수가 없으면") {
+                val get =
+                    suspend {
+                        getFolders(
+                            orderKey = "similarity",
+                            query = keyword,
+                            cursor =
+                                Base64CursorCodec.encode(
+                                    FolderSearchCursor(
+                                        orderKey = FolderOrderKey.SIMILARITY,
+                                        direction = SortDirection.DESC,
+                                        value = FolderSearchCursorValue(id = visibleIds.first()),
+                                    ),
+                                ),
+                        )
+                    }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_FIELD_MISSING.message) {
+                        get()
+                    }
+                }
+            }
+
+            When("어떤 기준·방향으로 조회해도") {
+                val sorts =
+                    listOf(
+                        "created_at" to "asc",
+                        "created_at" to "desc",
+                        "name" to "asc",
+                        "name" to "desc",
+                        "similarity" to "desc",
+                    )
+                val get = suspend { sorts.map { (orderKey, order) -> getFolders(orderKey = orderKey, order = order) } }
+
+                Then("공유 폴더는 나오고 다른 사용자의 비공유 폴더는 나오지 않는다") {
+                    get().forEach { page ->
+                        page.contents.map { it.id }.toSet() shouldBe visibleIds.toSet()
+                        page.contents.map { it.id } shouldContain sharedFolder.id!!
+                        page.contents.map { it.id } shouldNotContain hiddenFolder.id!!
+                    }
+                    folderRepository.findById(hiddenFolder.id!!).shouldNotBeNull()
+                }
+            }
+        }
+
+        Given("접근 가능한 폴더가 없는 로그인 사용자") {
+            lateinit var user: User
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+            }
+
+            When("이름 내림차순으로 조회하면") {
+                val get =
+                    suspend {
+                        getFoldersService.getFolders(
+                            loginId = user.id!!,
+                            query = null,
+                            orderKey = "name",
+                            order = "desc",
+                            scrollRequest = ScrollRequest(size = 10),
+                        )
+                    }
+
+                Then("빈 목록이고 다음 커서가 없다") {
+                    val response = get()
+
+                    response.isEmpty shouldBe true
+                    response.contents shouldHaveSize 0
+                    response.nextCursor shouldBe null
+                    folderRepository.findAllByOwnerId(user.id!!) shouldHaveSize 0
+                }
+            }
+        }
     })
+
+private val SORT_ORDER_FOLDER_NAMES =
+    listOf("3월 여행", "10월 여행", "가계부", "업무", "하루", "Alpha", "beta", "zoo 폴더", "ノート", "旅行", "Москва")

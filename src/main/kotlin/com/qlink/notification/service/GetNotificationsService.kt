@@ -3,17 +3,17 @@ package com.qlink.notification.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
-import com.qlink.common.search.SearchCursorCodec
-import com.qlink.common.search.SearchOrder
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.domain.NotificationOrderKey
+import com.qlink.notification.domain.NotificationSort
 import com.qlink.notification.dto.DEFAULT_NOTIFICATION_SCROLL_SIZE
-import com.qlink.notification.dto.DEFAULT_NOTIFICATION_SEARCH_ORDER
 import com.qlink.notification.dto.GetNotificationsContentResponse
+import com.qlink.notification.dto.NotificationSearchCursor
 import com.qlink.notification.dto.NotificationSearchCursorValue
-import com.qlink.notification.dto.NotificationSearchOrder
 import com.qlink.notification.dto.SearchNotificationsQuery
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.user.repository.UserRepository
@@ -27,22 +27,23 @@ class GetNotificationsService(
         loginId: Long,
         query: String?,
         type: String? = null,
-        order: String,
+        orderKey: String? = null,
+        order: String? = null,
         scrollRequest: ScrollRequest,
     ): ScrollResponse<GetNotificationsContentResponse> =
         tx.readOnly {
             userRepository.emptyById(loginId).requireFalse(ErrorCode.USER_NOT_FOUND)
 
             val typeFilter = type?.let { NotificationContext.from(it) ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER) }
-            val normalizedOrder = normalizeOrder(order)
-            val cursor = scrollRequest.cursor?.let { SearchCursorCodec.decode(it, normalizedOrder, ::validateCursorValue) }
+            val sort = NotificationSort.of(orderKey = orderKey, order = order)
+            val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort) }
             val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_NOTIFICATION_SCROLL_SIZE
             val queries =
                 notificationRepository.search(
                     userId = loginId,
                     query = query,
                     type = typeFilter,
-                    order = normalizedOrder,
+                    sort = sort,
                     cursor = cursor,
                     size = size,
                 )
@@ -52,41 +53,42 @@ class GetNotificationsService(
             ScrollResponse(
                 isEmpty = contents.isEmpty(),
                 contents = contents.map { it.toResponse() },
-                nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(it, typeFilter, normalizedOrder) },
+                nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, type = typeFilter, sort = sort) },
                 hasNext = hasNext,
             )
         }
 
-    private fun normalizeOrder(order: String): NotificationSearchOrder {
-        val normalizedOrder =
-            SearchOrder.from(order.ifBlank { DEFAULT_NOTIFICATION_SEARCH_ORDER })
-                ?: throw BusinessException(ErrorCode.COMMON_INVALID_SORT_ORDER)
+    private fun decodeCursor(
+        encoded: String,
+        sort: NotificationSort,
+    ): NotificationSearchCursor {
+        val cursor = Base64CursorCodec.decode<NotificationSearchCursor>(encoded)
+        sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
+        cursor.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
 
-        if (normalizedOrder != SearchOrder.LATEST) {
-            throw BusinessException(ErrorCode.COMMON_INVALID_SORT_ORDER)
+        if (sort.orderKey == NotificationOrderKey.FIRED_AT) {
+            cursor.value.firedAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
         }
 
-        return normalizedOrder
-    }
-
-    private fun validateCursorValue(
-        value: NotificationSearchCursorValue,
-        expectedOrder: NotificationSearchOrder,
-    ) {
-        when (expectedOrder) {
-            SearchOrder.LATEST -> value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
-            else -> throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
-        }
+        return cursor
     }
 
     private fun encodeCursor(
         query: SearchNotificationsQuery,
         type: NotificationContext?,
-        order: NotificationSearchOrder,
+        sort: NotificationSort,
     ): String =
-        SearchCursorCodec.encode(
-            order = order,
-            value = NotificationSearchCursorValue(id = query.id, type = type),
+        Base64CursorCodec.encode(
+            NotificationSearchCursor(
+                orderKey = sort.orderKey,
+                direction = sort.direction,
+                value =
+                    NotificationSearchCursorValue(
+                        id = query.id,
+                        type = type,
+                        firedAt = query.firedAt,
+                    ),
+            ),
         )
 
     private fun SearchNotificationsQuery.toResponse(): GetNotificationsContentResponse =

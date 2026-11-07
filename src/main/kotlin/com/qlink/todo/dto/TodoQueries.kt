@@ -20,7 +20,6 @@ typealias TodoSearchCursor = SortCursor<TodoOrderKey, TodoSearchCursorValue>
 @Serializable
 data class TodoSearchCursorValue(
     val id: Long? = null,
-    val createdAt: Instant? = null,
     val reminderAt: Instant? = null,
     val completedAt: Instant? = null,
 )

@@ -30,7 +30,8 @@ internal fun getTodosDocs(): RouteConfig.() -> Unit =
                 description = "상태 필터 (active: 미완료이면서 기간지남 아님 / overdue: 미완료이면서 알림 시각 지남 / completed: 완료)"
             }
             queryParameter<String?>("orderKey") {
-                description = "정렬 기준 (reminder_at: 기본 asc / created_at: 기본 desc / completed_at: 기본 desc), 기본값: created_at"
+                description =
+                    "정렬 기준 (reminder_at: 기본 asc / created_at: 만든 순서(id), 기본 desc / completed_at: 기본 desc), 기본값: created_at"
             }
             queryParameter<String?>("order") {
                 description = "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc)도 받아요"
