@@ -2,25 +2,23 @@
 
 package com.qlink.post.dto
 
-import com.qlink.common.search.SearchCursor
-import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
+import com.qlink.post.domain.PostOrderKey
 import com.qlink.post.domain.PostType
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
-const val DEFAULT_POST_SEARCH_ORDER = "latest"
 const val DEFAULT_POST_SCROLL_SIZE = 15
 const val DEFAULT_POST_TYPE = "ANNOUNCEMENT"
 
-typealias PostSearchOrder = SearchOrder
-
-typealias PostSearchCursor = SearchCursor<PostSearchCursorValue>
+typealias PostSearchCursor = SortCursor<PostOrderKey, PostSearchCursorValue>
 
 @Serializable
 data class PostSearchCursorValue(
     val id: Long? = null,
     val type: PostType? = null,
     val title: String? = null,
+    val createdAt: Instant? = null,
 )
 
 data class SearchPostsQuery(

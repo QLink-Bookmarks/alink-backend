@@ -3,18 +3,37 @@ package com.qlink.post.service
 import com.qlink.auth.domain.Role
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
+import com.qlink.common.scroll.ScrollResponse
+import com.qlink.common.search.SearchCursorCodec
+import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortDirection
 import com.qlink.post.domain.Post
+import com.qlink.post.domain.PostOrderKey
 import com.qlink.post.domain.PostType
+import com.qlink.post.dto.GetPostsContentResponse
+import com.qlink.post.dto.PostSearchCursor
+import com.qlink.post.dto.PostSearchCursorValue
 import com.qlink.post.repository.PostRepository
+import com.qlink.post.repository.table.Posts
 import com.qlink.support.BaseServiceTest
+import com.qlink.support.fixture.PostFixture
+import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.update
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Instant
+import kotlin.time.toJavaInstant
 
 class GetPostsServiceTest :
     BaseServiceTest({
@@ -131,4 +150,250 @@ class GetPostsServiceTest :
                 }
             }
         }
+
+        Given("생성일이 서로 다른 공지 게시글 여러 개(같은 생성일 포함)와 피드백 게시글") {
+            val keyword = "kw${RandomFixture.randomId()}"
+            lateinit var announcementIds: List<Long>
+            lateinit var matchedIds: List<Long>
+            lateinit var feedbackIds: List<Long>
+
+            beforeEach {
+                val author = userRepository.insert(UserFixture.createRandomValidUser())
+                val base = RandomFixture.randomPastInstant()
+
+                suspend fun insertPostAt(
+                    createdHours: Int,
+                    type: PostType = PostType.ANNOUNCEMENT,
+                    title: String = RandomFixture.randomSentenceWithMax(50),
+                ): Long {
+                    val post = postRepository.insert(PostFixture.createRandomPostOf(authorId = author.id!!, type = type, title = title))
+                    updateCreatedAt(postId = post.id!!, createdAt = base + createdHours.hours)
+                    return post.id!!
+                }
+
+                val matchedLater = insertPostAt(createdHours = 2, title = "$keyword 하나")
+                val earliest = insertPostAt(createdHours = 0)
+                val sameAsMatchedLater = insertPostAt(createdHours = 2)
+                val matchedMiddle = insertPostAt(createdHours = 1, title = "$keyword 둘")
+                announcementIds = listOf(matchedLater, earliest, sameAsMatchedLater, matchedMiddle)
+                matchedIds = listOf(matchedLater, matchedMiddle)
+                feedbackIds =
+                    listOf(
+                        insertPostAt(createdHours = 3, type = PostType.FEEDBACK),
+                        insertPostAt(createdHours = 1, type = PostType.FEEDBACK),
+                    )
+            }
+
+            suspend fun getPosts(
+                role: Role = Role.GUEST,
+                type: String? = null,
+                query: String? = null,
+                orderKey: String? = null,
+                order: String? = null,
+                cursor: String? = null,
+                size: Int = 10,
+            ) = service.getPosts(
+                role = role,
+                type = type,
+                query = query,
+                orderKey = orderKey,
+                order = order,
+                scrollRequest = ScrollRequest(cursor = cursor, size = size),
+            )
+
+            suspend fun createdAtDesc(ids: List<Long>): List<Long> =
+                ids
+                    .map { postRepository.findById(it).shouldNotBeNull() }
+                    .sortedWith(compareByDescending<Post> { it.createdAt }.thenByDescending { it.id })
+                    .map { it.id!! }
+
+            When("정렬 없이 조회하면") {
+                val get = suspend { getPosts() to getPosts(order = "latest") }
+
+                Then("생성일 최신순이고 기존 latest와 같은 순서다") {
+                    val (actual, legacy) = get()
+
+                    actual.contents.map { it.id } shouldBe createdAtDesc(announcementIds)
+                    legacy.contents.map { it.id } shouldBe actual.contents.map { it.id }
+                }
+            }
+
+            When("생성일 오름차순으로 조회하면") {
+                val get = suspend { getPosts(orderKey = "created_at", order = "asc") }
+
+                Then("오래된 게시글부터 나온다") {
+                    get().contents.map { it.id } shouldBe createdAtDesc(announcementIds).reversed()
+                }
+            }
+
+            When("검색어와 함께 생성일 오름차순으로 조회하면") {
+                val get = suspend { getPosts(query = keyword, order = "asc") }
+
+                Then("제목에 검색어가 든 게시글만 오래된 순으로 나온다") {
+                    get().contents.map { it.id } shouldBe createdAtDesc(matchedIds).reversed()
+                }
+            }
+
+            When("생성일 오름차순·내림차순으로 조회하면") {
+                val get = suspend { getPosts(order = "asc") to getPosts(order = "desc") }
+
+                Then("같은 생성일끼리는 id가 각각 오름차순·내림차순이다") {
+                    val (ascending, descending) = get()
+                    val sameCreatedAt = announcementIds.filterIndexed { index, _ -> index == 0 || index == 2 }
+
+                    ascending.contents.map { it.id }.filter { it in sameCreatedAt } shouldBe sameCreatedAt.sorted()
+                    descending.contents.map { it.id }.filter { it in sameCreatedAt } shouldBe sameCreatedAt.sortedDescending()
+                    postRepository.findById(sameCreatedAt[0])!!.createdAt shouldBe postRepository.findById(sameCreatedAt[1])!!.createdAt
+                }
+            }
+
+            When("생성일 오름차순으로 다음 커서를 따라 끝까지 조회하면") {
+                val get =
+                    suspend {
+                        val pages = mutableListOf<ScrollResponse<GetPostsContentResponse>>()
+                        var cursor: String? = null
+                        do {
+                            val page = getPosts(order = "asc", cursor = cursor, size = 3)
+                            pages += page
+                            cursor = page.nextCursor
+                        } while (cursor != null)
+                        pages
+                    }
+
+                Then("겹치거나 빠지는 게시글이 없고 마지막 페이지는 다음 커서가 없다") {
+                    val pages = get()
+
+                    pages shouldHaveSize 2
+                    pages.flatMap { page -> page.contents.map { it.id } } shouldBe createdAtDesc(announcementIds).reversed()
+                    pages.last().hasNext shouldBe false
+                    pages.last().nextCursor shouldBe null
+                }
+            }
+
+            When("기존 형식 id만 든 LATEST 커서로 정렬 없이 조회하면") {
+                val get =
+                    suspend {
+                        val cursorId = createdAtDesc(announcementIds)[1]
+                        val cursor = SearchCursorCodec.encode(order = SearchOrder.LATEST, value = PostSearchCursorValue(id = cursorId))
+                        cursorId to getPosts(cursor = cursor)
+                    }
+
+                Then("커서 게시글 다음부터 생성일 최신순으로 이어진다") {
+                    val (cursorId, actual) = get()
+
+                    actual.contents.map { it.id } shouldBe createdAtDesc(announcementIds).dropWhile { it != cursorId }.drop(1)
+                }
+            }
+
+            When("생성일 내림차순 새 커서로 기존 값 latest를 조회하면") {
+                val get =
+                    suspend {
+                        val firstPage = getPosts(orderKey = "created_at", size = 2)
+                        firstPage to getPosts(order = "latest", cursor = firstPage.nextCursor)
+                    }
+
+                Then("커서 게시글 다음부터 이어진다") {
+                    val (firstPage, secondPage) = get()
+
+                    (firstPage.contents + secondPage.contents).map { it.id } shouldBe createdAtDesc(announcementIds)
+                }
+            }
+
+            When("기존 형식 id 커서의 게시글이 없으면") {
+                val get =
+                    suspend {
+                        getPosts(
+                            cursor =
+                                SearchCursorCodec.encode(
+                                    order = SearchOrder.LATEST,
+                                    value = PostSearchCursorValue(id = RandomFixture.randomId()),
+                                ),
+                        )
+                    }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        get()
+                    }
+                }
+            }
+
+            When("커서에 id가 없으면") {
+                val get =
+                    suspend {
+                        getPosts(
+                            cursor =
+                                Base64CursorCodec.encode(
+                                    PostSearchCursor(
+                                        orderKey = PostOrderKey.CREATED_AT,
+                                        direction = SortDirection.DESC,
+                                        value = PostSearchCursorValue(createdAt = RandomFixture.randomPastInstant()),
+                                    ),
+                                ),
+                        )
+                    }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_FIELD_MISSING.message) {
+                        get()
+                    }
+                }
+            }
+
+            When("해석할 수 없는 커서이면") {
+                val get = suspend { getPosts(cursor = "not-a-cursor") }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        get()
+                    }
+                }
+            }
+
+            When("비로그인으로 생성일 오름차순 조회하면") {
+                val get = suspend { getPosts(role = Role.GUEST, order = "asc") }
+
+                Then("공지만 나온다") {
+                    get().contents.map { it.id }.toSet() shouldBe announcementIds.toSet()
+                }
+            }
+
+            When("관리자가 피드백을 생성일 오름차순으로 조회하면") {
+                val get = suspend { getPosts(role = Role.ADMIN, type = "FEEDBACK", order = "asc") }
+
+                Then("피드백만 오래된 순으로 나온다") {
+                    get().contents.map { it.id } shouldBe createdAtDesc(feedbackIds).reversed()
+                }
+            }
+        }
+
+        Given("게시글이 없을 때") {
+            When("생성일 오름차순으로 조회하면") {
+                val get =
+                    suspend {
+                        service.getPosts(
+                            role = Role.GUEST,
+                            type = null,
+                            query = null,
+                            order = "asc",
+                            scrollRequest = ScrollRequest(),
+                        )
+                    }
+
+                Then("빈 목록이고 다음 커서가 없다") {
+                    val response = get()
+
+                    response.isEmpty shouldBe true
+                    response.contents shouldHaveSize 0
+                    response.nextCursor shouldBe null
+                }
+            }
+        }
     })
+
+private fun updateCreatedAt(
+    postId: Long,
+    createdAt: Instant,
+) {
+    Posts.update({ Posts.id eq postId }) { it[Posts.createdAt] = createdAt.toJavaInstant() }
+}

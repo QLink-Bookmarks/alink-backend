@@ -26,8 +26,15 @@ internal fun getFoldersDocs(): RouteConfig.() -> Unit =
         summary = "폴더 목록 조회 API"
         request {
             queryParameter<String?>("query") { description = "검색어" }
-            queryParameter<String>("order") {
-                description = "정렬 기준 (latest / earliest: 생성 시각(createdAt) 기준, 같으면 id / laxico / similar), 기본값: latest"
+            queryParameter<String?>("orderKey") {
+                description =
+                    "정렬 기준 (created_at: 기본 desc / name: 기본 asc / similarity: desc만), 기본값: created_at. " +
+                    "같은 값이면 id를 같은 방향으로 이어 정렬해요"
+            }
+            queryParameter<String?>("order") {
+                description =
+                    "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc) / earliest(= created_at asc) / " +
+                    "laxico(= name asc) / similar(= similarity desc)도 받아요"
             }
             queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 15" }

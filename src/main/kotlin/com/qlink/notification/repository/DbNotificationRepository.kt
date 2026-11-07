@@ -1,18 +1,24 @@
 package com.qlink.notification.repository
 
+import com.qlink.common.search.SortDirection
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.domain.NotificationOrderKey
+import com.qlink.notification.domain.NotificationSort
 import com.qlink.notification.dto.NotificationSearchCursor
-import com.qlink.notification.dto.NotificationSearchOrder
+import com.qlink.notification.dto.NotificationSearchCursorValue
 import com.qlink.notification.dto.SearchNotificationsQuery
 import com.qlink.notification.repository.table.Notifications
 import com.qlink.notification.repository.table.fromDomain
 import com.qlink.notification.repository.table.refreshNotificationUpdatedAt
 import com.qlink.notification.repository.table.toNotificationDomain
+import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -43,6 +49,13 @@ class DbNotificationRepository : NotificationRepository {
             .where { Notifications.id eq notificationId }
             .singleOrNull()
             ?.toNotificationDomain()
+
+    override suspend fun findCreatedAtById(id: Long): Instant? =
+        Notifications
+            .select(Notifications.createdAt)
+            .where { Notifications.id eq id }
+            .singleOrNull()
+            ?.let { it[Notifications.createdAt].toKotlinInstant() }
 
     override suspend fun findPendingById(notificationId: Long): Notification? =
         Notifications
@@ -95,11 +108,13 @@ class DbNotificationRepository : NotificationRepository {
         userId: Long,
         query: String?,
         type: NotificationContext?,
-        order: NotificationSearchOrder,
+        sort: NotificationSort,
         cursor: NotificationSearchCursor?,
         size: Int,
     ): List<SearchNotificationsQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
+        val orderColumn = sort.orderKey.column()
+        val sortOrder = sort.direction.sortOrder()
 
         return Notifications
             .select(
@@ -110,6 +125,7 @@ class DbNotificationRepository : NotificationRepository {
                 Notifications.readAt,
                 Notifications.context,
                 Notifications.contextId,
+                Notifications.createdAt,
             ).where {
                 (Notifications.userId eq userId) and Notifications.firedAt.isNotNull()
             }.apply {
@@ -122,15 +138,15 @@ class DbNotificationRepository : NotificationRepository {
                             (Notifications.message like "%$keyword%")
                     }
                 }
-                cursor?.value?.id?.let { cursorId ->
+                cursor?.value?.let { cursorValue ->
                     andWhere {
-                        when (order) {
-                            com.qlink.common.search.SearchOrder.LATEST -> Notifications.id less cursorId
-                            else -> Notifications.id less cursorId
-                        }
+                        val value = cursorValue.valueOf(sort.orderKey)!!.toJavaInstant()
+
+                        orderColumn.beyond(value, sort.direction) or
+                            ((orderColumn eq value) and Notifications.id.beyond(cursorValue.id!!, sort.direction))
                     }
                 }
-            }.orderBy(Notifications.id to SortOrder.DESC)
+            }.orderBy(orderColumn to sortOrder, Notifications.id to sortOrder)
             .limit(size + 1)
             .map {
                 SearchNotificationsQuery(
@@ -141,9 +157,37 @@ class DbNotificationRepository : NotificationRepository {
                     readAt = it[Notifications.readAt]?.toKotlinInstant(),
                     context = it[Notifications.context],
                     contextId = it[Notifications.contextId],
+                    createdAt = it[Notifications.createdAt].toKotlinInstant(),
                 )
             }
     }
+
+    private fun NotificationOrderKey.column(): ExpressionWithColumnType<in java.time.Instant> =
+        when (this) {
+            NotificationOrderKey.CREATED_AT -> Notifications.createdAt
+            NotificationOrderKey.FIRED_AT -> Notifications.firedAt
+        }
+
+    private fun NotificationSearchCursorValue.valueOf(orderKey: NotificationOrderKey): Instant? =
+        when (orderKey) {
+            NotificationOrderKey.CREATED_AT -> createdAt
+            NotificationOrderKey.FIRED_AT -> firedAt
+        }
+
+    private fun <T : Comparable<T>, S : T?> ExpressionWithColumnType<in S>.beyond(
+        value: T,
+        direction: SortDirection,
+    ): Op<Boolean> =
+        when (direction) {
+            SortDirection.ASC -> this greater value
+            SortDirection.DESC -> this less value
+        }
+
+    private fun SortDirection.sortOrder(): SortOrder =
+        when (this) {
+            SortDirection.ASC -> SortOrder.ASC
+            SortDirection.DESC -> SortOrder.DESC
+        }
 
     override suspend fun countUnread(userId: Long): Int =
         Notifications

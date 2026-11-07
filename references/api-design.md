@@ -174,8 +174,8 @@ below is written in section 2 with its reason.
 | O3 | `UpdateLinkResponse`, `UpdateTodoResponse` | echo the request | O3 |
 | O3 | `UpdateFolderResponse`, `AcceptFolderInvitationResponse` | echo the path id; `sharedAt` is derived but not returned | O3 |
 | O6 | `CompleteTodoResponse` | `completeAt` | `completedAt` |
-| L3 | `GET /folders`, `GET /posts`, `GET /notifications` | `order` takes only `SearchOrder` values | `orderKey` + `order` |
 | L2 | `TodoResources` | `size` defaults to 50 | 15 |
+| L2 | `NotificationResources` | `size` defaults to 30 | 15 |
 | F4 | `ApiExceptionHandler`, `respondError` | 5xx bodies expose `cause` / `causeMessage` | removed |
 | F | `AUTH_PROVIDER_COMMUNICATION_FAILED`, `AI_VENDOR_TEMPORARY_UNAVAILABLE` | 422 | 502 / 503 |
 

@@ -27,6 +27,7 @@ fun Route.notificationRoutes() {
                     loginId = principal.userId,
                     query = resource.query,
                     type = resource.type,
+                    orderKey = resource.orderKey,
                     order = resource.order,
                     scrollRequest =
                         ScrollRequest(

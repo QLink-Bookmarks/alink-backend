@@ -18,7 +18,14 @@ internal fun getNotificationsDocs(): RouteConfig.() -> Unit =
         request {
             queryParameter<String?>("query") { description = "제목/메시지 검색어" }
             queryParameter<String?>("type") { description = "알림 타입 필터(TODO, ANNOUNCE), 대소문자 무관" }
-            queryParameter<String>("order") { description = "정렬 기준, 기본값: latest" }
+            queryParameter<String?>("orderKey") {
+                description =
+                    "정렬 기준 (created_at: 기본 desc / fired_at: 발송 시각, 기본 desc), 기본값: created_at. " +
+                    "같은 값이면 id를 같은 방향으로 이어 정렬해요"
+            }
+            queryParameter<String?>("order") {
+                description = "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc)도 받아요"
+            }
             queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 30" }
         }
