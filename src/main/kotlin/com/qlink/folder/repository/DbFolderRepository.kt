@@ -1,5 +1,6 @@
 package com.qlink.folder.repository
 
+import com.qlink.common.search.SortCollated
 import com.qlink.common.search.SortDirection
 import com.qlink.common.search.bigmSimilarity
 import com.qlink.common.search.doubleLiteral
@@ -258,9 +259,9 @@ class DbFolderRepository : FolderRepository {
             }
 
             FolderOrderKey.NAME -> {
-                Folders.name.beyond(cursorValue.name ?: "", sort.direction) or
+                SortCollated(Folders.name).beyond(cursorValue.name ?: "", sort.direction) or
                     (
-                        (Folders.name eq (cursorValue.name ?: "")) and
+                        (SortCollated(Folders.name) eq (cursorValue.name ?: "")) and
                             Folders.id.beyond(cursorValue.id!!, sort.direction)
                     )
             }
@@ -282,7 +283,7 @@ class DbFolderRepository : FolderRepository {
 
         return when (sort.orderKey) {
             FolderOrderKey.CREATED_AT -> arrayOf(Folders.createdAt to sortOrder, Folders.id to sortOrder)
-            FolderOrderKey.NAME -> arrayOf(Folders.name to sortOrder, Folders.id to sortOrder)
+            FolderOrderKey.NAME -> arrayOf(SortCollated(Folders.name) to sortOrder, Folders.id to sortOrder)
             FolderOrderKey.SIMILARITY -> arrayOf(score to SortOrder.DESC, Folders.id to SortOrder.DESC)
         }
     }
