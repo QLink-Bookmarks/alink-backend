@@ -5,6 +5,11 @@ import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
+import com.qlink.auth.domain.AuthProviderType
+import com.qlink.auth.dto.AuthPlatform
+import com.qlink.auth.dto.SignInRequest
+import com.qlink.auth.repository.AuthProviderRepository
+import com.qlink.auth.service.SignInService
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.Base64CursorCodec
@@ -14,19 +19,27 @@ import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
+import com.qlink.guidecache.domain.GuideCacheStatus
+import com.qlink.guidecache.domain.GuideDefinition
+import com.qlink.guidecache.repository.GuideCacheRepository
+import com.qlink.guidecache.repository.table.GuideCaches
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkOrderKey
+import com.qlink.link.domain.LinkSort
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.MatchedField
+import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.domain.Snippet
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.repository.LinkRepository
 import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.support.BaseServiceTest
+import com.qlink.support.FakeAuthResourceClient
 import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.FolderMemberFixture
+import com.qlink.support.fixture.GuideCacheFixture
 import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
@@ -37,7 +50,9 @@ import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.core.test.TestType
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.collections.shouldNotContain
@@ -46,6 +61,7 @@ import io.kotest.matchers.ints.shouldBeLessThanOrEqual
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import org.jetbrains.exposed.v1.jdbc.deleteAll
 import java.text.Normalizer
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
@@ -1757,6 +1773,76 @@ class GetLinksServiceTest :
 
                 Then("다른 사용자의 링크는 나오지 않는다") {
                     seen.forEach { it shouldBe mine.toSet() }
+                }
+            }
+        }
+        Given("가입 시 복사한 본문에만 있는 검색어") {
+            val service = koinGet<GetLinksService>()
+            val caches = koinGet<GuideCacheRepository>()
+            val links = koinGet<LinkRepository>()
+            val providers = koinGet<AuthProviderRepository>()
+            val auth = koinGet<FakeAuthResourceClient>()
+            lateinit var keyword: String
+            var ownerId = 0L
+
+            beforeTest {
+                if (it.type != TestType.Test) return@beforeTest
+                GuideCaches.deleteAll()
+                keyword = "guidebody${RandomFixture.randomId()}"
+                GuideDefinition.entries.forEach {
+                    caches.insertIfAbsent(
+                        GuideCacheFixture.cache(
+                            url = it.url,
+                            previewStatus = GuideCacheStatus.READY,
+                            contentStatus = GuideCacheStatus.READY,
+                            page = GuideCacheFixture.page(text = "${RandomFixture.randomSentenceWithMax(50)} $keyword"),
+                        ),
+                    )
+                }
+                auth.reset()
+                val providerId = "guide-search-${RandomFixture.randomId()}"
+                auth.providerId = providerId
+                koinGet<SignInService>().signIn(
+                    SignInRequest(
+                        provider = "kakao",
+                        token = RandomFixture.randomSentenceWithMax(50),
+                        platform = AuthPlatform.NATIVE,
+                    ),
+                )
+                ownerId =
+                    providers
+                        .findByProvider(
+                            providerType = AuthProviderType.KAKAO,
+                            providerId = providerId,
+                        )!!
+                        .userId
+            }
+            When("본문으로 검색하면") {
+                val search =
+                    suspend {
+                        service.getLinks(
+                            loginId = ownerId,
+                            query = keyword,
+                            folderId = null,
+                            scrollRequest = ScrollRequest(),
+                        )
+                    }
+                Then("기존 본문 조인 검색과 CONTENT 매칭 결과가 모두 조회된다") {
+                    val response = search()
+                    val rows =
+                        links.search(
+                            ownerId = ownerId,
+                            keyword = SearchKeyword.of(keyword),
+                            folderId = null,
+                            isFavorite = null,
+                            sort = LinkSort.of(orderKey = null, order = null),
+                            cursor = null,
+                            size = 10,
+                        )
+                    rows.size shouldBe 4
+                    rows.all { it.contentMatched && !it.isMetadataMatched && it.contentExcerpt != null } shouldBe true
+                    response.contents.map { it.id }.toSet() shouldBe rows.map { it.id }.toSet()
+                    response.contents.forEach { it.matchedFields shouldContain MatchedField.CONTENT }
                 }
             }
         }

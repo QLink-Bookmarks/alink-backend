@@ -230,6 +230,32 @@ class Link(
     }
 
     companion object {
+        fun createGuide(
+            ownerId: Long,
+            folderId: Long,
+            url: String,
+            title: String,
+            tags: List<String>,
+            thumbnailUrl: String?,
+            faviconUrl: String?,
+            isVideo: Boolean,
+            now: Instant,
+        ): Link =
+            Link(
+                ownerId = ownerId,
+                folderId = folderId,
+                url = url,
+                title = title,
+                tags = tags,
+                thumbnailUrl = thumbnailUrl,
+                faviconUrl = faviconUrl,
+                isVideo = isVideo,
+                sourceType = SourceType.INPUT,
+                status = LinkStatus.C,
+                createdAt = now,
+                updatedAt = now,
+            )
+
         fun createFromRequest(
             ownerId: Long,
             folderId: Long?,

@@ -379,4 +379,17 @@ class FolderTest :
                 }
             }
         }
+
+        Given("신규 사용자") {
+            When("가이드 폴더를 만들면") {
+                val ownerId = RandomFixture.randomId()
+                val folder = Folder.createGuide(ownerId)
+                Then("고정 이름과 이모지의 개인 폴더이다") {
+                    folder.ownerId shouldBe ownerId
+                    folder.name shouldBe "ALink Tips"
+                    folder.emoji shouldBe "💡"
+                    folder.isShared shouldBe false
+                }
+            }
+        }
     })
