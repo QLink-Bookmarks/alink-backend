@@ -6,18 +6,25 @@ import com.qlink.auth.domain.AuthProviderType
 import com.qlink.auth.domain.RefreshToken
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.dto.SignInResponse
-import com.qlink.auth.dto.SignInResult
 import com.qlink.auth.repository.AuthProviderRepository
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requirePresent
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.folder.service.ProvisionGuideFolderService
-import com.qlink.link.worker.LinkPreviewFillSignal
-import com.qlink.linkcontent.worker.LinkContentSignal
+import com.qlink.folder.domain.Folder
+import com.qlink.folder.repository.FolderRepository
+import com.qlink.guide.domain.GuideDefinition
+import com.qlink.guide.domain.GuidePage
+import com.qlink.link.domain.Link
+import com.qlink.link.repository.LinkRepository
+import com.qlink.linkcontent.domain.CollectedPage
+import com.qlink.linkcontent.domain.ContentPriority
+import com.qlink.linkcontent.domain.LinkContent
+import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class SignInService(
     private val tx: TransactionRunner,
@@ -27,9 +34,9 @@ class SignInService(
     private val authResourceClientRouter: AuthResourceClientRouter,
     private val authTokenService: AuthTokenService,
     private val randomUserNameGenerator: RandomUserNameGenerator,
-    private val provisionGuideFolderService: ProvisionGuideFolderService,
-    private val linkPreviewFillSignal: LinkPreviewFillSignal,
-    private val linkContentSignal: LinkContentSignal,
+    private val folderRepository: FolderRepository,
+    private val linkRepository: LinkRepository,
+    private val linkContentRepository: LinkContentRepository,
 ) {
     suspend fun signIn(request: SignInRequest): SignInResponse {
         val providerType = AuthProviderType.fromRequestName(request.provider)
@@ -40,32 +47,30 @@ class SignInService(
                 platform = request.platform,
             )
 
-        val result =
-            tx.required {
-                val authProvider =
-                    authProviderRepository.findByProvider(
-                        providerType = resource.providerType,
-                        providerId = resource.providerId,
-                    )
+        return tx.required {
+            val authProvider =
+                authProviderRepository.findByProvider(
+                    providerType = resource.providerType,
+                    providerId = resource.providerId,
+                )
+            val user =
                 if (authProvider == null) {
                     signUp(
                         providerType = resource.providerType,
                         providerId = resource.providerId,
                     )
                 } else {
-                    val user = userRepository.findById(authProvider.userId).requirePresent(ErrorCode.AUTH_SIGN_IN_USER_MISSING)
-                    SignInResult(response = issueTokenResponse(user))
+                    userRepository.findById(authProvider.userId).requirePresent(ErrorCode.AUTH_SIGN_IN_USER_MISSING)
                 }
-            }
-        result.previewFillLinkIds.forEach(linkPreviewFillSignal::wake)
-        if (result.hasPendingContent) linkContentSignal.wake()
-        return result.response
+
+            issueTokenResponse(user)
+        }
     }
 
     private suspend fun signUp(
         providerType: AuthProviderType,
         providerId: String,
-    ): SignInResult {
+    ): User {
         val generatedName = randomUserNameGenerator.generate()
         val user =
             userRepository.insert(
@@ -84,13 +89,52 @@ class SignInService(
             ),
         )
 
-        val provision = provisionGuideFolderService.provision(ownerId = userId, now = Clock.System.now())
-        return SignInResult(
-            response = issueTokenResponse(user),
-            previewFillLinkIds = provision.previewFillLinkIds,
-            hasPendingContent = provision.hasPendingContent,
-        )
+        provisionGuideFolder(ownerId = userId, now = Clock.System.now())
+        return user
     }
+
+    private suspend fun provisionGuideFolder(
+        ownerId: Long,
+        now: Instant,
+    ) {
+        val folder = folderRepository.insert(Folder.createGuide(ownerId))
+        val folderId = folder.id.requirePresent(ErrorCode.AUTH_SIGN_IN_FOLDER_ID_REQUIRED)
+        for (definition in GuideDefinition.entries.reversed()) {
+            val link =
+                linkRepository.insert(
+                    Link.createGuide(
+                        ownerId = ownerId,
+                        folderId = folderId,
+                        url = definition.url,
+                        title = definition.title,
+                        tags = definition.tags,
+                        thumbnailUrl = definition.preview.thumbnailUrl,
+                        faviconUrl = definition.preview.faviconUrl,
+                        isVideo = definition.preview.isVideo,
+                        now = now,
+                    ),
+                )
+            val linkId = link.id.requirePresent(ErrorCode.AUTH_SIGN_IN_LINK_ID_REQUIRED)
+            val content =
+                definition.page?.let { page ->
+                    LinkContent.createCollected(linkId = linkId, sourceUrl = link.url, page = page.toCollectedPage(), now = now)
+                } ?: LinkContent.create(linkId = linkId, sourceUrl = link.url, priority = ContentPriority.INTERACTIVE, now = now)
+            linkContentRepository.insertAll(listOf(content))
+        }
+    }
+
+    private fun GuidePage.toCollectedPage(): CollectedPage =
+        CollectedPage(
+            text = text,
+            title = title,
+            siteName = siteName,
+            author = author,
+            publishedAt = publishedAt,
+            canonicalUrl = canonicalUrl,
+            finalUrl = finalUrl,
+            language = language,
+            isTruncated = isTruncated,
+        )
 
     private suspend fun issueTokenResponse(user: User): SignInResponse {
         val userId = user.id.requirePresent(ErrorCode.AUTH_SIGN_IN_USER_ID_REQUIRED)

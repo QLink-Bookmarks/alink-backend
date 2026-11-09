@@ -33,6 +33,8 @@ enum class ErrorCode(
     AUTH_SIGN_IN_USER_MISSING("AUTH_500_0002", 500, "인증 제공자에 연동된 사용자를 찾을 수 없어요"),
     AUTH_SIGN_IN_USER_ID_REQUIRED("AUTH_500_0003", 500, "로그인 사용자 정보에 ID가 없어요"),
     AUTH_REFRESH_USER_ID_REQUIRED("AUTH_500_0004", 500, "토큰을 갱신할 사용자 정보에 ID가 없어요"),
+    AUTH_SIGN_IN_FOLDER_ID_REQUIRED("AUTH_500_0005", 500, "가입 가이드 폴더 정보에 ID가 없어요"),
+    AUTH_SIGN_IN_LINK_ID_REQUIRED("AUTH_500_0006", 500, "가입 가이드 링크 정보에 ID가 없어요"),
 
     // User
     USER_THEME_NOT_SUPPORTED("USER_400_0001", 400, "지원하지 않는 화면 테마에요"),

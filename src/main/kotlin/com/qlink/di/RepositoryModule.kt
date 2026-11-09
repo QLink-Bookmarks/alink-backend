@@ -22,8 +22,6 @@ import com.qlink.folder.repository.DbFolderRepository
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.DbFolderMemberRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
-import com.qlink.guidecache.repository.DbGuideCacheRepository
-import com.qlink.guidecache.repository.GuideCacheRepository
 import com.qlink.link.repository.DbLinkRepository
 import com.qlink.link.repository.LinkRepository
 import com.qlink.linkcontent.repository.DbLinkContentRepository
@@ -40,7 +38,6 @@ import org.koin.dsl.module
 
 fun repositoryModule() =
     module {
-        single<GuideCacheRepository> { DbGuideCacheRepository() }
         single<LinkRepository> {
             DbLinkRepository()
         }

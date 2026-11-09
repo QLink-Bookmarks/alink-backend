@@ -1,8 +1,8 @@
-package com.qlink.guidecache.domain
+package com.qlink.guide.domain
 
 import kotlin.time.Instant
 
-data class CachedGuidePage(
+data class GuidePage(
     val text: String,
     val title: String?,
     val siteName: String?,

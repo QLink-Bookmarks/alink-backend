@@ -26,10 +26,8 @@ import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFoldersService
-import com.qlink.folder.service.ProvisionGuideFolderService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
-import com.qlink.guidecache.service.WarmGuideCacheService
 import com.qlink.image.service.UploadImageService
 import com.qlink.link.service.CopyLinkService
 import com.qlink.link.service.CreateLinkPreviewService
@@ -67,26 +65,6 @@ import org.slf4j.LoggerFactory
 fun serviceModule() =
     module {
         single {
-            ProvisionGuideFolderService(
-                tx = get(),
-                folderRepository = get(),
-                linkRepository = get(),
-                contentRepository = get(),
-                cacheRepository = get(),
-            )
-        }
-        single {
-            WarmGuideCacheService(
-                tx = get(),
-                repository = get(),
-                previewClient = get(),
-                contentClient = get(),
-                urlResolver = get(),
-                log = LoggerFactory.getLogger(WarmGuideCacheService::class.java),
-            )
-        }
-
-        single {
             CreateLinkPreviewService(
                 tx = get(),
                 userRepository = get(),
@@ -114,9 +92,9 @@ fun serviceModule() =
                 authResourceClientRouter = get(),
                 authTokenService = get(),
                 randomUserNameGenerator = get(),
-                provisionGuideFolderService = get(),
-                linkPreviewFillSignal = get(),
-                linkContentSignal = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+                linkContentRepository = get(),
             )
         }
 

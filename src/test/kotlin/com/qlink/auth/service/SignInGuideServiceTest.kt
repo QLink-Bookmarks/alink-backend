@@ -1,52 +1,40 @@
 package com.qlink.auth.service
 
+import com.qlink.auth.domain.AuthProvider
 import com.qlink.auth.domain.AuthProviderType
 import com.qlink.auth.dto.AuthPlatform
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.repository.AuthProviderRepository
 import com.qlink.auth.repository.RefreshTokenRepository
-import com.qlink.common.error.BusinessException
-import com.qlink.common.error.ErrorCode
-import com.qlink.di.serviceModule
 import com.qlink.folder.repository.FolderRepository
-import com.qlink.guidecache.domain.GuideCacheStatus
-import com.qlink.guidecache.domain.GuideDefinition
-import com.qlink.guidecache.repository.GuideCacheRepository
-import com.qlink.guidecache.repository.table.GuideCaches
+import com.qlink.guide.domain.GuideDefinition
+import com.qlink.link.domain.LinkSort
+import com.qlink.link.domain.LinkStatus
+import com.qlink.link.domain.SourceType
 import com.qlink.link.repository.LinkRepository
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAuthResourceClient
-import com.qlink.support.fixture.FailingGuideLinkRepository
 import com.qlink.support.fixture.FakeLinkContentSyncClient
 import com.qlink.support.fixture.FakeLinkPreviewSyncClient
-import com.qlink.support.fixture.GuideCacheFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.repository.UserRepository
-import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.core.test.TestType
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.job
-import kotlinx.coroutines.supervisorScope
-import org.jetbrains.exposed.v1.jdbc.deleteAll
-import org.koin.core.context.loadKoinModules
-import org.koin.dsl.module
 
 class SignInGuideServiceTest :
     BaseServiceTest({
+        val service = koinGet<SignInService>()
         val users = koinGet<UserRepository>()
         val providers = koinGet<AuthProviderRepository>()
         val tokens = koinGet<RefreshTokenRepository>()
         val folders = koinGet<FolderRepository>()
         val links = koinGet<LinkRepository>()
         val contents = koinGet<LinkContentRepository>()
-        val caches = koinGet<GuideCacheRepository>()
         val auth = koinGet<FakeAuthResourceClient>()
         val preview = koinGet<FakeLinkPreviewSyncClient>()
         val content = koinGet<FakeLinkContentSyncClient>()
@@ -55,40 +43,18 @@ class SignInGuideServiceTest :
 
         beforeTest {
             if (it.type != TestType.Test) return@beforeTest
-            GuideCaches.deleteAll()
             auth.reset()
             preview.reset()
             content.reset()
             providerId = "guide-${RandomFixture.randomId()}"
             auth.providerId = providerId
-            request =
-                SignInRequest(
-                    provider = "kakao",
-                    token = RandomFixture.randomSentenceWithMax(50),
-                    platform = AuthPlatform.NATIVE,
-                )
-        }
-        afterTest { (testCase, _) ->
-            if (testCase.type != TestType.Test) return@afterTest
-            loadKoinModules(listOf(module { single<LinkRepository> { links } }, serviceModule()))
+            request = SignInRequest(provider = "kakao", token = RandomFixture.randomSentenceWithMax(50), platform = AuthPlatform.NATIVE)
         }
 
-        Given("READY 캐시로 가입하는 소셜 사용자") {
-            beforeTest {
-                if (it.type != TestType.Test) return@beforeTest
-                GuideDefinition.entries.forEach {
-                    caches.insertIfAbsent(
-                        GuideCacheFixture.cache(
-                            url = it.url,
-                            previewStatus = GuideCacheStatus.READY,
-                            contentStatus = GuideCacheStatus.READY,
-                        ),
-                    )
-                }
-            }
+        Given("새로 가입하는 소셜 사용자") {
             When("처음 로그인하면") {
-                val signIn = suspend { koinGet<SignInService>().signIn(request) }
-                Then("사용자와 기본 데이터 및 토큰이 함께 저장된다") {
+                val signIn = suspend { service.signIn(request) }
+                Then("개인 가이드 폴더와 정해진 순서의 네 링크 및 본문 행을 저장한다") {
                     val response = signIn()
                     val provider =
                         providers
@@ -99,86 +65,89 @@ class SignInGuideServiceTest :
                     users.findById(provider.userId).shouldNotBeNull()
                     tokens.findByToken(response.refreshToken).shouldNotBeNull().userId shouldBe provider.userId
                     val folder = folders.findAllByOwnerId(provider.userId).single()
-                    val saved = links.findAllByFolderIds(listOf(folder.id!!))
-                    saved.size shouldBe 4
-                    saved.forEach {
-                        it.thumbnailUrl shouldBe caches.findByUrl(it.url)!!.preview!!.thumbnailUrl
-                        contents.findByLinkId(it.id!!)!!.status shouldBe ContentStatus.COLLECTED
-                    }
-                    preview.calls.size shouldBe 0
-                    content.calls.size shouldBe 0
-                }
-            }
-            When("같은 사용자가 두 번째 로그인하면") {
-                val signIn = suspend { koinGet<SignInService>().signIn(request) }
-                Then("폴더와 링크를 다시 만들지 않는다") {
-                    val first = signIn()
-                    val provider =
-                        providers.findByProvider(
-                            providerType = AuthProviderType.KAKAO,
-                            providerId = providerId,
-                        )!!
-                    val before = folders.findAllByOwnerId(provider.userId).single()
-                    val ids = links.findAllByFolderIds(listOf(before.id!!)).map { it.id }
-                    val second = signIn()
-                    folders.findAllByOwnerId(provider.userId).map { it.id } shouldBe listOf(before.id)
-                    links.findAllByFolderIds(listOf(before.id)).map { it.id } shouldBe ids
-                    tokens.findByToken(first.refreshToken).shouldNotBeNull()
-                    tokens.findByToken(second.refreshToken).shouldNotBeNull()
-                }
-            }
-        }
-        Given("캐시가 없는 가입") {
-            When("처음 로그인하면") {
-                val signIn = suspend { koinGet<SignInService>().signIn(request) }
-                Then("가입이 성공하고 일반 수집 가능한 링크가 저장된다") {
-                    val response = signIn()
-                    val provider =
-                        providers.findByProvider(
-                            providerType = AuthProviderType.KAKAO,
-                            providerId = providerId,
-                        )!!
-                    tokens.findByToken(response.refreshToken).shouldNotBeNull()
-                    val folder = folders.findAllByOwnerId(provider.userId).single()
-                    links.findAllByFolderIds(listOf(folder.id!!)).forEach {
-                        it.hasPreview shouldBe false
-                        contents.findByLinkId(it.id!!)!!.status shouldBe ContentStatus.PENDING
-                    }
-                    preview.calls.size shouldBe 0
-                    content.calls.size shouldBe 0
-                }
-            }
-        }
-        Given("가이드 저장 도중 실패하는 가입") {
-            lateinit var failingLinks: FailingGuideLinkRepository
-            beforeTest {
-                if (it.type != TestType.Test) return@beforeTest
-                failingLinks = FailingGuideLinkRepository(links)
-                loadKoinModules(listOf(module { single<LinkRepository> { failingLinks } }, serviceModule()))
-            }
-            When("첫 링크 저장 후 다음 저장이 실패하면") {
-                val signIn =
-                    suspend {
-                        supervisorScope {
-                            CoroutineScope(Dispatchers.IO + coroutineContext.job)
-                                .async {
-                                    koinGet<SignInService>().signIn(request)
-                                }.await()
+                    folder.name shouldBe "ALink Tips"
+                    folder.emoji shouldBe "💡"
+                    folder.sharedAt shouldBe null
+                    val rows =
+                        links.search(
+                            ownerId = provider.userId,
+                            keyword = null,
+                            folderId = folder.id.shouldNotBeNull(),
+                            isFavorite = null,
+                            sort = LinkSort.of(orderKey = null, order = null),
+                            cursor = null,
+                            size = GuideDefinition.entries.size,
+                        )
+                    rows.map { it.title } shouldBe GuideDefinition.entries.map { it.title }
+                    rows.map { it.url } shouldBe GuideDefinition.entries.map { it.url }
+                    rows.map { it.tags } shouldBe GuideDefinition.entries.map { it.tags }
+                    rows.zip(GuideDefinition.entries).forEach { (row, definition) ->
+                        val link = links.findById(row.id).shouldNotBeNull()
+                        link.ownerId shouldBe provider.userId
+                        link.sourceType shouldBe SourceType.INPUT
+                        link.status shouldBe LinkStatus.C
+                        link.thumbnailUrl shouldBe definition.preview.thumbnailUrl
+                        link.faviconUrl shouldBe definition.preview.faviconUrl
+                        link.isVideo shouldBe definition.preview.isVideo
+                        val savedContent = contents.findByLinkId(row.id).shouldNotBeNull()
+                        savedContent.sourceUrl shouldBe definition.url
+                        savedContent.status shouldBe if (definition.page == null) ContentStatus.PENDING else ContentStatus.COLLECTED
+                        definition.page?.let {
+                            val savedPage = savedContent.page.shouldNotBeNull()
+                            savedPage.text shouldBe it.text
+                            savedPage.title shouldBe definition.title
+                            it.title shouldBe definition.title
+                            savedPage.siteName shouldBe it.siteName
+                            savedPage.author shouldBe it.author
+                            savedPage.publishedAt shouldBe it.publishedAt
+                            savedPage.canonicalUrl shouldBe it.canonicalUrl
+                            savedPage.finalUrl shouldBe it.finalUrl
+                            savedPage.language shouldBe it.language
+                            savedPage.isTruncated shouldBe it.isTruncated
+                            savedContent.excerpt.shouldNotBeNull()
+                            savedContent.collectedAt shouldBe link.createdAt
                         }
                     }
-                Then("신규 사용자와 부분 가이드가 모두 롤백된다") {
-                    val userIds = users.findAllIds()
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) { signIn() }
-                    val first = failingLinks.inserted.single()
-                    users.findAllIds() shouldBe userIds
-                    users.findById(first.ownerId) shouldBe null
-                    providers.findByProvider(
-                        providerType = AuthProviderType.KAKAO,
-                        providerId = providerId,
-                    ) shouldBe null
-                    folders.findAllByOwnerId(first.ownerId) shouldBe emptyList()
-                    links.findById(first.id!!) shouldBe null
-                    contents.findByLinkId(first.id) shouldBe null
+                    preview.calls.size shouldBe 0
+                    content.calls.size shouldBe 0
+                }
+            }
+            When("같은 사용자가 다시 로그인하면") {
+                val signIn = suspend { service.signIn(request) }
+                Then("기존 폴더와 링크를 다시 생성하지 않는다") {
+                    signIn()
+                    val provider =
+                        providers
+                            .findByProvider(
+                                providerType = AuthProviderType.KAKAO,
+                                providerId = providerId,
+                            ).shouldNotBeNull()
+                    val before = folders.findAllByOwnerId(provider.userId).single()
+                    val folderId = before.id.shouldNotBeNull()
+                    val ids = links.findAllByFolderIds(listOf(folderId)).map { it.id }
+                    val response = signIn()
+                    folders.findAllByOwnerId(provider.userId).map { it.id } shouldBe listOf(folderId)
+                    links.findAllByFolderIds(listOf(folderId)).map { it.id } shouldBe ids
+                    tokens.findByToken(response.refreshToken).shouldNotBeNull()
+                }
+            }
+        }
+        Given("가이드 폴더가 없는 기존 사용자") {
+            var existingUserId = 0L
+            beforeTest {
+                if (it.type != TestType.Test) return@beforeTest
+                existingUserId = users.insert(UserFixture.createRandomValidUser()).id.shouldNotBeNull()
+                providers.insert(
+                    AuthProvider(userId = existingUserId, providerType = AuthProviderType.KAKAO, providerId = providerId),
+                )
+            }
+            When("로그인하면") {
+                val signIn = suspend { service.signIn(request) }
+                Then("가이드를 소급 생성하지 않는다") {
+                    val response = signIn()
+                    folders.findAllByOwnerId(existingUserId) shouldBe emptyList()
+                    links.findAllUrlsByOwnerId(existingUserId) shouldBe emptyList()
+                    tokens.findByToken(response.refreshToken).shouldNotBeNull().userId shouldBe existingUserId
                 }
             }
         }

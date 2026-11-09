@@ -11,8 +11,3 @@ data class FolderDeletionPlan(
 data class FolderDeletionResult(
     val cancelNotificationIds: List<Long>,
 )
-
-data class ProvisionGuideFolderResult(
-    val previewFillLinkIds: List<Long>,
-    val hasPendingContent: Boolean,
-)

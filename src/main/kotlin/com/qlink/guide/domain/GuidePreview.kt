@@ -1,6 +1,6 @@
-package com.qlink.guidecache.domain
+package com.qlink.guide.domain
 
-data class CachedGuidePreview(
+data class GuidePreview(
     val thumbnailUrl: String?,
     val faviconUrl: String?,
     val isVideo: Boolean,
