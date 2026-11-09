@@ -2,6 +2,8 @@ package com.qlink.linkcontent.domain
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.text.sha256Hex
+import com.qlink.support.fixture.GuideFixture
 import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.RandomFixture
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -34,6 +36,40 @@ class LinkContentTest :
                     content.attempt shouldBe 0
                     content.claimCount shouldBe 0
                     content.priority shouldBe priority
+                }
+            }
+        }
+
+        Given("미리 수집한 가이드 본문") {
+            When("완료된 본문 행을 생성하면") {
+                val guide = GuideFixture.createPage()
+                val page =
+                    CollectedPage(
+                        text = guide.text,
+                        title = guide.title,
+                        siteName = guide.siteName,
+                        author = guide.author,
+                        publishedAt = guide.publishedAt,
+                        canonicalUrl = guide.canonicalUrl,
+                        finalUrl = guide.finalUrl,
+                        language = guide.language,
+                        isTruncated = guide.isTruncated,
+                    )
+                val linkId = RandomFixture.randomId()
+                val sourceUrl = RandomFixture.randomUrl()
+                val now = RandomFixture.randomPastInstant()
+                val content = LinkContent.createCollected(linkId = linkId, sourceUrl = sourceUrl, page = page, now = now)
+                Then("COLLECTED와 해시·발췌·수집시각 및 본문 메타데이터를 가진다") {
+                    content.status shouldBe ContentStatus.COLLECTED
+                    content.linkId shouldBe linkId
+                    content.sourceUrl shouldBe sourceUrl
+                    content.page shouldBe page
+                    content.contentHash shouldBe page.text.sha256Hex()
+                    content.excerpt shouldBe page.text.take(LinkContent.EXCERPT_MAX_CHARS) + ELLIPSIS
+                    content.collectedAt shouldBe now
+                    content.priority shouldBe ContentPriority.INTERACTIVE
+                    content.attempt shouldBe 0
+                    content.claimCount shouldBe 0
                 }
             }
         }

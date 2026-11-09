@@ -211,6 +211,15 @@ class LinkContent(
                 nextAttemptAt = now,
             )
 
+        fun createCollected(
+            linkId: Long,
+            sourceUrl: String,
+            page: CollectedPage,
+            now: Instant,
+        ): LinkContent =
+            create(linkId = linkId, sourceUrl = sourceUrl, priority = ContentPriority.INTERACTIVE, now = now)
+                .complete(page = page, now = now)
+
         fun clampRetryAfter(seconds: Int): Int = seconds.coerceIn(0, RETRY_AFTER_MAX.inWholeSeconds.toInt())
 
         private fun buildExcerpt(text: String): String? {

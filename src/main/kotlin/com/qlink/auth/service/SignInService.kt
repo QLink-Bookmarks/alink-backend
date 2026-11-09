@@ -11,9 +11,20 @@ import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requirePresent
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.domain.Folder
+import com.qlink.folder.repository.FolderRepository
+import com.qlink.guide.domain.GuideDefinition
+import com.qlink.guide.domain.GuidePage
+import com.qlink.link.domain.Link
+import com.qlink.link.repository.LinkRepository
+import com.qlink.linkcontent.domain.CollectedPage
+import com.qlink.linkcontent.domain.ContentPriority
+import com.qlink.linkcontent.domain.LinkContent
+import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class SignInService(
     private val tx: TransactionRunner,
@@ -23,6 +34,9 @@ class SignInService(
     private val authResourceClientRouter: AuthResourceClientRouter,
     private val authTokenService: AuthTokenService,
     private val randomUserNameGenerator: RandomUserNameGenerator,
+    private val folderRepository: FolderRepository,
+    private val linkRepository: LinkRepository,
+    private val linkContentRepository: LinkContentRepository,
 ) {
     suspend fun signIn(request: SignInRequest): SignInResponse {
         val providerType = AuthProviderType.fromRequestName(request.provider)
@@ -75,8 +89,52 @@ class SignInService(
             ),
         )
 
+        provisionGuideFolder(ownerId = userId, now = Clock.System.now())
         return user
     }
+
+    private suspend fun provisionGuideFolder(
+        ownerId: Long,
+        now: Instant,
+    ) {
+        val folder = folderRepository.insert(Folder.createGuide(ownerId))
+        val folderId = folder.id.requirePresent(ErrorCode.AUTH_SIGN_IN_FOLDER_ID_REQUIRED)
+        for (definition in GuideDefinition.entries.reversed()) {
+            val link =
+                linkRepository.insert(
+                    Link.createGuide(
+                        ownerId = ownerId,
+                        folderId = folderId,
+                        url = definition.url,
+                        title = definition.title,
+                        tags = definition.tags,
+                        thumbnailUrl = definition.preview.thumbnailUrl,
+                        faviconUrl = definition.preview.faviconUrl,
+                        isVideo = definition.preview.isVideo,
+                        now = now,
+                    ),
+                )
+            val linkId = link.id.requirePresent(ErrorCode.AUTH_SIGN_IN_LINK_ID_REQUIRED)
+            val content =
+                definition.page?.let { page ->
+                    LinkContent.createCollected(linkId = linkId, sourceUrl = link.url, page = page.toCollectedPage(), now = now)
+                } ?: LinkContent.create(linkId = linkId, sourceUrl = link.url, priority = ContentPriority.INTERACTIVE, now = now)
+            linkContentRepository.insertAll(listOf(content))
+        }
+    }
+
+    private fun GuidePage.toCollectedPage(): CollectedPage =
+        CollectedPage(
+            text = text,
+            title = title,
+            siteName = siteName,
+            author = author,
+            publishedAt = publishedAt,
+            canonicalUrl = canonicalUrl,
+            finalUrl = finalUrl,
+            language = language,
+            isTruncated = isTruncated,
+        )
 
     private suspend fun issueTokenResponse(user: User): SignInResponse {
         val userId = user.id.requirePresent(ErrorCode.AUTH_SIGN_IN_USER_ID_REQUIRED)

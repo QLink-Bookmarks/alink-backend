@@ -720,4 +720,46 @@ class LinkTest :
                 Then("폴더가 바뀌지 않았다") { detached.hasFolderChangedSince(null) shouldBe false }
             }
         }
+
+        Given("가이드 링크 값") {
+            When("가이드 링크를 생성하면") {
+                val ownerId = RandomFixture.randomId()
+                val folderId = RandomFixture.randomId()
+                val url = RandomFixture.randomUrl()
+                val title = RandomFixture.randomSentenceWithMax(100)
+                val tags = RandomFixture.randomSentenceList(maxSize = 3)
+                val thumbnail = RandomFixture.randomUrl()
+                val isVideo = RandomFixture.randomInt(0, 1) == 1
+                val now = RandomFixture.randomPastInstant()
+                val link =
+                    Link.createGuide(
+                        ownerId = ownerId,
+                        folderId = folderId,
+                        url = url,
+                        title = title,
+                        tags = tags,
+                        thumbnailUrl = thumbnail,
+                        faviconUrl = null,
+                        isVideo = isVideo,
+                        now = now,
+                    )
+                Then("지정 데이터와 일반 링크 초기 상태를 보존한다") {
+                    link.ownerId shouldBe ownerId
+                    link.folderId shouldBe folderId
+                    link.url shouldBe url
+                    link.title shouldBe title
+                    link.tags shouldBe tags.distinct()
+                    link.thumbnailUrl shouldBe thumbnail
+                    link.faviconUrl shouldBe null
+                    link.isVideo shouldBe isVideo
+                    link.sourceType shouldBe SourceType.INPUT
+                    link.status shouldBe LinkStatus.C
+                    link.createdAt shouldBe now
+                    link.updatedAt shouldBe now
+                    link.summary shouldBe null
+                    link.memo shouldBe null
+                    link.favoriteAt shouldBe null
+                }
+            }
+        }
     })
