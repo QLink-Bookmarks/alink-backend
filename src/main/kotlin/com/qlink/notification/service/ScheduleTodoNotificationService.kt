@@ -27,12 +27,16 @@ class ScheduleTodoNotificationService(
         val result =
             tx.required {
                 val todoId = todo.id ?: return@required ScheduleTodoNotificationResult()
+                val todoNotification = buildTodoNotification(todo)
                 val deletedIds =
                     notificationRepository.deletePendingByContext(
                         context = NotificationContext.TODO,
                         contextId = todoId,
                     )
-                val notification = buildTodoNotification(todo)?.let { notificationRepository.insert(it) }
+                val notification =
+                    todoNotification
+                        ?.takeUnless { hasSameSchedule(it) }
+                        ?.let { notificationRepository.insert(it) }
 
                 ScheduleTodoNotificationResult(
                     deletedIds = deletedIds,
@@ -45,10 +49,17 @@ class ScheduleTodoNotificationService(
     }
 
     private suspend fun buildTodoNotification(todo: Todo): Notification? {
-        val link = linkRepository.findById(todo.linkId) ?: return null
+        val link = linkRepository.findByIdForShare(todo.linkId) ?: return null
 
         return Notification.todo(todo = todo, linkTitle = link.title, linkUrl = link.url)
     }
+
+    private suspend fun hasSameSchedule(notification: Notification): Boolean =
+        notificationRepository
+            .findByContext(
+                context = notification.context,
+                contextId = notification.contextId,
+            ).any { it.isSameSchedule(notification) }
 
     suspend fun cancelForTodo(todoId: Long) {
         val deletedIds =

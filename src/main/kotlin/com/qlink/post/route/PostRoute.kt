@@ -40,6 +40,7 @@ fun Route.postRoutes() {
                     role = principal.role,
                     type = resource.type,
                     query = resource.query,
+                    orderKey = resource.orderKey,
                     order = resource.order,
                     scrollRequest =
                         ScrollRequest(

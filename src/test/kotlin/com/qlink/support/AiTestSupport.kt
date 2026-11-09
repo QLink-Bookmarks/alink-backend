@@ -14,18 +14,27 @@ import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
+import com.qlink.ai.service.CompleteAiSummaryService
+import com.qlink.ai.service.FailAiSummaryService
 import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.ai.worker.AiSummaryWorker
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
+import com.qlink.common.error.ErrorCode
+import com.qlink.config.WorkerConfig
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.channels.Channel
 import org.koin.dsl.module
 import org.slf4j.LoggerFactory
+import kotlin.time.Duration.Companion.minutes
 
 fun aiTestModule() =
     module {
         single {
-            ApiKeyCipher(keyBase64 = TEST_AI_API_KEY_ENCRYPTION_KEY_BASE64)
+            ApiKeyCipher(
+                keyBase64 = TEST_AI_API_KEY_ENCRYPTION_KEY_BASE64,
+                invalidKeyErrorCode = ErrorCode.CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID,
+            )
         }
 
         single {
@@ -47,6 +56,30 @@ fun aiTestModule() =
         }
 
         single {
+            CompleteAiSummaryService(
+                tx = get(),
+                aiJobRepository = get(),
+                dailyUsageRepository = get(),
+                folderRepository = get(),
+                folderMemberRepository = get(),
+                linkRepository = get(),
+                todoRepository = get(),
+                scheduleTodoNotificationService = get(),
+                urlResolver = get(),
+                log = LoggerFactory.getLogger(CompleteAiSummaryService::class.java),
+            )
+        }
+
+        single {
+            FailAiSummaryService(
+                tx = get(),
+                aiJobRepository = get(),
+                linkRepository = get(),
+                urlResolver = get(),
+            )
+        }
+
+        single {
             AiSummaryWorker(
                 tx = get(),
                 aiJobRepository = get(),
@@ -56,11 +89,21 @@ fun aiTestModule() =
                 dailyUsageRepository = get(),
                 folderRepository = get(),
                 linkRepository = get(),
-                todoRepository = get(),
-                scheduleTodoNotificationService = get(),
+                completeAiSummaryService = get(),
+                failAiSummaryService = get(),
                 aiClientRouter = get(),
                 apiKeyCipher = get(),
                 channel = get(),
+                config =
+                    WorkerConfig(
+                        pollInterval = 10.minutes,
+                        importThumbnailConcurrency = 3,
+                        importThumbnailParallelism = 2,
+                        importThumbnailBatchSize = 100,
+                        aiSummaryParallelism = 1,
+                    ),
+                meterRegistry = SimpleMeterRegistry(),
+                traceIdLength = ServiceTestEnvironment.TRACE_ID_LENGTH,
                 log = LoggerFactory.getLogger(AiSummaryWorker::class.java),
             )
         }
@@ -117,11 +160,12 @@ suspend fun insertAiContext(
     availableModelRepository: AvailableModelRepository,
     userProviderRepository: UserProviderRepository,
     role: Role = Role.NORMAL,
+    type: AiProviderType = AiProviderType.OPENAI,
 ): Pair<UserProvider, AvailableModel> {
     val provider =
         aiProviderRepository.insert(
             AiProvider(
-                type = AiProviderType.OPENAI,
+                type = type,
                 baseUrl = "https://example.com",
             ),
         )
@@ -141,7 +185,11 @@ suspend fun insertAiContext(
                 userId = userId,
                 providerId = provider.id,
                 userRole = role,
-                apiKey = ApiKeyCipher(TEST_AI_API_KEY_ENCRYPTION_KEY_BASE64).encrypt("api-key"),
+                apiKey =
+                    ApiKeyCipher(
+                        keyBase64 = TEST_AI_API_KEY_ENCRYPTION_KEY_BASE64,
+                        invalidKeyErrorCode = ErrorCode.CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID,
+                    ).encrypt("api-key"),
             ),
         )
 

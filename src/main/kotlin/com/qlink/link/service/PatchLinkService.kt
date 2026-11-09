@@ -4,7 +4,9 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
+import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkResponse
@@ -21,8 +23,10 @@ class PatchLinkService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
     private val userRepository: UserRepository,
+    private val folderRepository: FolderRepository,
     private val folderAccessValidator: FolderAccessValidator,
     private val scheduleTodoNotificationService: ScheduleTodoNotificationService,
+    private val urlResolver: PreviewImageUrlResolver,
 ) {
     suspend fun patchLink(
         loginId: Long,
@@ -32,9 +36,10 @@ class PatchLinkService(
         val result =
             tx.required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
 
                 val link =
-                    linkRepository.findById(linkId)?.also { it.validateOwner(loginId) }
+                    linkRepository.findByIdForUpdate(linkId)?.also { it.validateOwner(loginId) }
                         ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
 
                 val targetFolderId = request.resolveFolderId(link, loginId)
@@ -52,13 +57,20 @@ class PatchLinkService(
                         tags = targetTags,
                         thumbnailUrl = link.thumbnailUrl,
                         sourceType = link.sourceType,
+                        previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                        previewEnvironment = urlResolver.environment,
                     )
 
                 val savedLink =
                     if (updatedLink.hasSamePatchFieldsAs(link)) {
                         link
                     } else {
-                        linkRepository.update(updatedLink)
+                        linkRepository.updatePatchFields(
+                            linkId = linkId,
+                            folderId = updatedLink.folderId,
+                            memo = updatedLink.memo,
+                            tags = updatedLink.tags,
+                        )
                     }
 
                 val deletedTodoIds =

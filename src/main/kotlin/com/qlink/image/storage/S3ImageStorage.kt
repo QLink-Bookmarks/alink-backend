@@ -6,29 +6,31 @@ import aws.smithy.kotlin.runtime.content.ByteStream
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.S3Config
+import com.qlink.image.domain.ImagePurpose
 
 class S3ImageStorage(
     private val s3Client: S3Client,
     private val config: S3Config,
 ) : ImageStorage {
     override suspend fun upload(
+        purpose: ImagePurpose,
         key: String,
         bytes: ByteArray,
         contentType: String,
-    ): String {
+    ) {
         s3Client.putObject {
-            this.bucket = config.bucket
+            this.bucket = bucketOf(purpose)
             this.key = key
             this.body = ByteStream.fromBytes(bytes)
             this.contentType = contentType
         }
-
-        return publicUrl(key)
     }
 
-    private fun publicUrl(key: String): String {
-        config.publicBaseUrl?.let { base -> return "${base.trimEnd('/')}/$key" }
-        config.endpoint?.let { endpoint -> return "${endpoint.trimEnd('/')}/${config.bucket}/$key" }
-        throw BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
-    }
+    private fun bucketOf(purpose: ImagePurpose): String =
+        when (purpose) {
+            ImagePurpose.PROFILE -> config.profileBucket
+            ImagePurpose.POST -> config.postBucket
+            ImagePurpose.LINK_PREVIEW -> config.previewBucket
+            ImagePurpose.FAVICON -> throw BusinessException(ErrorCode.IMAGE_STORAGE_PURPOSE_UNSUPPORTED)
+        }
 }

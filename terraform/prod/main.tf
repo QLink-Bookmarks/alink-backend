@@ -68,6 +68,9 @@ module "alb" {
   https_listener_tag_name   = var.https_listener_tag_name
   acm_certificate_arn       = var.acm_certificate_arn
   https_listener_ssl_policy = var.https_listener_ssl_policy
+  host_header               = var.api_domain
+  listener_rule_priority    = var.listener_rule_priority
+  listener_rule_tag_name    = var.listener_rule_tag_name
   vpc_id                    = module.network.vpc_id
   security_group_id         = module.security.alb_security_group_id
   public_subnet_ids = [
@@ -82,7 +85,7 @@ module "route53" {
   hosted_zone_id = var.route53_hosted_zone_id
   alias_a_records = {
     prod_api = {
-      name                   = "api.archivelink.app"
+      name                   = var.api_domain
       dns_name               = "dualstack.${module.alb.alb_dns_name}"
       hosted_zone_id         = module.alb.alb_zone_id
       evaluate_target_health = true
@@ -120,8 +123,13 @@ module "ecs" {
   task_execution_role_name       = var.task_execution_role_name
   task_execution_role_policy_arn = var.task_execution_role_policy_arn
   task_role_name                 = var.ecs_task_role_name
-  s3_bucket_arn                  = "arn:aws:s3:::${var.aws_s3_bucket_name}"
-  s3_access_enabled              = true
+  s3_bucket_arns = [
+    "arn:aws:s3:::${var.aws_s3_bucket_name}",
+    "arn:aws:s3:::alink-profiles-prod",
+    "arn:aws:s3:::alink-posts-prod",
+    "arn:aws:s3:::alink-previews-prod",
+  ]
+  s3_access_enabled = true
 
   log_group_name              = var.ecs_log_group_name
   log_group_retention_in_days = var.ecs_log_group_retention_in_days
@@ -135,14 +143,18 @@ module "ecs" {
   task_app_protocol   = var.ecs_task_app_protocol
   task_image          = "${module.ecr.repository_url}:${var.ecs_image_tag}"
   task_environment = {
-    DB_JDBC_URL             = local.rds_jdbc_url
-    DB_USERNAME             = var.rds_username
-    DB_DRIVER_CLASS_NAME    = "org.postgresql.Driver"
-    AWS_S3_REGION           = var.aws_region
-    AWS_S3_BUCKET           = var.aws_s3_bucket_name
-    AWS_S3_ENDPOINT         = ""
-    AWS_S3_FORCE_PATH_STYLE = "false"
-    AWS_S3_PUBLIC_BASE_URL  = "https://${var.images_domain}"
+    DB_JDBC_URL                  = local.rds_jdbc_url
+    DB_USERNAME                  = var.rds_username
+    DB_DRIVER_CLASS_NAME         = "org.postgresql.Driver"
+    AWS_S3_REGION                = var.aws_region
+    AWS_S3_PROFILE_BUCKET        = "alink-profiles-prod"
+    AWS_S3_POST_BUCKET           = "alink-posts-prod"
+    AWS_S3_PREVIEW_BUCKET        = "alink-previews-prod"
+    AWS_S3_ENDPOINT              = ""
+    AWS_S3_FORCE_PATH_STYLE      = "false"
+    AWS_S3_PUBLIC_BASE_URL       = "https://${var.images_domain}"
+    LINK_PREVIEW_LAMBDA_FUNCTION = "alink-link-preview-prod:live"
+    LINK_PREVIEW_LAMBDA_ENDPOINT = ""
   }
   task_secret_values = {
     DB_PASSWORD                      = var.db_password

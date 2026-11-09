@@ -8,6 +8,7 @@ import com.qlink.common.error.requireTrue
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
@@ -44,6 +45,17 @@ class Todo(
 
     val isCompleted: Boolean
         get() = completedAt != null
+
+    fun isOverdue(now: Instant): Boolean = !isCompleted && reminderAt?.let { it < now } == true
+
+    fun status(now: Instant): TodoStatus =
+        when {
+            isCompleted -> TodoStatus.COMPLETED
+            isOverdue(now) -> TodoStatus.OVERDUE
+            else -> TodoStatus.ACTIVE
+        }
+
+    fun isDueSoon(now: Instant): Boolean = !isCompleted && reminderAt?.let { it >= now && it < now + 24.hours } == true
 
     fun validateOwner(ownerId: Long) {
         if (this.ownerId != ownerId) {

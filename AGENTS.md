@@ -7,7 +7,10 @@ conventions that are not obvious from reading the code.
 
 - Prefer Kotlin style logics.
 - Readability, Simpleness, and Maintenance are the priorities.
-- Prefer Tell, rather than Ask. Cohere boundary and context.
+- For any change in `domain/**` or `service/**`, follow `references/domain-review.md`.
+- Dependencies follow the allowed list in D1–D9 of `references/domain-review.md`; anything not listed is not allowed.
+- One top-level type per file, except DTO files. Pure-mechanism extensions on Kotlin or JDK types go in `common`
+  util files. See F1–F3 in `references/domain-review.md`.
 
 ## Testing Rules
 
@@ -21,7 +24,10 @@ conventions that are not obvious from reading the code.
 - Give fixture functions meaningful names so tests stay reusable and readable.
 - Domain tests should verify pure domain logic without external dependencies.
 - For domain method tests that are not testing object creation, create the domain object through a fixture. The fixture should expose parameters for values relevant to the method under test, while randomizing unrelated valid values.
-- Service tests must extend `BaseServiceTest` and use Koin DI through `support.koinGet<T>()`.
+- Service tests must extend `BaseServiceTest` and use Koin DI through `support.koinGet<T>()`. This applies to application
+  services (`<domain>/service`).
+- A domain service (`<domain>/domain/service/*DomainService`) is tested like a domain: a pure `BehaviorSpec` with fixtures, no
+  `BaseServiceTest`.
 - In service tests, prepare required persisted data in `beforeTest` using fixtures and repositories.
 - In service test `Then` blocks, verify behavior by querying the database through repositories.
 - For intended exception scenarios, test only `BusinessException`.
@@ -50,36 +56,22 @@ When("input is invalid") {
   mentioned in the target class. For example, `ErrorCode.FOLDER_DIFFERENT_OWNER` is generated only
   in `Folder.kt` domain `validateOwner` method, don't test this on the service calling this method.
 
-## Domain And Exception Rules
-
-- Use `BusinessException` for intentional domain validation failures and service-level business
-  failures.
-- Every `BusinessException` must be backed by an `ErrorCode`.
-- Prefer existing primitive validation extensions such as `requireTrue`, `requireFalse`, and
-  `requireNotOver`.
-- Keep `ErrorCode` grouped by domain. Each entry must include external response `code`, HTTP
-  `status`, and user-facing `message`.
-- Use `kotlin.time.Instant` for domain time values.
-
 ## Persistence Rules
 
 - Use Exposed `timestamp(...)` for database timestamp columns.
 - Convert between Exposed/JVM time and domain `Instant` with `toKotlinInstant()` and
   `toJavaInstant()`.
-- Repositories must not open transaction boundaries directly. Services own transaction boundaries
-  through `TransactionRunner`.
 - Keep domain insert/update mapping in table files using `fromDomain` and `toDomain`-style extension
   functions.
-- For read-only SELECT queries, follow the minimum data principle and project into DTO/query models
-  instead of loading full domains when unnecessary.
 - Keep `ResultRow` to query DTO mapping next to the relevant DTO/query declarations.
 
 ## DTO Rules
 
 - Place DTOs under each domain's `dto` package.
-- Keep DTO files limited to `Requests`, `Responses`, and `Queries`.
-- Create and use Query DTO only if Domain Logic is not involved. If Domain Logic is involved, checking Link Owner for example, select all for domain to conduct its logic and then make a separate query to make Response.
-- Declare request, response, and query data classes in the matching file.
+- Keep DTO files limited to `Requests`, `Responses`, `Queries`, and `Results` (values returned by domain services;
+  not serialized).
+- Declare request, response, query, and result data classes in the matching file.
+- A domain or VO never uses DTO types; domain services and application services assemble them.
 - Mark API request/response DTOs with `@Serializable`.
 
 ## API Rules
@@ -100,6 +92,8 @@ get<LinkResources.ById> { resource ->
 
 ## Documentation
 
+- In user-facing text and API documentation, call the todo feature `액션`, never `할 일`, `할일` or `투두`.
+  Keep code identifiers, tables, error codes and JSON fields (`Todo`, `todos`, `TODO_…`) unchanged.
 - Write smiley4 OpenAPI documentation in `*Docs.kt` under `route` package of each domain package.
 - Include all examples of errors which can happen in the api call, using `SimpleBodyConfig.examples`
   extension in `ErrorExamples.kt`.
@@ -120,11 +114,13 @@ get<LinkResources.ById> { resource ->
 - Generate random values through `RandomFixture`; do not scatter direct faker calls across test
   bodies.
 
-## Service Rules
+## References
 
-- Model services as application use cases.
-- Service public methods should call repositories inside `TransactionRunner.required` or
-  `TransactionRunner.readOnly`.
-- Services should convert request DTOs into domains and repository results into response DTOs.
-- Check use-case preconditions, such as authenticated user existence and related resource existence,
-  in the service layer.
+Consult these resources as needed:
+
+```
+references/
+  domain-review.md                Domain, VO, common, service, query and ErrorCode placement rules
+  project-management-workflow.md  Issue/Project/PR stages, confirmation gates, section rules
+  test-criteria.md                Domain and service test case form, coverage axes, Infra plan checks
+```

@@ -2,14 +2,12 @@
 
 package com.qlink.link.dto
 
-import com.qlink.common.search.SearchCursor
-import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
+import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
-
-const val DEFAULT_LINK_SEARCH_ORDER = "latest"
 
 data class SearchLinksQuery(
     val id: Long,
@@ -19,6 +17,9 @@ data class SearchLinksQuery(
     val workModel: String?,
     val url: String,
     val title: String,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
     val status: LinkStatus,
     val tags: List<String>,
     val createdAt: Instant,
@@ -29,6 +30,24 @@ data class SearchLinksQuery(
     val tagsScore: Double,
     val summaryScore: Double,
     val memoScore: Double,
+    val contentExcerpt: String?,
+    val isMetadataMatched: Boolean,
+    val titleMatched: Boolean,
+    val urlMatched: Boolean,
+    val tagsMatched: Boolean,
+    val summaryMatched: Boolean,
+    val memoMatched: Boolean,
+    val contentMatched: Boolean,
+    val contentScore: Double,
+    val snippet: LinkSnippetQuery?,
+)
+
+data class LinkSnippetQuery(
+    val linkId: Long,
+    val source: String,
+    val headCut: Boolean,
+    val tailCut: Boolean,
+    val bodyLength: Int,
 )
 
 data class LinkDetailQuery(
@@ -41,6 +60,9 @@ data class LinkDetailQuery(
     val folderEmoji: String?,
     val url: String,
     val title: String,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
     val summary: String?,
     val memo: String?,
     val tags: List<String>,
@@ -50,15 +72,17 @@ data class LinkDetailQuery(
     val workModel: String?,
     val createdAt: Instant,
     val favoriteAt: Instant?,
+    val hasContent: Boolean,
+    val contentExcerpt: String?,
+    val isContentPending: Boolean,
 )
 
-typealias LinkSearchOrder = SearchOrder
-
-typealias LinkSearchCursor = SearchCursor<LinkSearchCursorValue>
+typealias LinkSearchCursor = SortCursor<LinkOrderKey, LinkSearchCursorValue>
 
 @Serializable
 data class LinkSearchCursorValue(
     val id: Long? = null,
+    val createdAt: Instant? = null,
     val title: String? = null,
     val score: Double? = null,
     val titleScore: Double? = null,
@@ -66,4 +90,6 @@ data class LinkSearchCursorValue(
     val tagsScore: Double? = null,
     val summaryScore: Double? = null,
     val memoScore: Double? = null,
+    val isMetadataMatched: Boolean? = null,
+    val contentScore: Double? = null,
 )

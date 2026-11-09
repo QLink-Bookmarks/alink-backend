@@ -15,6 +15,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 private const val DEFAULT_MAX_EXPO_SEND_ATTEMPTS = 10
+private const val MASKED_EXPO_PUSH_TOKEN = "ExponentPushToken[***]"
+private val EXPO_PUSH_TOKEN_PATTERN = Regex("""Expo(nent)?PushToken\[[^\]]*]""")
 
 class ExpoPushClient(
     private val httpClient: HttpClient,
@@ -39,14 +41,12 @@ class ExpoPushClient(
                         setBody(ExpoPushSendRequest.from(request))
                     }
                 }
-            check(response.status.isSuccess()) {
-                "Expo push request failed with status ${response.status.value}."
+            if (response.status.isSuccess()) {
+                response.body<ExpoPushSendResponse>().toPushNotificationSendResult()
+            } else {
+                PushNotificationSendResult.failure(errorMessage = response.status.failureMessage())
             }
-            response.body<ExpoPushSendResponse>()
-        }.fold(
-            onSuccess = { it.toPushNotificationSendResult() },
-            onFailure = { PushNotificationSendResult.failure(errorMessage = it.message) },
-        )
+        }.getOrElse { PushNotificationSendResult.failure(errorMessage = it.message) }
 
     override suspend fun sendMulticast(requests: List<PushNotificationSendRequest>): List<PushNotificationSendResult> {
         if (requests.isEmpty()) return emptyList()
@@ -64,20 +64,20 @@ class ExpoPushClient(
                         setBody(requests.map { ExpoPushSendRequest.from(it) })
                     }
                 }
-            check(response.status.isSuccess()) {
-                "Expo push request failed with status ${response.status.value}."
+            if (response.status.isSuccess()) {
+                response.body<ExpoPushBatchResponse>().data.map { it.toPushNotificationSendResult() }
+            } else {
+                requests.map { PushNotificationSendResult.failure(errorMessage = response.status.failureMessage()) }
             }
-            response.body<ExpoPushBatchResponse>()
-        }.fold(
-            onSuccess = { batch -> batch.data.map { it.toPushNotificationSendResult() } },
-            onFailure = { error -> requests.map { PushNotificationSendResult.failure(errorMessage = error.message) } },
-        )
+        }.getOrElse { error -> requests.map { PushNotificationSendResult.failure(errorMessage = error.message) } }
     }
 }
 
 private fun HttpStatusCode.isExpoRetryable(): Boolean = this == HttpStatusCode.TooManyRequests || value in 500..599
 
 private fun HttpStatusCode.isSuccess(): Boolean = value in 200..299
+
+private fun HttpStatusCode.failureMessage(): String = "Expo push request failed with status $value."
 
 @Serializable
 private data class ExpoPushSendRequest(
@@ -116,8 +116,15 @@ private data class ExpoPushTicket(
 ) {
     fun toPushNotificationSendResult(): PushNotificationSendResult =
         when (status) {
-            "ok" -> PushNotificationSendResult.success(messageId = id)
-            else -> PushNotificationSendResult.failure(errorMessage = message ?: details?.error)
+            "ok" -> {
+                PushNotificationSendResult.success(messageId = id)
+            }
+
+            else -> {
+                PushNotificationSendResult.failure(
+                    errorMessage = details?.error ?: message?.replace(EXPO_PUSH_TOKEN_PATTERN, MASKED_EXPO_PUSH_TOKEN),
+                )
+            }
         }
 }
 

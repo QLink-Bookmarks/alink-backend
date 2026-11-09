@@ -139,6 +139,8 @@ dependencies {
 
     // Storage
     implementation(libs.aws.s3)
+    implementation(libs.aws.lambda)
+    implementation(libs.imageio.webp)
 
     // Auth
     implementation(ktorLibs.server.auth)
@@ -164,6 +166,7 @@ dependencies {
     implementation(ktorLibs.server.callLogging)
     implementation(ktorLibs.server.metrics.micrometer)
     implementation(libs.logback.classic)
+    implementation(libs.kotlinx.coroutines.slf4j)
     implementation(libs.micrometer.registryPrometheus)
 
     // Documentation

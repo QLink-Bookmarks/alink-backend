@@ -36,6 +36,12 @@ internal fun signInDocs(): RouteConfig.() -> Unit =
                     examples(ErrorCode.AUTH_PROVIDER_COMMUNICATION_FAILED, ErrorCode.AUTH_PROVIDER_TOKEN_INVALID)
                 }
             }
+            code(HttpStatusCode.InternalServerError) {
+                description = "가입 가이드 저장 정보 오류"
+                body<ApiResponse<ErrorDetail>> {
+                    examples(ErrorCode.AUTH_SIGN_IN_FOLDER_ID_REQUIRED, ErrorCode.AUTH_SIGN_IN_LINK_ID_REQUIRED)
+                }
+            }
         }
     }
 

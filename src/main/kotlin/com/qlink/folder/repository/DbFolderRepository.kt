@@ -1,27 +1,37 @@
 package com.qlink.folder.repository
 
+import com.qlink.common.search.SortCollated
+import com.qlink.common.search.SortDirection
 import com.qlink.common.search.bigmSimilarity
 import com.qlink.common.search.doubleLiteral
 import com.qlink.common.search.longLiteral
 import com.qlink.common.search.lowerText
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.domain.FolderOrderKey
+import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
-import com.qlink.folder.dto.FolderSearchOrder
 import com.qlink.folder.dto.SearchFoldersQuery
 import com.qlink.folder.repository.table.Folders
 import com.qlink.folder.repository.table.fromDomain
+import com.qlink.folder.repository.table.fromDomainForInsert
 import com.qlink.folder.repository.table.refreshUpdatedAt
 import com.qlink.folder.repository.table.toFolderDomain
 import com.qlink.foldermember.repository.table.FolderMembers
 import com.qlink.link.repository.table.Links
 import com.qlink.user.repository.table.Users
+import org.jetbrains.exposed.v1.core.DoubleColumnType
+import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
+import org.jetbrains.exposed.v1.core.Function
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.castTo
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
@@ -30,12 +40,16 @@ import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.andWhere
+import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
+import kotlin.time.Instant
+import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbFolderRepository : FolderRepository {
@@ -46,12 +60,42 @@ class DbFolderRepository : FolderRepository {
             .singleOrNull()
             ?.toFolderDomain()
 
+    override suspend fun findAllByIds(ids: List<Long>): List<Folder> =
+        Folders
+            .selectAll()
+            .where { Folders.id inList ids }
+            .orderBy(Folders.id to SortOrder.ASC)
+            .map { it.toFolderDomain() }
+
+    override suspend fun findAllByIdsForUpdate(ids: List<Long>): List<Folder> =
+        Folders
+            .selectAll()
+            .where { Folders.id inList ids.distinct().sorted() }
+            .orderBy(Folders.id to SortOrder.ASC)
+            .forUpdate()
+            .map { it.toFolderDomain() }
+
+    override suspend fun findAllByIdsForKeyShare(ids: List<Long>): List<Folder> =
+        Folders
+            .selectAll()
+            .where { Folders.id inList ids.distinct().sorted() }
+            .orderBy(Folders.id to SortOrder.ASC)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
+            .map { it.toFolderDomain() }
+
     override suspend fun findAllByOwnerId(ownerId: Long): List<Folder> =
         Folders
             .selectAll()
             .where { Folders.ownerId eq ownerId }
             .orderBy(Folders.id to SortOrder.ASC)
             .map { it.toFolderDomain() }
+
+    override suspend fun findCreatedAtById(id: Long): Instant? =
+        Folders
+            .select(Folders.createdAt)
+            .where { Folders.id eq id }
+            .singleOrNull()
+            ?.let { it[Folders.createdAt].toKotlinInstant() }
 
     override suspend fun existsByOwnerIdAndName(
         ownerId: Long,
@@ -77,18 +121,27 @@ class DbFolderRepository : FolderRepository {
             }.empty()
             .not()
 
-    override suspend fun insert(folder: Folder): Folder = Folders.insertReturning { it.fromDomain(folder) }.single().toFolderDomain()
+    override suspend fun insert(folder: Folder): Folder =
+        Folders.insertReturning { it.fromDomainForInsert(folder) }.single().toFolderDomain()
+
+    override suspend fun insertAll(folders: List<Folder>): List<Folder> =
+        Folders
+            .batchInsert(folders) { fromDomainForInsert(it) }
+            .map { it.toFolderDomain() }
 
     override suspend fun search(
         ownerId: Long,
         query: String?,
-        order: FolderSearchOrder,
+        sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
     ): List<SearchFoldersQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
         val loweredQuery = normalizedQuery?.lowercase()
-        val score = (normalizedQuery?.let { bigmSimilarity(Folders.name, it) } ?: doubleLiteral(0.0)).alias("score")
+        // Read the REAL score as DOUBLE PRECISION so its cursor value round-trips exactly.
+        val score =
+            (normalizedQuery?.let { bigmSimilarity(Folders.name, it).castTo<Double>(DoubleColumnType()) } ?: doubleLiteral(0.0))
+                .alias("score")
         val ownerUsers = Users.alias("owner_users")
         val ownerNickname = ownerUsers[Users.nickname].alias("owner_nickname")
         val joined =
@@ -128,9 +181,9 @@ class DbFolderRepository : FolderRepository {
                         andWhere { lowerText(Folders.name) like "%$keyword%" }
                     }
                     cursor?.value?.let { cursorValue ->
-                        andWhere { cursorFilter(order, cursorValue, score) }
+                        andWhere { cursorFilter(sort, cursorValue, score) }
                     }
-                }.orderBy(*orderBy(order, score))
+                }.orderBy(*orderBy(sort, score))
                 .limit(size + 1)
                 .map { it.toSearchFoldersQuery(score, ownerNickname, ownerId) }
 
@@ -139,23 +192,39 @@ class DbFolderRepository : FolderRepository {
         }
 
         val folderIds = folders.map { it.id }
-        val memberCounts =
+        val memberIdsByFolder =
             FolderMembers
-                .select(FolderMembers.folderId)
+                .select(FolderMembers.folderId, FolderMembers.userId)
                 .where { FolderMembers.folderId inList folderIds }
-                .groupingBy { it[FolderMembers.folderId] }
-                .eachCount()
-        val linkCounts =
+                .groupBy({ it[FolderMembers.folderId] }, { it[FolderMembers.userId] })
+        val linkCount =
+            object : Function<Long>(LongColumnType()) {
+                override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+                    queryBuilder.append("COUNT(*)")
+                }
+            }
+        val myLinkCount =
+            object : Function<Long>(LongColumnType()) {
+                override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+                    queryBuilder
+                        .append("COUNT(*) FILTER (WHERE ")
+                        .append(Links.ownerId eq ownerId)
+                        .append(")")
+                }
+            }
+        val linkCountsByFolder =
             Links
-                .select(Links.folderId)
+                .select(Links.folderId, linkCount, myLinkCount)
                 .where { Links.folderId inList folderIds }
-                .groupingBy { it[Links.folderId]!! }
-                .eachCount()
+                .groupBy(Links.folderId)
+                .associateBy { it[Links.folderId]!! }
 
-        return folders.map {
-            it.copy(
-                shareCounts = (memberCounts[it.id] ?: 0) + 1,
-                linkCounts = linkCounts[it.id] ?: 0,
+        return folders.map { folder ->
+            val counts = linkCountsByFolder[folder.id]
+            folder.copy(
+                shareCounts = if (folder.sharedAt == null) 1 else (memberIdsByFolder[folder.id].orEmpty() + folder.ownerId).distinct().size,
+                linkCounts = counts?.get(linkCount)?.toInt() ?: 0,
+                myLinkCounts = counts?.get(myLinkCount)?.toInt() ?: 0,
             )
         }
     }
@@ -172,46 +241,66 @@ class DbFolderRepository : FolderRepository {
         Folders.deleteWhere { id eq folderId }
     }
 
+    override suspend fun deleteAllByIds(folderIds: List<Long>) {
+        Folders.deleteWhere { id inList folderIds }
+    }
+
     private fun cursorFilter(
-        order: FolderSearchOrder,
+        sort: FolderSort,
         cursorValue: FolderSearchCursorValue,
         score: org.jetbrains.exposed.v1.core.ExpressionWithColumnTypeAlias<Double>,
     ): Op<Boolean> =
-        when (order) {
-            FolderSearchOrder.LATEST -> {
-                Folders.id less longLiteral(cursorValue.id ?: Long.MIN_VALUE)
+        when (sort.orderKey) {
+            FolderOrderKey.CREATED_AT -> {
+                val createdAt = cursorValue.createdAt!!.toJavaInstant()
+
+                Folders.createdAt.beyond(createdAt, sort.direction) or
+                    ((Folders.createdAt eq createdAt) and Folders.id.beyond(cursorValue.id!!, sort.direction))
             }
 
-            FolderSearchOrder.EARLIEST -> {
-                Folders.id greater longLiteral(cursorValue.id ?: Long.MAX_VALUE)
-            }
-
-            FolderSearchOrder.LAXICO -> {
-                (Folders.name greater (cursorValue.name ?: "")) or
+            FolderOrderKey.NAME -> {
+                SortCollated(Folders.name).beyond(cursorValue.name ?: "", sort.direction) or
                     (
-                        (Folders.name eq (cursorValue.name ?: "")) and
-                            (Folders.id greater longLiteral(cursorValue.id ?: Long.MIN_VALUE))
+                        (SortCollated(Folders.name) eq (cursorValue.name ?: "")) and
+                            Folders.id.beyond(cursorValue.id!!, sort.direction)
                     )
             }
 
-            FolderSearchOrder.SIMILAR -> {
-                (score less doubleLiteral(cursorValue.score ?: Double.MIN_VALUE)) or
+            FolderOrderKey.SIMILARITY -> {
+                (score.delegate less doubleLiteral(cursorValue.score ?: Double.MIN_VALUE)) or
                     (
-                        (score eq doubleLiteral(cursorValue.score ?: Double.MIN_VALUE)) and
+                        (score.delegate eq doubleLiteral(cursorValue.score ?: Double.MIN_VALUE)) and
                             (Folders.id less longLiteral(cursorValue.id ?: Long.MAX_VALUE))
                     )
             }
         }
 
     private fun orderBy(
-        order: FolderSearchOrder,
+        sort: FolderSort,
         score: org.jetbrains.exposed.v1.core.ExpressionWithColumnTypeAlias<Double>,
-    ): Array<Pair<org.jetbrains.exposed.v1.core.Expression<*>, SortOrder>> =
-        when (order) {
-            FolderSearchOrder.LATEST -> arrayOf(Folders.id to SortOrder.DESC)
-            FolderSearchOrder.EARLIEST -> arrayOf(Folders.id to SortOrder.ASC)
-            FolderSearchOrder.LAXICO -> arrayOf(Folders.name to SortOrder.ASC, Folders.id to SortOrder.ASC)
-            FolderSearchOrder.SIMILAR -> arrayOf(score to SortOrder.DESC, Folders.id to SortOrder.DESC)
+    ): Array<Pair<org.jetbrains.exposed.v1.core.Expression<*>, SortOrder>> {
+        val sortOrder = sort.direction.sortOrder()
+
+        return when (sort.orderKey) {
+            FolderOrderKey.CREATED_AT -> arrayOf(Folders.createdAt to sortOrder, Folders.id to sortOrder)
+            FolderOrderKey.NAME -> arrayOf(SortCollated(Folders.name) to sortOrder, Folders.id to sortOrder)
+            FolderOrderKey.SIMILARITY -> arrayOf(score to SortOrder.DESC, Folders.id to SortOrder.DESC)
+        }
+    }
+
+    private fun <T : Comparable<T>, S : T?> ExpressionWithColumnType<in S>.beyond(
+        value: T,
+        direction: SortDirection,
+    ): Op<Boolean> =
+        when (direction) {
+            SortDirection.ASC -> this greater value
+            SortDirection.DESC -> this less value
+        }
+
+    private fun SortDirection.sortOrder(): SortOrder =
+        when (this) {
+            SortDirection.ASC -> SortOrder.ASC
+            SortDirection.DESC -> SortOrder.DESC
         }
 
     private fun ResultRow.toSearchFoldersQuery(
@@ -230,5 +319,6 @@ class DbFolderRepository : FolderRepository {
             shareCounts = 0,
             linkCounts = 0,
             score = this[score],
+            myLinkCounts = 0,
         )
 }

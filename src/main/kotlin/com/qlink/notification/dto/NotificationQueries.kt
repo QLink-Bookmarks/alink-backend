@@ -2,23 +2,21 @@
 
 package com.qlink.notification.dto
 
-import com.qlink.common.search.SearchCursor
-import com.qlink.common.search.SearchOrder
+import com.qlink.common.search.SortCursor
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.domain.NotificationOrderKey
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
-const val DEFAULT_NOTIFICATION_SEARCH_ORDER = "latest"
 const val DEFAULT_NOTIFICATION_SCROLL_SIZE = 30
 
-typealias NotificationSearchOrder = SearchOrder
-
-typealias NotificationSearchCursor = SearchCursor<NotificationSearchCursorValue>
+typealias NotificationSearchCursor = SortCursor<NotificationOrderKey, NotificationSearchCursorValue>
 
 @Serializable
 data class NotificationSearchCursorValue(
     val id: Long? = null,
     val type: NotificationContext? = null,
+    val firedAt: Instant? = null,
 )
 
 data class SearchNotificationsQuery(

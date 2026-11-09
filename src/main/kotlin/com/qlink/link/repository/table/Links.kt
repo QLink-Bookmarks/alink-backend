@@ -6,10 +6,12 @@ import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
 import com.qlink.user.repository.table.Users
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.concat
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.javatime.CurrentTimestamp
 import org.jetbrains.exposed.v1.javatime.timestamp
@@ -29,6 +31,8 @@ object Links : Table("links") {
     val tags = array<String>("tags", TextColumnType()).default(emptyList())
     val searchText = text("search_text").default("")
     val thumbnailUrl = text("thumbnail_url").nullable()
+    val faviconUrl = text("favicon_url").nullable()
+    val isVideo = bool("is_video").default(false)
     val sourceType = enumerationByName<SourceType>("source_type", 30)
     val status = enumerationByName<LinkStatus>("status", 1).default(LinkStatus.C)
     val workModelId =
@@ -42,6 +46,7 @@ object Links : Table("links") {
 
     init {
         index("links_owner_id_idx", false, ownerId)
+        index("links_owner_id_created_at_id_idx", false, ownerId, createdAt, id)
         index("links_folder_id_idx", false, folderId)
         index("links_status_idx", false, status)
         index("links_work_model_id_idx", false, workModelId)
@@ -60,6 +65,8 @@ fun ResultRow.toLinkDomain(): Link =
         memo = this[Links.memo],
         tags = this[Links.tags],
         thumbnailUrl = this[Links.thumbnailUrl],
+        faviconUrl = this[Links.faviconUrl],
+        isVideo = this[Links.isVideo],
         sourceType = this[Links.sourceType],
         status = this[Links.status],
         workModelId = this[Links.workModelId],
@@ -78,10 +85,18 @@ fun UpdateBuilder<*>.fromDomain(link: Link) {
     this[Links.tags] = link.tags
     this[Links.searchText] = link.searchText()
     this[Links.thumbnailUrl] = link.thumbnailUrl
+    this[Links.faviconUrl] = link.faviconUrl
+    this[Links.isVideo] = link.isVideo
     this[Links.sourceType] = link.sourceType
     this[Links.status] = link.status
     this[Links.workModelId] = link.workModelId
     this[Links.favoriteAt] = link.favoriteAt?.toJavaInstant()
+}
+
+fun UpdateBuilder<*>.fromDomainForInsert(link: Link) {
+    fromDomain(link)
+    link.createdAt?.let { this[Links.createdAt] = it.toJavaInstant() }
+    link.updatedAt?.let { this[Links.updatedAt] = it.toJavaInstant() }
 }
 
 fun UpdateBuilder<*>.refreshUpdatedAt() {
@@ -96,3 +111,11 @@ private fun Link.searchText(): String =
         summary.orEmpty(),
         memo.orEmpty(),
     ).joinToString(" ")
+
+fun searchTextExpression(
+    title: Expression<*>,
+    url: Expression<*>,
+    tags: Expression<*>,
+    summary: Expression<*>,
+    memo: Expression<*>,
+): Expression<String> = concat(separator = " ", expr = listOf(title, url, tags, summary, memo))

@@ -36,18 +36,23 @@ internal fun createLinkDocs(): RouteConfig.() -> Unit =
                 description = "링크 생성 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.LINK_URL_BLANK,
                         ErrorCode.LINK_URL_WRONG_FORMAT,
                         ErrorCode.LINK_URL_NOT_HTTP,
                         ErrorCode.LINK_URL_WRONG_HOST,
                         ErrorCode.LINK_TITLE_BLANK,
                         ErrorCode.LINK_TITLE_OVER_MAX,
+                        ErrorCode.LINK_THUMBNAIL_URL_NOT_ALLOWED,
+                        ErrorCode.LINK_FAVICON_URL_NOT_ALLOWED,
+                        ErrorCode.LINK_SOURCE_TYPE_NOT_ALLOWED,
                         ErrorCode.TODO_TITLE_BLANK,
                         ErrorCode.TODO_TITLE_OVER_MAX,
                         ErrorCode.TODO_REPEAT_FIELDS_INCOMPLETE,
                         ErrorCode.TODO_REPEAT_DAYS_EMPTY,
                         ErrorCode.TODO_REPEAT_TIME_INVALID,
                         ErrorCode.TODO_REPEAT_TIMEZONE_INVALID,
+                        ErrorCode.TODO_REMINDER_AT_INVALID,
                     )
                 }
             }
@@ -55,7 +60,7 @@ internal fun createLinkDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.Forbidden) {
                 description = "링크 생성 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.FOLDER_DIFFERENT_OWNER)
+                    examples(ErrorCode.LINK_FOLDER_ACCESS_DENIED)
                 }
             }
             code(HttpStatusCode.NotFound) {
@@ -75,14 +80,32 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
         summary = "링크 AI 요약 요청 API"
         request { body<AiSummaryRequest>() }
         response {
-            code(HttpStatusCode.Accepted) {
+            code(HttpStatusCode.OK) {
                 description = "링크 AI 요약 요청 접수 성공"
                 body<ApiResponse<AiSummaryResponse>>()
             }
             code(HttpStatusCode.BadRequest) {
                 description = "링크 AI 요약 요청이 올바르지 않음"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.COMMON_BAD_REQUEST)
+                    examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
+                        ErrorCode.LINK_URL_BLANK,
+                        ErrorCode.LINK_URL_WRONG_FORMAT,
+                        ErrorCode.LINK_URL_NOT_HTTP,
+                        ErrorCode.LINK_URL_WRONG_HOST,
+                        ErrorCode.LINK_TITLE_BLANK,
+                        ErrorCode.LINK_TITLE_OVER_MAX,
+                        ErrorCode.LINK_THUMBNAIL_URL_NOT_ALLOWED,
+                        ErrorCode.LINK_FAVICON_URL_NOT_ALLOWED,
+                        ErrorCode.LINK_AI_EXISTING_LINK_CONTENT_NOT_ALLOWED,
+                        ErrorCode.TODO_TITLE_BLANK,
+                        ErrorCode.TODO_TITLE_OVER_MAX,
+                        ErrorCode.TODO_REPEAT_FIELDS_INCOMPLETE,
+                        ErrorCode.TODO_REPEAT_DAYS_EMPTY,
+                        ErrorCode.TODO_REPEAT_TIME_INVALID,
+                        ErrorCode.TODO_REPEAT_TIMEZONE_INVALID,
+                        ErrorCode.TODO_REMINDER_AT_INVALID,
+                    )
                 }
             }
             authErrorResponse()
@@ -92,6 +115,7 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
                     examples(
                         ErrorCode.LINK_DIFFERENT_OWNER,
                         ErrorCode.AI_USER_PROVIDER_ACCESS_DENIED,
+                        ErrorCode.LINK_FOLDER_ACCESS_DENIED,
                     )
                 }
             }
@@ -102,6 +126,8 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
                         ErrorCode.LINK_NOT_FOUND,
                         ErrorCode.AI_USER_PROVIDER_NOT_FOUND,
                         ErrorCode.AI_MODEL_NOT_FOUND,
+                        ErrorCode.LINK_OWNER_NOT_FOUND,
+                        ErrorCode.LINK_FOLDER_NOT_FOUND,
                     )
                 }
             }
@@ -111,6 +137,9 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
 internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
     {
         summary = "링크 상세 조회 API"
+        description =
+            "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
+            "본문 전체와 수집 상태는 내보내지 않아요."
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }
@@ -123,7 +152,7 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.Forbidden) {
                 description = "링크 상세 조회 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.LINK_DIFFERENT_OWNER)
+                    examples(ErrorCode.LINK_DIFFERENT_OWNER, ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
                 }
             }
             code(HttpStatusCode.NotFound) {
@@ -138,11 +167,24 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
 internal fun getLinksDocs(): RouteConfig.() -> Unit =
     {
         summary = "링크 검색 API"
+        description =
+            "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
+            "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
+            "이 기능 이전에 발급된 검색 커서는 COMMON_CURSOR_FIELD_MISSING으로 거절돼요."
         request {
-            queryParameter<String?>("query") { description = "검색어" }
+            queryParameter<String?>("query") { description = "검색어 (1자면 본문 미검색, %·_·역슬래시는 글자 그대로)" }
             queryParameter<Long?>("folderId") { description = "폴더 ID 필터" }
             queryParameter<Boolean?>("isFavorite") { description = "바로가기 필터 (true: 바로가기만, false: 일반만, 미지정: 전체)" }
-            queryParameter<String>("order") { description = "정렬 기준 (latest / earliest / laxico / similar), 기본값: latest" }
+            queryParameter<String?>("orderKey") {
+                description =
+                    "정렬 기준 (created_at: 기본 desc / title: 기본 asc / similarity: desc만), 기본값: created_at. " +
+                    "같은 값이면 id를 같은 방향으로 이어 정렬해요"
+            }
+            queryParameter<String?>("order") {
+                description =
+                    "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc) / earliest(= created_at asc) / " +
+                    "laxico(= title asc) / similar(= similarity desc)도 받아요"
+            }
             queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 15" }
         }
@@ -188,12 +230,15 @@ internal fun updateLinkDocs(): RouteConfig.() -> Unit =
                 description = "링크 수정 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.LINK_URL_BLANK,
                         ErrorCode.LINK_URL_WRONG_FORMAT,
                         ErrorCode.LINK_URL_NOT_HTTP,
                         ErrorCode.LINK_URL_WRONG_HOST,
                         ErrorCode.LINK_TITLE_BLANK,
                         ErrorCode.LINK_TITLE_OVER_MAX,
+                        ErrorCode.LINK_THUMBNAIL_URL_NOT_ALLOWED,
+                        ErrorCode.LINK_FAVICON_URL_NOT_ALLOWED,
                     )
                 }
             }
@@ -203,7 +248,7 @@ internal fun updateLinkDocs(): RouteConfig.() -> Unit =
                 body<ApiResponse<ErrorDetail>> {
                     examples(
                         ErrorCode.LINK_DIFFERENT_OWNER,
-                        ErrorCode.FOLDER_DIFFERENT_OWNER,
+                        ErrorCode.LINK_FOLDER_ACCESS_DENIED,
                     )
                 }
             }
@@ -254,7 +299,7 @@ internal fun patchLinkDocs(): RouteConfig.() -> Unit =
                 body<ApiResponse<ErrorDetail>> {
                     examples(
                         ErrorCode.LINK_DIFFERENT_OWNER,
-                        ErrorCode.FOLDER_DIFFERENT_OWNER,
+                        ErrorCode.LINK_FOLDER_ACCESS_DENIED,
                         ErrorCode.TODO_DIFFERENT_OWNER,
                     )
                 }

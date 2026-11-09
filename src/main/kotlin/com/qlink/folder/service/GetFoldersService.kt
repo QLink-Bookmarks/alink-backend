@@ -3,15 +3,15 @@ package com.qlink.folder.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
-import com.qlink.common.search.SearchCursorCodec
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.folder.dto.DEFAULT_FOLDER_SEARCH_ORDER
+import com.qlink.folder.domain.FolderOrderKey
+import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
-import com.qlink.folder.dto.FolderSearchOrder
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.dto.SearchFoldersQuery
 import com.qlink.folder.repository.FolderRepository
@@ -25,22 +25,21 @@ class GetFoldersService(
     suspend fun getFolders(
         loginId: Long,
         query: String?,
-        order: String,
+        orderKey: String? = null,
+        order: String? = null,
         scrollRequest: ScrollRequest,
     ): ScrollResponse<GetFoldersContentResponse> =
         tx.readOnly {
             userRepository.emptyById(loginId).requireFalse(ErrorCode.FOLDER_OWNER_NOT_FOUND)
 
-            val normalizedOrder =
-                FolderSearchOrder.from(order.ifBlank { DEFAULT_FOLDER_SEARCH_ORDER })
-                    ?: throw BusinessException(ErrorCode.COMMON_INVALID_SORT_ORDER)
-            val cursor = scrollRequest.cursor?.let { SearchCursorCodec.decode(it, normalizedOrder, ::validateCursorValue) }
+            val sort = FolderSort.of(orderKey = orderKey, order = order)
+            val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort) }
             val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
             val queries =
                 folderRepository.search(
                     ownerId = loginId,
                     query = query,
-                    order = normalizedOrder,
+                    sort = sort,
                     cursor = cursor,
                     size = size,
                 )
@@ -60,45 +59,75 @@ class GetFoldersService(
                             isShared = folder.sharedAt != null,
                             shareCounts = folder.shareCounts,
                             linkCounts = folder.linkCounts,
+                            myLinkCounts = folder.myLinkCounts,
                         )
                     },
-                nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(it, normalizedOrder) },
+                nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, sort = sort) },
                 hasNext = hasNext,
             )
         }
 
+    private suspend fun decodeCursor(
+        encoded: String,
+        sort: FolderSort,
+    ): FolderSearchCursor {
+        val cursor = Base64CursorCodec.decode<FolderSearchCursor>(encoded)
+        sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
+        validateCursorValue(value = cursor.value, orderKey = sort.orderKey)
+
+        return cursor.withCreatedAt(sort.orderKey)
+    }
+
     private fun validateCursorValue(
         value: FolderSearchCursorValue,
-        expectedOrder: FolderSearchOrder,
+        orderKey: FolderOrderKey,
     ) {
-        when (expectedOrder) {
-            FolderSearchOrder.LATEST, FolderSearchOrder.EARLIEST -> {
+        when (orderKey) {
+            FolderOrderKey.CREATED_AT -> {
                 value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
             }
 
-            FolderSearchOrder.LAXICO -> {
+            FolderOrderKey.NAME -> {
                 value.name ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
                 value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
             }
 
-            FolderSearchOrder.SIMILAR -> {
+            FolderOrderKey.SIMILARITY -> {
                 value.score ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
                 value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
             }
         }
     }
 
+    private suspend fun FolderSearchCursor.withCreatedAt(orderKey: FolderOrderKey): FolderSearchCursor =
+        when {
+            orderKey != FolderOrderKey.CREATED_AT || value.createdAt != null -> {
+                this
+            }
+
+            else -> {
+                folderRepository
+                    .findCreatedAtById(value.id!!)
+                    ?.let { copy(value = value.copy(createdAt = it)) }
+                    ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
+            }
+        }
+
     private fun encodeCursor(
         query: SearchFoldersQuery,
-        order: FolderSearchOrder,
+        sort: FolderSort,
     ): String =
-        SearchCursorCodec.encode(
-            order = order,
-            value =
-                FolderSearchCursorValue(
-                    id = query.id,
-                    name = query.name,
-                    score = query.score,
-                ),
+        Base64CursorCodec.encode(
+            FolderSearchCursor(
+                orderKey = sort.orderKey,
+                direction = sort.direction,
+                value =
+                    FolderSearchCursorValue(
+                        id = query.id,
+                        createdAt = query.createdAt,
+                        name = query.name,
+                        score = query.score,
+                    ),
+            ),
         )
 }

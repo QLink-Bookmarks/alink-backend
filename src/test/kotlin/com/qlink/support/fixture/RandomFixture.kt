@@ -6,6 +6,7 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
@@ -105,6 +106,13 @@ object RandomFixture {
 
     fun randomPastInstant(): Instant = pastDateTime(365, TimeUnit.DAYS).toInstant().toKotlinInstant()
 
+    fun randomFutureInstantAfterTomorrow(): Instant =
+        OffsetDateTime
+            .now(ZoneOffset.UTC)
+            .let { now -> randomDateTimeBetween(from = now.plusDays(2), to = now.plusDays(365)) }
+            .toInstant()
+            .toKotlinInstant()
+
     fun futureDateTime(
         futureScope: Int,
         timeUnit: TimeUnit,
@@ -199,7 +207,24 @@ object RandomFixture {
 
     fun randomUrl(): String = faker.internet().url()
 
+    fun randomPreviewBaseUrl(): String = "https://cdn-${randomId()}.example.com"
+
+    fun randomPreviewEnvironment(): String = listOf("dev", "prod").random()
+
+    fun randomPreviewUrl(
+        baseUrl: String = randomPreviewBaseUrl(),
+        environment: String = randomPreviewEnvironment(),
+        kind: String = "preview",
+    ): String = "$baseUrl/$environment-$kind-${UUID.randomUUID()}.png"
+
+    fun randomCase(value: String): String =
+        value
+            .map { if (faker.random().nextBoolean()) it.lowercaseChar() else it.uppercaseChar() }
+            .joinToString("")
+
     fun randomEmoji(): String = faker.emoji().smiley()
+
+    fun randomLanguage(): String = Locale.getISOLanguages().random()
 
     fun randomSentenceList(
         maxSize: Int? = null,

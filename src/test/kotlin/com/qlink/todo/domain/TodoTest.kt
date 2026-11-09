@@ -12,6 +12,8 @@ import io.kotest.matchers.shouldNotBe
 import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Instant
 
 class TodoTest :
@@ -78,6 +80,28 @@ class TodoTest :
                 Then("생성을 실패한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.TODO_TITLE_OVER_MAX.message) {
                         overMaxCreate()
+                    }
+                }
+            }
+
+            When("반복 없이 알림 시각이 현재 이전이면") {
+                val create = {
+                    Todo.create(
+                        linkId = linkId,
+                        ownerId = ownerId,
+                        title = RandomFixture.randomSentenceWithMax(50),
+                        reminderAt = RandomFixture.randomPastInstant(),
+                        repeatUntil = null,
+                        repeatDays = null,
+                        repeatTime = null,
+                        repeatTimezone = null,
+                        now = Clock.System.now(),
+                    )
+                }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.TODO_REMINDER_AT_INVALID.message) {
+                        create()
                     }
                 }
             }
@@ -355,6 +379,144 @@ class TodoTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.TODO_REPEAT_TIMEZONE_INVALID.message) {
                         create()
                     }
+                }
+            }
+
+            When("반복 요일이 비어 있으면") {
+                val create = {
+                    Todo.create(
+                        linkId = linkId,
+                        ownerId = ownerId,
+                        title = RandomFixture.randomSentenceWithMax(50),
+                        reminderAt = null,
+                        repeatUntil = RandomFixture.randomFutureInstantAfterTomorrow(),
+                        repeatDays = emptyList(),
+                        repeatTime = "10:30",
+                        repeatTimezone = null,
+                        now = Clock.System.now(),
+                    )
+                }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.TODO_REPEAT_DAYS_EMPTY.message) {
+                        create()
+                    }
+                }
+            }
+
+            When("반복 시간이 HH:mm 형식이 아니면") {
+                val create = {
+                    Todo.create(
+                        linkId = linkId,
+                        ownerId = ownerId,
+                        title = RandomFixture.randomSentenceWithMax(50),
+                        reminderAt = null,
+                        repeatUntil = RandomFixture.randomFutureInstantAfterTomorrow(),
+                        repeatDays = listOf(RepeatDay.MON),
+                        repeatTime = "9:30",
+                        repeatTimezone = null,
+                        now = Clock.System.now(),
+                    )
+                }
+
+                Then("예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.TODO_REPEAT_TIME_INVALID.message) {
+                        create()
+                    }
+                }
+            }
+        }
+
+        Given("미완료 액션의 상태") {
+            val now = Clock.System.now()
+            val linkId = RandomFixture.randomId()
+            val ownerId = RandomFixture.randomId()
+
+            When("알림이 없으면") {
+                val todo = TodoFixture.createRandomTodoOf(linkId = linkId, ownerId = ownerId, reminderAt = null)
+
+                Then("ACTIVE") {
+                    todo.status(now) shouldBe TodoStatus.ACTIVE
+                }
+            }
+
+            When("알림 시각이 기준 시각 직전이면") {
+                val todo = TodoFixture.createRandomTodoOf(linkId = linkId, ownerId = ownerId, reminderAt = now - 1.nanoseconds)
+
+                Then("OVERDUE") {
+                    todo.status(now) shouldBe TodoStatus.OVERDUE
+                }
+            }
+
+            When("알림 시각이 기준 시각과 같으면") {
+                val todo = TodoFixture.createRandomTodoOf(linkId = linkId, ownerId = ownerId, reminderAt = now)
+
+                Then("ACTIVE") {
+                    todo.status(now) shouldBe TodoStatus.ACTIVE
+                }
+            }
+
+            When("알림 시각이 기준 시각 이후이면") {
+                val todo = TodoFixture.createRandomTodoOf(linkId = linkId, ownerId = ownerId, reminderAt = now + 1.nanoseconds)
+
+                Then("ACTIVE") {
+                    todo.status(now) shouldBe TodoStatus.ACTIVE
+                }
+            }
+        }
+
+        Given("완료된 액션의 상태") {
+            val now = Clock.System.now()
+
+            When("알림 시각이 기준 시각보다 지났어도") {
+                val todo =
+                    TodoFixture.createRandomTodoOf(
+                        linkId = RandomFixture.randomId(),
+                        ownerId = RandomFixture.randomId(),
+                        reminderAt = RandomFixture.randomPastInstant(),
+                        completedAt = RandomFixture.randomPastInstant(),
+                    )
+
+                Then("COMPLETED") {
+                    todo.status(now) shouldBe TodoStatus.COMPLETED
+                }
+            }
+        }
+
+        Given("미완료 반복 액션의 상태") {
+            val now = Clock.System.now()
+            val linkId = RandomFixture.randomId()
+            val ownerId = RandomFixture.randomId()
+
+            When("다음 회차 시각이 기준 시각보다 지났으면") {
+                val todo =
+                    TodoFixture.createRandomTodoOf(
+                        linkId = linkId,
+                        ownerId = ownerId,
+                        reminderAt = now - 1.hours,
+                        repeatUntil = RandomFixture.randomFutureInstantAfterTomorrow(),
+                        repeatDays = listOf(RepeatDay.MON),
+                        repeatTime = LocalTime.of(9, 0),
+                    )
+
+                Then("OVERDUE") {
+                    todo.status(now) shouldBe TodoStatus.OVERDUE
+                }
+            }
+
+            When("반복이 끝나 알림 시각이 없으면") {
+                val todo =
+                    TodoFixture.createRandomTodoOf(
+                        linkId = linkId,
+                        ownerId = ownerId,
+                        reminderAt = null,
+                        repeatUntil = RandomFixture.randomPastInstant(),
+                        repeatDays = listOf(RepeatDay.MON),
+                        repeatTime = LocalTime.of(9, 0),
+                    )
+
+                Then("ACTIVE") {
+                    todo.status(now) shouldBe TodoStatus.ACTIVE
                 }
             }
         }

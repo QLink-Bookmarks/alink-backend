@@ -22,31 +22,28 @@ public_route_table_name  = "qlink-public"
 private_route_table_name = "qlink-private-rtb-a"
 s3_endpoint_name         = "qlink-s3-endpoint"
 
+app_sg_name        = "alinkAppGroupDev"
+app_sg_description = "ECS Security Group (shared VPC)"
+
 alb_sg_name               = "qlinkAlbGroup"
 alb_sg_description        = "ALB Security Group"
-app_sg_name               = "qlinkAppGroup"
-app_sg_description        = "ECS Security Group"
+legacy_app_sg_name        = "qlinkAppGroup"
+legacy_app_sg_description = "ECS Security Group"
 rds_app_sg_name           = "qlinkRdsAppGroup"
 rds_app_sg_description    = "RDS App Security Group"
 rds_legacy_sg_name        = "qlinkRdsGroup"
 rds_legacy_sg_description = "RDS Security Group"
 rds_public_sg_name        = "qlinkRdsPublicGroup"
 rds_public_sg_description = "RDS Public Security Group"
-rds_public_ingress_cidrs  = ["0.0.0.0/0"]
+rds_public_ingress_cidrs  = []
 
-alb_name                  = "qlink-alb-dev"
-alb_tag_name              = "qlink-alb-dev"
-target_group_name         = "qlink-tg-dev"
-target_group_tag_name     = "qlink-tg-dev"
-listener_tag_name         = "qlink-alb-listener"
-https_listener_tag_name   = "qlink-alb-https-listener"
-acm_certificate_arn       = "arn:aws:acm:ap-northeast-2:650177546654:certificate/5cada5c0-3c8e-4e01-8796-36014f087cde"
-https_listener_ssl_policy = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09"
-route53_hosted_zone_id    = "Z08989212MZQ9OYDBC0JK"
+target_group_name      = "alink-tg-dev"
+target_group_tag_name  = "alink-tg-dev"
+route53_hosted_zone_id = "Z08989212MZQ9OYDBC0JK"
 
 ecr_image_tag_mutability = "IMMUTABLE"
 ecr_image_scan_on_push   = false
-ecr_max_image_count      = 20
+ecr_max_image_count      = 15
 
 ecs_key_pair_name               = "qlink-dev-ssh"
 ecs_instance_role_name          = "ecsInstanceRole"
@@ -93,8 +90,23 @@ rds_storage_type                    = "gp3"
 rds_iops                            = null
 rds_storage_throughput              = null
 rds_availability_zone               = "ap-northeast-2a"
-rds_publicly_accessible             = true
+rds_publicly_accessible             = false
 rds_multi_az                        = false
 rds_enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
 rds_skip_final_snapshot             = true
-rds_instance_tag_name               = "qlink-rds-dev-pg18-public"
+rds_instance_tag_name               = "alink-rds-dev"
+
+shared_vpc_name         = "alink-prod"
+shared_alb_name         = "alink-alb-prod"
+shared_alb_sg_name      = "alinkAlbGroupProd"
+shared_subnet_a_cidr    = "172.30.64.0/20"
+shared_subnet_a_name    = "alink-dev-public-a"
+shared_route_table_name = "alink-dev-public"
+peering_name            = "alink-prod-to-alink-dev"
+
+rds_sg_name        = "alinkRdsGroupDev"
+rds_sg_description = "RDS Security Group"
+
+dev_api_domain         = "dev.api.archivelink.app"
+listener_rule_priority = 200
+listener_rule_tag_name = "dev-api-host-rule"

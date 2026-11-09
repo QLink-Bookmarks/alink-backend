@@ -13,6 +13,7 @@ import com.qlink.push.client.PushNotificationSendRequest
 import com.qlink.push.client.PushNotificationSenderRouter
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository
+import org.slf4j.Logger
 import kotlin.time.Clock
 
 class SendNotificationService(
@@ -23,6 +24,7 @@ class SendNotificationService(
     private val senderRouter: PushNotificationSenderRouter,
     private val todoRepository: TodoRepository,
     private val linkRepository: LinkRepository,
+    private val log: Logger,
 ) {
     suspend fun send(notificationId: Long): SendNotificationResult {
         val target = findSendTarget(notificationId)
@@ -30,12 +32,20 @@ class SendNotificationService(
 
         val successCount = sentResults.count { it.success }
         val failureCount = sentResults.count { !it.success }
+        log.info(
+            "[NOTIFICATION] Push done for notification={} — tokens={}, success={}, failure={}",
+            notificationId,
+            sentResults.size,
+            successCount,
+            failureCount,
+        )
 
         val updatedNotification =
             tx.required {
+                val pending = notificationRepository.findPendingById(notificationId) ?: return@required null
                 val savedNotification =
                     notificationRepository.update(
-                        target.notification.recordSendResult(
+                        pending.recordSendResult(
                             handledAt = Clock.System.now(),
                             successCount = successCount,
                             failureCount = failureCount,
@@ -50,9 +60,9 @@ class SendNotificationService(
             }
 
         return SendNotificationResult(
-            notificationId = updatedNotification.id!!,
-            successCount = updatedNotification.successCount,
-            failureCount = updatedNotification.failureCount,
+            notificationId = notificationId,
+            successCount = updatedNotification?.successCount ?: successCount,
+            failureCount = updatedNotification?.failureCount ?: failureCount,
         )
     }
 
@@ -82,6 +92,16 @@ class SendNotificationService(
                 senderRouter
                     .findByPlatform(deviceToken.platform)
                     .send(target.notification.toSendRequest(deviceToken))
+                    .also { result ->
+                        if (!result.success) {
+                            log.warn(
+                                "[NOTIFICATION] Push failed for notification={} — platform={}, error={}",
+                                target.notification.id,
+                                deviceToken.platform,
+                                result.errorMessage,
+                            )
+                        }
+                    }
             }
         } else {
             emptyList()
@@ -106,8 +126,7 @@ class SendNotificationService(
         }
 
         val todo =
-            todoRepository.findById(notification.contextId)
-                ?: throw BusinessException(ErrorCode.TODO_NOT_FOUND)
+            todoRepository.findByIdForShare(notification.contextId) ?: return
         if (!todo.hasRepeat) {
             return
         }

@@ -2,12 +2,16 @@ package com.qlink.folder.domain
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.error.requireFalse
 import com.qlink.common.error.requireNotBlank
 import com.qlink.common.error.requireNotOver
+import com.qlink.common.error.requireTrue
 import com.qlink.common.error.requiresEmoji
 import kotlin.random.Random
 import kotlin.time.Instant
 
+private const val GUIDE_FOLDER_NAME = "ALink Tips"
+private const val GUIDE_FOLDER_EMOJI = "💡"
 private const val MAX_FOLDER_NAME_LENGTH = 100
 private const val MAX_FOLDER_EMOJI_LENGTH = 20
 private val DEFAULT_FOLDER_EMOJIS = listOf("📁", "🗂️", "🔥", "✨", "📚", "🧠", "🚀", "🌿")
@@ -26,12 +30,43 @@ class Folder(
         emoji?.let(::validateEmoji)
     }
 
+    val isShared: Boolean
+        get() = sharedAt != null
+
     fun isOwnedBy(userId: Long): Boolean = ownerId == userId
+
+    fun isLinkWritableBy(
+        userId: Long,
+        memberCanWrite: Boolean,
+    ): Boolean = isOwnedBy(userId) || (isShared && memberCanWrite)
 
     fun validateOwner(ownerId: Long) {
         if (!isOwnedBy(ownerId)) {
             throw BusinessException(ErrorCode.FOLDER_DIFFERENT_OWNER)
         }
+    }
+
+    fun validateTransferTo(targetUserId: Long) {
+        isShared.requireTrue(ErrorCode.FOLDER_TRANSFER_NOT_SHARED)
+        isOwnedBy(targetUserId).requireFalse(ErrorCode.FOLDER_TRANSFER_TO_SELF)
+    }
+
+    fun validateLeavable(userId: Long) {
+        isOwnedBy(userId).requireFalse(ErrorCode.FOLDER_OWNER_CANNOT_LEAVE)
+    }
+
+    fun validateMemberRemoval(
+        loginId: Long,
+        memberId: Long,
+    ) {
+        if (loginId != memberId) {
+            validateOwner(loginId)
+        }
+    }
+
+    fun validateMoveTarget(targetFolderId: Long) {
+        (id == targetFolderId).requireFalse(ErrorCode.FOLDER_DELETE_TARGET_SELF)
+        isShared.requireFalse(ErrorCode.FOLDER_DELETE_MOVE_SHARED)
     }
 
     fun update(
@@ -61,6 +96,8 @@ class Folder(
         )
 
     companion object {
+        fun createGuide(ownerId: Long): Folder = Folder(ownerId = ownerId, name = GUIDE_FOLDER_NAME, emoji = GUIDE_FOLDER_EMOJI)
+
         fun create(
             ownerId: Long,
             name: String,
@@ -70,9 +107,24 @@ class Folder(
             Folder(
                 ownerId = ownerId,
                 name = name,
-                emoji = emoji ?: DEFAULT_FOLDER_EMOJIS[Random.nextInt(DEFAULT_FOLDER_EMOJIS.size)],
+                emoji = emoji ?: randomDefaultEmoji(),
                 sharedAt = sharedAt,
             )
+
+        fun createImported(
+            ownerId: Long,
+            name: String,
+            createdAt: Instant,
+        ): Folder =
+            Folder(
+                ownerId = ownerId,
+                name = name,
+                emoji = randomDefaultEmoji(),
+                createdAt = createdAt,
+                updatedAt = createdAt,
+            )
+
+        private fun randomDefaultEmoji(): String = DEFAULT_FOLDER_EMOJIS[Random.nextInt(DEFAULT_FOLDER_EMOJIS.size)]
     }
 
     private fun validateName(name: String) {

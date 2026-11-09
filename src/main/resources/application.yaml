@@ -35,6 +35,7 @@ http:
       - X-Requested-With
       - refresh_token
       - csrf_token
+      - Alink-Requester
     allowCredentials: true
     allowNonSimpleContentTypes: true
     anyHost: true
@@ -62,9 +63,37 @@ notification:
 aws:
   s3:
     region: ap-northeast-2
-    bucket: qlink-images-local
+    profileBucket: alink-profiles-local
+    postBucket: alink-posts-local
+    previewBucket: alink-previews-local
     endpoint: http://localhost:4566
     forcePathStyle: true
+    publicBaseUrl: https://images.archivelink.app
+
+linkPreview:
+  lambdaFunction: alink-link-preview-dev:live
+  lambdaEndpoint: http://localhost:4566
+
+linkContent:
+  lambdaFunction: alink-link-content-dev:live
+  invokeTimeoutSeconds: 45
+
+worker:
+  pollIntervalMinutes: 10
+  importThumbnail:
+    concurrency: 3
+    parallelism: 2
+    batchSize: 100
+  aiSummary:
+    parallelism: 1
+  linkContent:
+    enabled: false
+    concurrency: 3
+    parallelism: 2
+    batchSize: 100
+    maxPages: 5
+    hostMinIntervalMillis: 1000
+    hostCooldownSeconds: 60
 
 logging:
   http:

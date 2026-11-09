@@ -3,6 +3,7 @@ package com.qlink.ai.service
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.AiSummaryResponse
+import com.qlink.ai.dto.AiSummaryTodoRequest
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
@@ -13,16 +14,28 @@ import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
+import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.worker.LinkPreviewFillSignal
+import com.qlink.linkcontent.domain.ContentPriority
+import com.qlink.linkcontent.domain.LinkContent
+import com.qlink.linkcontent.domain.service.LinkContentPlanDomainService
+import com.qlink.linkcontent.repository.LinkContentRepository
+import com.qlink.linkcontent.worker.LinkContentSignal
+import com.qlink.notification.service.ScheduleTodoNotificationService
+import com.qlink.todo.domain.Todo
+import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.net.URI
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 class UpdateLinkAiSummaryService(
     private val tx: TransactionRunner,
@@ -34,13 +47,21 @@ class UpdateLinkAiSummaryService(
     private val availableModelRepository: AvailableModelRepository,
     private val aiJobRepository: AiJobRepository,
     private val dispatcher: AiSummaryDispatcher,
+    private val urlResolver: PreviewImageUrlResolver,
+    private val linkContentRepository: LinkContentRepository,
+    private val linkContentSignal: LinkContentSignal,
+    private val linkPreviewFillSignal: LinkPreviewFillSignal,
+    private val todoRepository: TodoRepository,
+    private val scheduleTodoNotificationService: ScheduleTodoNotificationService,
 ) {
     suspend fun updateLinkAiSummary(
         loginId: Long,
         request: AiSummaryRequest,
     ): AiSummaryResponse {
-        val createdJob =
+        val result =
             tx.required {
+                (request.id != null && (request.memo != null || !request.todos.isNullOrEmpty()))
+                    .requireFalse(ErrorCode.LINK_AI_EXISTING_LINK_CONTENT_NOT_ALLOWED)
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
 
                 val userProvider =
@@ -53,29 +74,46 @@ class UpdateLinkAiSummaryService(
                         .findById(request.modelId)
                         ?.takeIf { it.providerId == userProvider.providerId }
                         ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
                 val fixedFolder = request.folderId?.let { findWritableFolder(loginId, it) }
+                val now = Clock.System.now()
                 val link =
                     request.id
                         ?.let { linkId ->
                             linkRepository
-                                .findById(linkId)
+                                .findByIdForUpdate(linkId)
                                 ?.also { it.validateOwner(loginId) }
                                 ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
                         }?.let {
-                            linkRepository.update(
-                                it
-                                    .update(
-                                        folderId = fixedFolder?.id ?: it.folderId,
-                                        url = request.url,
-                                        title = request.title ?: it.title,
-                                        summary = it.summary,
-                                        memo = it.memo,
-                                        tags = it.tags,
-                                        thumbnailUrl = it.thumbnailUrl,
-                                        sourceType = it.sourceType,
-                                    ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
-                            )
-                        } ?: createAiPendingLink(loginId, request)
+                            linkRepository
+                                .update(
+                                    it
+                                        .update(
+                                            folderId = fixedFolder?.id ?: it.folderId,
+                                            url = request.url,
+                                            title = request.title ?: it.title,
+                                            summary = it.summary,
+                                            memo = it.memo,
+                                            tags = it.tags,
+                                            thumbnailUrl = request.thumbnailUrl,
+                                            sourceType = it.sourceType,
+                                            faviconUrl = request.faviconUrl,
+                                            isVideo = request.isVideo,
+                                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                                            previewEnvironment = urlResolver.environment,
+                                        ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
+                                ).also { resetContentForUrlChange(savedLink = it, now = now) }
+                        } ?: createAiPendingLink(loginId, request).also { createContent(link = it, now = now) }
+                val createdTodos =
+                    request.todos.orEmpty().map { todoRequest ->
+                        todoRepository.insert(
+                            todoRequest.toTodo(
+                                linkId = link.id!!,
+                                ownerId = loginId,
+                                now = now,
+                            ),
+                        )
+                    }
                 val titlePrompt =
                     request.title
                         ?.let { FixedTitlePrompt(it) }
@@ -86,27 +124,88 @@ class UpdateLinkAiSummaryService(
                         ?: AutoFolderPrompt(findPromptFoldersJson(loginId))
                 val todoPrompt = if (request.generateTodo) GenerateTodoPrompt else SkipTodoPrompt
 
-                aiJobRepository.insert(
-                    AiJob(
-                        linkId = link.id!!,
-                        userProviderId = userProvider.id!!,
-                        requestModelId = requestModel.id!!,
-                        requestedUrl = request.url,
-                        prompt =
-                            createPrompt(
-                                linkId = link.id,
-                                requestedUrl = request.url,
-                                titlePrompt = titlePrompt,
-                                folderPrompt = folderPrompt,
-                                todoPrompt = todoPrompt,
-                            ),
-                    ),
+                val createdJob =
+                    aiJobRepository.insert(
+                        AiJob(
+                            linkId = link.id!!,
+                            userProviderId = userProvider.id!!,
+                            requestModelId = requestModel.id!!,
+                            requestedUrl = request.url,
+                            prompt =
+                                createPrompt(
+                                    linkId = link.id,
+                                    requestedUrl = request.url,
+                                    titlePrompt = titlePrompt,
+                                    folderPrompt = folderPrompt,
+                                    todoPrompt = todoPrompt,
+                                ),
+                        ),
+                    )
+
+                UpdateLinkAiSummaryResult(
+                    job = createdJob,
+                    createdTodos = createdTodos,
+                    previewFillLinkId = link.id.takeUnless { request.id != null || link.hasPreview },
                 )
             }
 
-        dispatcher.dispatch(createdJob.id!!)
+        linkContentSignal.wake()
+        result.previewFillLinkId?.let(linkPreviewFillSignal::wake)
+        dispatcher.dispatch(result.job.id!!)
+        result.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
 
-        return AiSummaryResponse(id = createdJob.linkId)
+        return AiSummaryResponse(id = result.job.linkId)
+    }
+
+    private data class UpdateLinkAiSummaryResult(
+        val job: AiJob,
+        val createdTodos: List<Todo>,
+        val previewFillLinkId: Long?,
+    )
+
+    private fun AiSummaryTodoRequest.toTodo(
+        linkId: Long,
+        ownerId: Long,
+        now: Instant,
+    ): Todo =
+        Todo.create(
+            linkId = linkId,
+            ownerId = ownerId,
+            title = title,
+            reminderAt = reminderAt,
+            repeatUntil = repeatUntil,
+            repeatDays = repeatDays,
+            repeatTime = repeatTime,
+            repeatTimezone = repeatTimezone,
+            now = now,
+        )
+
+    private suspend fun createContent(
+        link: Link,
+        now: Instant,
+    ) {
+        linkContentRepository.insertAll(
+            listOf(
+                LinkContent.create(
+                    linkId = link.id!!,
+                    sourceUrl = link.url,
+                    priority = ContentPriority.INTERACTIVE,
+                    now = now,
+                ),
+            ),
+        )
+    }
+
+    private suspend fun resetContentForUrlChange(
+        savedLink: Link,
+        now: Instant,
+    ) {
+        LinkContentPlanDomainService
+            .forUrlChange(
+                current = linkContentRepository.findByLinkId(savedLink.id!!),
+                savedLink = savedLink,
+                now = now,
+            )?.let { linkContentRepository.upsertForLink(it) }
     }
 
     private suspend fun createAiPendingLink(
@@ -116,14 +215,21 @@ class UpdateLinkAiSummaryService(
         val folder = request.folderId?.let { findWritableFolder(loginId, it) }
 
         return linkRepository.insert(
-            Link(
+            Link.createFromRequest(
                 ownerId = loginId,
                 folderId = folder?.id,
                 url = request.url,
                 title = request.title ?: pendingTitle(request.url),
                 tags = emptyList(),
+                summary = null,
+                memo = request.memo,
+                thumbnailUrl = request.thumbnailUrl,
+                faviconUrl = request.faviconUrl,
+                isVideo = request.isVideo,
                 sourceType = SourceType.INPUT,
                 status = LinkStatus.G,
+                previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                previewEnvironment = urlResolver.environment,
             ),
         )
     }
@@ -172,6 +278,8 @@ fun Link.copyAiStatus(
         memo = memo,
         tags = tags,
         thumbnailUrl = thumbnailUrl,
+        faviconUrl = faviconUrl,
+        isVideo = isVideo,
         sourceType = sourceType,
         status = status,
         workModelId = workModelId,

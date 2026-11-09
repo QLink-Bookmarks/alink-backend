@@ -2,29 +2,46 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.linkcontent.domain.ContentPriority
+import com.qlink.linkcontent.domain.ContentStatus
+import com.qlink.linkcontent.domain.LinkContent
+import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.FolderFixture
+import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
+import com.qlink.support.runWhileFolderLocked
+import com.qlink.support.runWhileLinkLocked
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlin.time.Clock
 
 class UpdateLinkServiceTest :
     BaseServiceTest({
         val updateLinkService = koinGet<UpdateLinkService>()
+        val urlResolver = koinGet<PreviewImageUrlResolver>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
+        val linkContentRepository = koinGet<LinkContentRepository>()
+        val tx = koinGet<TransactionRunner>()
         val folderRepository = koinGet<FolderRepository>()
 
         Given("링크 수정 서비스 테스트") {
@@ -70,7 +87,12 @@ class UpdateLinkServiceTest :
                             ownerId = user.id!!,
                         ),
                     )
-                updateRequest = LinkFixture.createValidUpdateLinkRequest(folderId = folder.id)
+                updateRequest =
+                    LinkFixture.createValidUpdateLinkRequest(folderId = folder.id).copy(
+                        thumbnailUrl = LinkFixture.validPreviewUrlOf(urlResolver),
+                        faviconUrl = LinkFixture.validPreviewUrlOf(urlResolver, kind = "favicon"),
+                        isVideo = true,
+                    )
                 otherUserLinkUpdateRequest = LinkFixture.createValidUpdateLinkRequest()
                 missingFolderRequest = LinkFixture.createValidUpdateLinkRequest(folderId = RandomFixture.randomId())
                 otherUserFolderRequest = LinkFixture.createValidUpdateLinkRequest(folderId = otherFolder.id)
@@ -110,6 +132,8 @@ class UpdateLinkServiceTest :
                     actual.memo shouldBe request.memo
                     actual.tags shouldBe expectedTags
                     actual.thumbnailUrl shouldBe request.thumbnailUrl
+                    actual.faviconUrl shouldBe request.faviconUrl
+                    actual.isVideo shouldBe request.isVideo
                     actual.sourceType shouldBe request.sourceType
                     actual.favoriteAt shouldBe null
                     actual.updatedAt shouldNotBe link.updatedAt
@@ -133,6 +157,27 @@ class UpdateLinkServiceTest :
 
                 Then("favoriteAt가 그대로 유지된다") {
                     actual!!.favoriteAt shouldBe favoritedLink.favoriteAt
+                }
+            }
+
+            When("요청에서 이미지 값과 영상 여부를 생략하면") {
+                val imageLink =
+                    linkRepository.insert(
+                        LinkFixture.createRandomLinkOf(
+                            ownerId = user.id!!,
+                            thumbnailUrl = RandomFixture.randomPreviewUrl(),
+                            faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
+                            isVideo = true,
+                        ),
+                    )
+                val request = LinkFixture.createValidUpdateLinkRequest()
+                updateLinkService.updateLink(user.id!!, imageLink.id!!, request)
+
+                Then("저장된 이미지 값은 null, 영상 여부는 false다") {
+                    val actual = linkRepository.findById(imageLink.id!!)!!
+                    actual.thumbnailUrl shouldBe null
+                    actual.faviconUrl shouldBe null
+                    actual.isVideo shouldBe false
                 }
             }
 
@@ -202,6 +247,228 @@ class UpdateLinkServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_FOLDER_ACCESS_DENIED.message) {
                         update()
                     }
+                }
+            }
+        }
+
+        Given("본문 행이 있는 링크") {
+            lateinit var user: User
+            lateinit var link: Link
+            lateinit var content: LinkContent
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
+                content = LinkContentFixture.insertCollected(linkContentRepository, linkId = link.id!!, sourceUrl = link.url)
+            }
+
+            When("URL을 바꾸면") {
+                val newUrl = RandomFixture.randomUrl()
+                val update =
+                    suspend {
+                        updateLinkService.updateLink(
+                            user.id!!,
+                            link.id!!,
+                            LinkFixture.createUpdateLinkRequestFrom(link).copy(url = newUrl),
+                        )
+                    }
+
+                Then("행이 같은 id로 새 URL의 PENDING이 되고 본문·발췌가 비어 있다") {
+                    update()
+                    val actual = linkContentRepository.findByLinkId(link.id!!)
+
+                    actual shouldNotBe null
+                    actual!!.id shouldBe content.id
+                    actual.status shouldBe ContentStatus.PENDING
+                    actual.sourceUrl shouldBe newUrl
+                    actual.page shouldBe null
+                    actual.excerpt shouldBe null
+                    actual.contentHash shouldBe null
+                    actual.collectedAt shouldBe null
+                    actual.attempt shouldBe 0
+                    actual.claimCount shouldBe 0
+                }
+            }
+
+            When("제목만 바꾸면") {
+                val update =
+                    suspend {
+                        updateLinkService.updateLink(
+                            user.id!!,
+                            link.id!!,
+                            LinkFixture.createUpdateLinkRequestFrom(link).copy(title = RandomFixture.randomSentenceWithMax(300)),
+                        )
+                    }
+
+                Then("행이 그대로다") {
+                    update()
+                    val actual = linkContentRepository.findByLinkId(link.id!!)
+
+                    actual shouldNotBe null
+                    actual!!.id shouldBe content.id
+                    actual.status shouldBe ContentStatus.COLLECTED
+                    actual.sourceUrl shouldBe link.url
+                    actual.excerpt shouldBe content.excerpt
+                    actual.contentHash shouldBe content.contentHash
+                }
+            }
+        }
+
+        Given("가져오기 대기(BULK) 본문 행이 있는 링크") {
+            lateinit var user: User
+            lateinit var link: Link
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
+                linkContentRepository.insertAll(
+                    listOf(
+                        LinkContentFixture.createPendingContentOf(
+                            linkId = link.id!!,
+                            sourceUrl = link.url,
+                            priority = ContentPriority.BULK,
+                        ),
+                    ),
+                )
+            }
+
+            When("URL을 바꾸면") {
+                val newUrl = RandomFixture.randomUrl()
+                val update =
+                    suspend {
+                        updateLinkService.updateLink(
+                            user.id!!,
+                            link.id!!,
+                            LinkFixture.createUpdateLinkRequestFrom(link).copy(url = newUrl),
+                        )
+                    }
+
+                Then("행이 새 URL의 INTERACTIVE가 된다") {
+                    update()
+                    val actual = linkContentRepository.findByLinkId(link.id!!)
+
+                    actual shouldNotBe null
+                    actual!!.sourceUrl shouldBe newUrl
+                    actual.priority shouldBe ContentPriority.INTERACTIVE
+                }
+            }
+        }
+
+        Given("본문 행이 없는(기능 이전) 링크") {
+            lateinit var user: User
+            lateinit var link: Link
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
+            }
+
+            When("URL을 바꾸면") {
+                val newUrl = RandomFixture.randomUrl()
+                val update =
+                    suspend {
+                        updateLinkService.updateLink(
+                            user.id!!,
+                            link.id!!,
+                            LinkFixture.createUpdateLinkRequestFrom(link).copy(url = newUrl),
+                        )
+                    }
+
+                Then("새 PENDING 행이 생긴다") {
+                    update()
+                    val actual = linkContentRepository.findByLinkId(link.id!!)
+
+                    actual shouldNotBe null
+                    actual!!.status shouldBe ContentStatus.PENDING
+                    actual.sourceUrl shouldBe newUrl
+                }
+            }
+        }
+
+        Given("다른 트랜잭션이 링크를 잠그고 즐겨찾기를 쓰는 중인 커밋된 링크") {
+            When("제목을 수정하면") {
+                val newTitle = RandomFixture.randomSentenceWithMax(300)
+                val updateDuringFavoriteWrite =
+                    suspend {
+                        CoroutineScope(Dispatchers.IO)
+                            .async {
+                                val (owner, link) =
+                                    tx.required {
+                                        val owner = userRepository.insert(UserFixture.createRandomValidUser())
+                                        owner to
+                                            linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = owner.id!!, favoriteAt = null))
+                                    }
+                                try {
+                                    runWhileLinkLocked(
+                                        tx = tx,
+                                        holdLock = {
+                                            linkRepository.findByIdForUpdate(link.id!!)
+                                            linkRepository.updateFavorite(linkId = link.id!!, favoriteAt = Clock.System.now())
+                                        },
+                                        action = {
+                                            updateLinkService.updateLink(
+                                                owner.id!!,
+                                                link.id!!,
+                                                LinkFixture.createUpdateLinkRequestFrom(link).copy(title = newTitle),
+                                            )
+                                        },
+                                    )
+                                    tx.readOnly { linkRepository.findById(link.id!!)!! }
+                                } finally {
+                                    tx.required { userRepository.deleteById(owner.id!!) }
+                                }
+                            }.await()
+                    }
+
+                Then("잠금을 기다린 뒤 먼저 커밋된 즐겨찾기를 지키고 제목만 바꾼다") {
+                    val actual = updateDuringFavoriteWrite()
+
+                    actual.favoriteAt.shouldNotBeNull()
+                    actual.title shouldBe newTitle
+                }
+            }
+        }
+
+        Given("다른 트랜잭션이 폴더를 잠근 뒤 링크를 잠그고 즐겨찾기를 쓰는 중인 커밋된 링크") {
+            When("링크를 그 폴더로 수정하면") {
+                val updateDuringFolderLock =
+                    suspend {
+                        CoroutineScope(Dispatchers.IO)
+                            .async {
+                                val (folder, link) =
+                                    tx.required {
+                                        val owner = userRepository.insert(UserFixture.createRandomValidUser())
+                                        folderRepository.insert(FolderFixture.createValidUnsharedFolder(owner.id!!)) to
+                                            linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = owner.id!!, favoriteAt = null))
+                                    }
+                                try {
+                                    runWhileFolderLocked(
+                                        tx = tx,
+                                        holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folder.id!!)) },
+                                        afterWaiting = {
+                                            linkRepository.findByIdForUpdate(link.id!!)
+                                            linkRepository.updateFavorite(linkId = link.id!!, favoriteAt = Clock.System.now())
+                                        },
+                                        action = {
+                                            updateLinkService.updateLink(
+                                                link.ownerId,
+                                                link.id!!,
+                                                LinkFixture.createUpdateLinkRequestFrom(link).copy(folderId = folder.id),
+                                            )
+                                        },
+                                    )
+                                    folder to tx.readOnly { linkRepository.findById(link.id!!)!! }
+                                } finally {
+                                    tx.required { userRepository.deleteById(link.ownerId) }
+                                }
+                            }.await()
+                    }
+
+                Then("폴더 잠금을 먼저 기다려 교착 없이 즐겨찾기를 지키고 폴더를 옮긴다") {
+                    val (folder, actual) = updateDuringFolderLock()
+
+                    actual.folderId shouldBe folder.id
+                    actual.favoriteAt.shouldNotBeNull()
                 }
             }
         }

@@ -2,8 +2,8 @@ package com.qlink.notification.repository
 
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.domain.NotificationSort
 import com.qlink.notification.dto.NotificationSearchCursor
-import com.qlink.notification.dto.NotificationSearchOrder
 import com.qlink.notification.dto.SearchNotificationsQuery
 import kotlin.time.Instant
 
@@ -33,7 +33,7 @@ interface NotificationRepository {
         userId: Long,
         query: String?,
         type: NotificationContext?,
-        order: NotificationSearchOrder,
+        sort: NotificationSort,
         cursor: NotificationSearchCursor?,
         size: Int,
     ): List<SearchNotificationsQuery>
@@ -41,6 +41,11 @@ interface NotificationRepository {
     suspend fun countUnread(userId: Long): Int
 
     suspend fun update(notification: Notification): Notification
+
+    suspend fun deletePendingByContextIds(
+        context: NotificationContext,
+        ids: List<Long>,
+    ): List<Long>
 
     suspend fun deletePendingByContext(
         context: NotificationContext,

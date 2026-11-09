@@ -10,6 +10,12 @@ import com.qlink.auth.service.RandomUserNameGenerator
 import com.qlink.auth.service.RefreshAuthTokenService
 import com.qlink.auth.service.SignInService
 import com.qlink.auth.service.SignOutService
+import com.qlink.bookmarkimport.service.CreateImportPreviewService
+import com.qlink.bookmarkimport.service.CreateImportReversalService
+import com.qlink.bookmarkimport.service.CreateImportService
+import com.qlink.bookmarkimport.service.GetImportDetailService
+import com.qlink.bookmarkimport.service.GetImportReversalPreviewService
+import com.qlink.bookmarkimport.service.GetImportsService
 import com.qlink.device.service.DeleteDeviceService
 import com.qlink.device.service.PutDeviceService
 import com.qlink.folder.service.AcceptFolderInvitationService
@@ -20,9 +26,11 @@ import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
 import com.qlink.image.service.UploadImageService
 import com.qlink.link.service.CopyLinkService
+import com.qlink.link.service.CreateLinkPreviewService
 import com.qlink.link.service.CreateLinkService
 import com.qlink.link.service.DeleteLinkService
 import com.qlink.link.service.GetLinkDetailService
@@ -42,6 +50,7 @@ import com.qlink.post.service.GetPostsService
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
 import com.qlink.todo.service.DeleteTodoService
+import com.qlink.todo.service.GetTodoCountsService
 import com.qlink.todo.service.GetTodosService
 import com.qlink.todo.service.UpdateTodoService
 import com.qlink.user.service.DeleteAccountService
@@ -51,9 +60,19 @@ import com.qlink.user.service.UpdateMyAgreementsService
 import com.qlink.user.service.UpdateMyProfileService
 import com.qlink.user.service.UpdateMySettingsService
 import org.koin.dsl.module
+import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
+        single {
+            CreateLinkPreviewService(
+                tx = get(),
+                userRepository = get(),
+                previewClient = get(),
+                urlResolver = get(),
+            )
+        }
+
         single {
             AuthTokenService(
                 securityConfig = get(),
@@ -73,6 +92,9 @@ fun serviceModule() =
                 authResourceClientRouter = get(),
                 authTokenService = get(),
                 randomUserNameGenerator = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+                linkContentRepository = get(),
             )
         }
 
@@ -234,6 +256,19 @@ fun serviceModule() =
                 folderRepository = get(),
                 linkRepository = get(),
                 userRepository = get(),
+                folderMemberRepository = get(),
+                todoRepository = get(),
+                notificationRepository = get(),
+                taskScheduler = get(),
+            )
+        }
+
+        single {
+            TransferFolderOwnerService(
+                tx = get(),
+                folderRepository = get(),
+                folderMemberRepository = get(),
+                userRepository = get(),
             )
         }
 
@@ -282,6 +317,10 @@ fun serviceModule() =
                 userRepository = get(),
                 folderAccessValidator = get(),
                 scheduleTodoNotificationService = get(),
+                urlResolver = get(),
+                linkContentRepository = get(),
+                linkContentSignal = get(),
+                linkPreviewFillSignal = get(),
             )
         }
 
@@ -307,7 +346,11 @@ fun serviceModule() =
                 tx = get(),
                 linkRepository = get(),
                 userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
+                urlResolver = get(),
+                linkContentRepository = get(),
+                linkContentSignal = get(),
             )
         }
 
@@ -317,8 +360,10 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
                 scheduleTodoNotificationService = get(),
+                urlResolver = get(),
             )
         }
 
@@ -345,6 +390,8 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 linkRepository = get(),
+                linkContentRepository = get(),
+                linkContentSignal = get(),
             )
         }
 
@@ -363,6 +410,7 @@ fun serviceModule() =
                 notificationRepository = get(),
                 deviceTokenRepository = get(),
                 senderRouter = get(),
+                log = LoggerFactory.getLogger(SendAnnouncementService::class.java),
             )
         }
 
@@ -372,6 +420,7 @@ fun serviceModule() =
                 postRepository = get(),
                 userRepository = get(),
                 sendAnnouncementService = get(),
+                log = LoggerFactory.getLogger(CreatePostService::class.java),
             )
         }
 
@@ -417,11 +466,25 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiJobRepository = get(),
                 dispatcher = get(),
+                urlResolver = get(),
+                linkContentRepository = get(),
+                linkContentSignal = get(),
+                linkPreviewFillSignal = get(),
+                todoRepository = get(),
+                scheduleTodoNotificationService = get(),
             )
         }
 
         single {
             GetTodosService(
+                tx = get(),
+                todoRepository = get(),
+                userRepository = get(),
+            )
+        }
+
+        single {
+            GetTodoCountsService(
                 tx = get(),
                 todoRepository = get(),
                 userRepository = get(),
@@ -484,6 +547,7 @@ fun serviceModule() =
                 senderRouter = get(),
                 todoRepository = get(),
                 linkRepository = get(),
+                log = LoggerFactory.getLogger(SendNotificationService::class.java),
             )
         }
 
@@ -492,6 +556,67 @@ fun serviceModule() =
                 tx = get(),
                 userRepository = get(),
                 imageStorage = get(),
+                previewClient = get(),
+                urlResolver = get(),
+            )
+        }
+
+        single {
+            CreateImportPreviewService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+            )
+        }
+
+        single {
+            CreateImportService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+                bookmarkImportRepository = get(),
+                importThumbnailSignal = get(),
+                linkContentRepository = get(),
+                linkContentSignal = get(),
+            )
+        }
+
+        single {
+            GetImportsService(
+                tx = get(),
+                userRepository = get(),
+                bookmarkImportRepository = get(),
+            )
+        }
+
+        single {
+            GetImportDetailService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                bookmarkImportRepository = get(),
+            )
+        }
+
+        single {
+            GetImportReversalPreviewService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+                bookmarkImportRepository = get(),
+            )
+        }
+
+        single {
+            CreateImportReversalService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+                bookmarkImportRepository = get(),
             )
         }
     }
