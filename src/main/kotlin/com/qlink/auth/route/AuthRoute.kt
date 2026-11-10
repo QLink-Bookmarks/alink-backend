@@ -1,7 +1,6 @@
 package com.qlink.auth.route
 
 import com.qlink.auth.domain.JwtPrincipal
-import com.qlink.auth.dto.AuthPlatform
 import com.qlink.auth.dto.ConnectAuthProviderRequest
 import com.qlink.auth.dto.NativeRefreshTokenRequest
 import com.qlink.auth.dto.SignInRequest
@@ -41,21 +40,17 @@ fun Route.authRoutes() {
     val connectAuthProviderService by inject<ConnectAuthProviderService>()
 
     post<AuthResources.Sign>(signInDocs()) {
-        val request = call.receive<SignInRequest>()
-        val response = signInService.signIn(request)
+        val result = signInService.signIn(call.receive<SignInRequest>())
 
-        if (request.platform == AuthPlatform.WEB) {
-            call.appendRefreshTokenCookie(response.refreshToken)
-        }
-
-        call.respondSuccess(HttpStatusCode.Created, response)
+        result.cookieRefreshToken?.let { call.appendRefreshTokenCookie(it) }
+        call.respondSuccess(HttpStatusCode.Created, result.response)
     }
 
     webRefreshRoute(refreshAuthTokenService)
 
     post<AuthResources.Token.Refresh.Native>(nativeRefreshAuthTokenDocs()) {
         val request = call.receive<NativeRefreshTokenRequest>()
-        val response = refreshAuthTokenService.refresh(request.requireRefreshToken())
+        val response = refreshAuthTokenService.refreshNative(request.requireRefreshToken())
 
         call.respondSuccess(HttpStatusCode.Created, response)
     }
@@ -107,10 +102,10 @@ private fun Route.webRefreshRoute(refreshAuthTokenService: RefreshAuthTokenServi
                 call.request.cookies[REFRESH_TOKEN_COOKIE_NAME]?.takeIf { it.isNotBlank() }
                     ?: call.request.headers[REFRESH_TOKEN_HEADER_NAME]?.takeIf { it.isNotBlank() }
                     ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
-            val response = refreshAuthTokenService.refresh(refreshToken)
+            val result = refreshAuthTokenService.refreshWeb(refreshToken)
 
-            call.appendRefreshTokenCookie(response.refreshToken)
-            call.respondSuccess(HttpStatusCode.Created, response)
+            call.appendRefreshTokenCookie(result.cookieRefreshToken)
+            call.respondSuccess(HttpStatusCode.Created, result.response)
         }
     }
 }

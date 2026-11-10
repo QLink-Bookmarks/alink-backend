@@ -7,6 +7,7 @@ import com.qlink.auth.dto.NativeRefreshTokenRequest
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.dto.SignInResponse
 import com.qlink.auth.dto.SignOutRequest
+import com.qlink.auth.dto.WebAuthTokenResponse
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
 import com.qlink.common.error.ErrorCode
@@ -21,7 +22,7 @@ internal fun signInDocs(): RouteConfig.() -> Unit =
         request { body<SignInRequest>() }
         response {
             code(HttpStatusCode.Created) {
-                description = "인증 성공"
+                description = "인증 성공. WEB은 refreshToken이 null이고 refresh_token 쿠키로 내려간다"
                 body<ApiResponse<SignInResponse>>()
             }
             code(HttpStatusCode.BadRequest) {
@@ -90,8 +91,8 @@ internal fun webRefreshAuthTokenDocs(): RouteConfig.() -> Unit =
         summary = "웹 토큰 갱신 API"
         response {
             code(HttpStatusCode.Created) {
-                description = "토큰 갱신 성공"
-                body<ApiResponse<AuthTokenResponse>>()
+                description = "토큰 갱신 성공. 회전된 refresh token은 refresh_token 쿠키로만 내려간다"
+                body<ApiResponse<WebAuthTokenResponse>>()
             }
             code(HttpStatusCode.Unauthorized) {
                 description = "refresh token 인증 실패"

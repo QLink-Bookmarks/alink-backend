@@ -1,6 +1,8 @@
 package com.qlink.auth.service
 
 import com.qlink.auth.dto.AuthTokenResponse
+import com.qlink.auth.dto.WebAuthTokenResponse
+import com.qlink.auth.dto.WebAuthTokenResult
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
@@ -17,7 +19,23 @@ class RefreshAuthTokenService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val authTokenService: AuthTokenService,
 ) {
-    suspend fun refresh(refreshToken: String?): AuthTokenResponse {
+    suspend fun refreshWeb(refreshToken: String?): WebAuthTokenResult =
+        rotate(refreshToken).let { (user, rotatedToken) ->
+            WebAuthTokenResult(
+                response = WebAuthTokenResponse(accessToken = user.issueAccessToken()),
+                cookieRefreshToken = rotatedToken,
+            )
+        }
+
+    suspend fun refreshNative(refreshToken: String?): AuthTokenResponse =
+        rotate(refreshToken).let { (user, rotatedToken) ->
+            AuthTokenResponse(
+                accessToken = user.issueAccessToken(),
+                refreshToken = rotatedToken,
+            )
+        }
+
+    private suspend fun rotate(refreshToken: String?): RefreshResult.Success {
         val token = refreshToken?.takeIf { it.isNotBlank() } ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
         val claims = authTokenService.verifyRefreshToken(token)
         val now = Clock.System.now()
@@ -76,23 +94,16 @@ class RefreshAuthTokenService(
             }
 
         return when (result) {
-            is RefreshResult.Success -> result.user.toAuthTokenResponse(refreshToken = result.refreshToken)
+            is RefreshResult.Success -> result
             is RefreshResult.Failure -> throw BusinessException(result.errorCode)
         }
     }
 
-    private fun User.toAuthTokenResponse(refreshToken: String): AuthTokenResponse {
-        val userId = id.requirePresent(ErrorCode.AUTH_REFRESH_USER_ID_REQUIRED)
-
-        return AuthTokenResponse(
-            accessToken =
-                authTokenService.issueAccessToken(
-                    userId = userId,
-                    role = role,
-                ),
-            refreshToken = refreshToken,
+    private fun User.issueAccessToken(): String =
+        authTokenService.issueAccessToken(
+            userId = id.requirePresent(ErrorCode.AUTH_REFRESH_USER_ID_REQUIRED),
+            role = role,
         )
-    }
 }
 
 private sealed interface RefreshResult {
