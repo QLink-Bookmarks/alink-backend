@@ -4,8 +4,11 @@ import com.qlink.auth.client.AuthResourceClientRouter
 import com.qlink.auth.domain.AuthProvider
 import com.qlink.auth.domain.AuthProviderType
 import com.qlink.auth.domain.RefreshToken
+import com.qlink.auth.dto.AuthPlatform
+import com.qlink.auth.dto.IssuedRefreshToken
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.dto.SignInResponse
+import com.qlink.auth.dto.SignInResult
 import com.qlink.auth.repository.AuthProviderRepository
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.ErrorCode
@@ -38,7 +41,7 @@ class SignInService(
     private val linkRepository: LinkRepository,
     private val linkContentRepository: LinkContentRepository,
 ) {
-    suspend fun signIn(request: SignInRequest): SignInResponse {
+    suspend fun signIn(request: SignInRequest): SignInResult {
         val providerType = AuthProviderType.fromRequestName(request.provider)
         val resource =
             authResourceClientRouter.getResource(
@@ -63,7 +66,7 @@ class SignInService(
                     userRepository.findById(authProvider.userId).requirePresent(ErrorCode.AUTH_SIGN_IN_USER_MISSING)
                 }
 
-            issueTokenResponse(user)
+            issueTokens(user = user, platform = request.platform)
         }
     }
 
@@ -136,7 +139,10 @@ class SignInService(
             isTruncated = isTruncated,
         )
 
-    private suspend fun issueTokenResponse(user: User): SignInResponse {
+    private suspend fun issueTokens(
+        user: User,
+        platform: AuthPlatform,
+    ): SignInResult {
         val userId = user.id.requirePresent(ErrorCode.AUTH_SIGN_IN_USER_ID_REQUIRED)
         val now = Clock.System.now()
         val expiredAt = authTokenService.refreshTokenExpiredAt(now)
@@ -152,15 +158,25 @@ class SignInService(
             ),
         )
 
-        return SignInResponse(
-            accessToken =
-                authTokenService.issueAccessToken(
-                    userId = userId,
-                    role = user.role,
+        val isWeb = platform == AuthPlatform.WEB
+
+        return SignInResult(
+            response =
+                SignInResponse(
+                    accessToken =
+                        authTokenService.issueAccessToken(
+                            userId = userId,
+                            role = user.role,
+                        ),
+                    refreshToken = refreshToken.takeUnless { isWeb },
+                    allowsPrivacy = user.allowsPrivacy,
+                    allowsAiUsage = user.allowsAiUsage,
                 ),
-            refreshToken = refreshToken,
-            allowsPrivacy = user.allowsPrivacy,
-            allowsAiUsage = user.allowsAiUsage,
+            cookie =
+                IssuedRefreshToken(
+                    token = refreshToken,
+                    maxAge = (expiredAt - now).inWholeSeconds.toInt(),
+                ).takeIf { isWeb },
         )
     }
 }
