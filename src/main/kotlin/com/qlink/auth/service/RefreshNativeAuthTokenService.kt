@@ -9,7 +9,7 @@ class RefreshNativeAuthTokenService(
         refreshAuthTokenService.refresh(refreshToken).let { rotated ->
             AuthTokenResponse(
                 accessToken = rotated.accessToken,
-                refreshToken = rotated.refreshToken,
+                refreshToken = rotated.refreshToken.token,
             )
         }
 }

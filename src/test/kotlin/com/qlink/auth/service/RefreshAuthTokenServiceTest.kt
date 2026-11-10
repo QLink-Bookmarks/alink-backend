@@ -66,8 +66,8 @@ class RefreshAuthTokenServiceTest :
 
                 Then("새 refresh token으로 회전하고 저장한다") {
                     val response = refresh()
-                    val claims = authTokenService.verifyRefreshToken(response.refreshToken)
-                    val persistedRefreshToken = refreshTokenRepository.findByToken(response.refreshToken)
+                    val claims = authTokenService.verifyRefreshToken(response.refreshToken.token)
+                    val persistedRefreshToken = refreshTokenRepository.findByToken(response.refreshToken.token)
 
                     claims.userId shouldBe user.id
                     claims.familyId shouldBe familyId
@@ -109,8 +109,8 @@ class RefreshAuthTokenServiceTest :
                     val firstPersisted = refreshTokenRepository.findByToken(latestToken.token)
                     val secondResponse = refresh()
 
-                    firstResponse.refreshToken shouldBe latestToken.token
-                    secondResponse.refreshToken shouldBe latestToken.token
+                    firstResponse.refreshToken.token shouldBe latestToken.token
+                    secondResponse.refreshToken.token shouldBe latestToken.token
                     refreshTokenRepository.findByToken(latestToken.token) shouldBe firstPersisted
                 }
             }

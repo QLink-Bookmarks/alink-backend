@@ -10,7 +10,7 @@ class RefreshWebAuthTokenService(
         refreshAuthTokenService.refresh(refreshToken).let { rotated ->
             WebAuthTokenResult(
                 response = WebAuthTokenResponse(accessToken = rotated.accessToken),
-                cookieRefreshToken = rotated.refreshToken,
+                cookie = rotated.refreshToken,
             )
         }
 }

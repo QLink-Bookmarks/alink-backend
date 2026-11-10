@@ -1,7 +1,10 @@
 package com.qlink.user.service
 
+import com.qlink.auth.domain.RefreshToken
+import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.SecurityConfig
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.FolderMember
@@ -11,6 +14,7 @@ import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.StoredRefreshTokenFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
@@ -29,6 +33,8 @@ class DeleteAccountServiceTest :
         val userRepository = koinGet<UserRepository>()
         val folderRepository = koinGet<FolderRepository>()
         val folderMemberRepository = koinGet<FolderMemberRepository>()
+        val refreshTokenRepository = koinGet<RefreshTokenRepository>()
+        val securityConfig = koinGet<SecurityConfig>()
 
         Given("회원탈퇴 요청이 주어졌을 때") {
             When("개인 폴더만 가진 사용자가 탈퇴하면") {
@@ -154,6 +160,44 @@ class DeleteAccountServiceTest :
                     folderRepository.findById(transferred.id!!)?.ownerId shouldBe next.id
                     folderMemberRepository.findByFolderIdAndUserId(folderId = transferred.id!!, userId = next.id!!)?.role shouldBe
                         MemberRole.OWNER
+                }
+            }
+        }
+
+        Given("refresh token이 저장된 사용자가 탈퇴할 때") {
+            lateinit var user: User
+            lateinit var userTokens: List<RefreshToken>
+            lateinit var otherUserToken: RefreshToken
+
+            beforeTest {
+                user = userRepository.insert(UserFixture.createRandomValidUser())
+                val loginId = requireNotNull(user.id)
+                val otherUserId = requireNotNull(userRepository.insert(UserFixture.createRandomValidUser()).id)
+                userTokens =
+                    List(2) {
+                        StoredRefreshTokenFixture.insertLatest(
+                            refreshTokenRepository = refreshTokenRepository,
+                            securityConfig = securityConfig,
+                            userId = loginId,
+                            familyId = StoredRefreshTokenFixture.randomFamilyId(),
+                        )
+                    }
+                otherUserToken =
+                    StoredRefreshTokenFixture.insertLatest(
+                        refreshTokenRepository = refreshTokenRepository,
+                        securityConfig = securityConfig,
+                        userId = otherUserId,
+                        familyId = StoredRefreshTokenFixture.randomFamilyId(),
+                    )
+            }
+
+            When("탈퇴하면") {
+                val withdraw = suspend { service.deleteAccount(requireNotNull(user.id)) }
+
+                Then("그 사용자의 refresh token이 모두 삭제되고 다른 사용자의 token은 그대로다") {
+                    shouldNotThrow<BusinessException> { withdraw() }
+                    userTokens.forEach { refreshTokenRepository.findByToken(it.token).shouldBeNull() }
+                    refreshTokenRepository.findByToken(otherUserToken.token) shouldBe otherUserToken
                 }
             }
         }

@@ -44,7 +44,7 @@ fun Route.authRoutes() {
     post<AuthResources.Sign>(signInDocs()) {
         val result = signInService.signIn(call.receive<SignInRequest>())
 
-        result.cookieRefreshToken?.let { call.appendRefreshTokenCookie(it) }
+        result.cookie?.let { call.appendRefreshTokenCookie(refreshToken = it.token, maxAge = it.maxAge) }
         call.respondSuccess(HttpStatusCode.Created, result.response)
     }
 
@@ -106,7 +106,7 @@ private fun Route.webRefreshRoute(refreshWebAuthTokenService: RefreshWebAuthToke
                     ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
             val result = refreshWebAuthTokenService.refresh(refreshToken)
 
-            call.appendRefreshTokenCookie(result.cookieRefreshToken)
+            call.appendRefreshTokenCookie(refreshToken = result.cookie.token, maxAge = result.cookie.maxAge)
             call.respondSuccess(HttpStatusCode.Created, result.response)
         }
     }

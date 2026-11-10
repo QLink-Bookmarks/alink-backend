@@ -22,7 +22,7 @@ internal fun signInDocs(): RouteConfig.() -> Unit =
         request { body<SignInRequest>() }
         response {
             code(HttpStatusCode.Created) {
-                description = "인증 성공. WEB은 refreshToken이 null이고 refresh_token 쿠키로 내려간다"
+                description = "인증 성공. WEB은 refreshToken이 null이고 refresh_token 쿠키(Max-Age는 refresh token 만료까지 남은 초)로 내려간다"
                 body<ApiResponse<SignInResponse>>()
             }
             code(HttpStatusCode.BadRequest) {
@@ -91,7 +91,7 @@ internal fun webRefreshAuthTokenDocs(): RouteConfig.() -> Unit =
         summary = "웹 토큰 갱신 API"
         response {
             code(HttpStatusCode.Created) {
-                description = "토큰 갱신 성공. 회전된 refresh token은 refresh_token 쿠키로만 내려간다"
+                description = "토큰 갱신 성공. 회전된 refresh token은 refresh_token 쿠키(Max-Age는 refresh token 만료까지 남은 초)로만 내려간다"
                 body<ApiResponse<WebAuthTokenResponse>>()
             }
             code(HttpStatusCode.Unauthorized) {

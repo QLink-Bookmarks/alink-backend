@@ -9,10 +9,12 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
+import io.kotest.matchers.longs.shouldBeInRange
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotBeBlank
+import kotlin.time.Clock
 
 class RefreshWebAuthTokenServiceTest :
     BaseServiceTest({
@@ -44,8 +46,8 @@ class RefreshWebAuthTokenServiceTest :
 
                 Then("응답 본문에 refresh token이 없고 쿠키로 보낼 새 token으로 회전되어 저장된다") {
                     val result = refresh()
-                    val claims = authTokenService.verifyRefreshToken(result.cookieRefreshToken)
-                    val persistedRefreshToken = refreshTokenRepository.findByToken(result.cookieRefreshToken)
+                    val claims = authTokenService.verifyRefreshToken(result.cookie.token)
+                    val persistedRefreshToken = refreshTokenRepository.findByToken(result.cookie.token)
 
                     result.response.accessToken.shouldNotBeBlank()
                     claims.userId shouldBe user.id
@@ -53,6 +55,14 @@ class RefreshWebAuthTokenServiceTest :
                     persistedRefreshToken.shouldNotBeNull()
                     persistedRefreshToken.id shouldBe currentToken.id
                     refreshTokenRepository.findByToken(currentToken.token).shouldBeNull()
+                }
+
+                Then("쿠키 수명이 회전된 token의 저장된 만료 시각까지 남은 시간과 같고 refresh token 수명 설정과 같다") {
+                    val result = refresh()
+                    val persistedRefreshToken = refreshTokenRepository.findByToken(result.cookie.token).shouldNotBeNull()
+
+                    result.cookie.maxAge.toLong() shouldBe (persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt).inWholeSeconds
+                    result.cookie.maxAge shouldBe securityConfig.refreshDurationSeconds
                 }
             }
         }
@@ -82,11 +92,14 @@ class RefreshWebAuthTokenServiceTest :
             When("웹에서 갱신하면") {
                 val refresh = suspend { service.refresh(requestedToken) }
 
-                Then("응답 본문에 refresh token이 없고 쿠키로 보낼 token이 저장된 최신 token과 같다") {
+                Then("응답 본문에 refresh token이 없고 쿠키로 보낼 token이 저장된 최신 token과 같으며 쿠키 수명이 그 최신 token의 만료 시각까지 남은 시간과 같다") {
+                    val remainingBefore = (latestToken.expiredAt - Clock.System.now()).inWholeSeconds
                     val result = refresh()
+                    val remainingAfter = (latestToken.expiredAt - Clock.System.now()).inWholeSeconds
 
                     result.response.accessToken.shouldNotBeBlank()
-                    result.cookieRefreshToken shouldBe latestToken.token
+                    result.cookie.token shouldBe latestToken.token
+                    result.cookie.maxAge.toLong() shouldBeInRange remainingAfter..remainingBefore
                     refreshTokenRepository.findByToken(latestToken.token) shouldBe latestToken
                 }
             }

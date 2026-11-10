@@ -8,6 +8,7 @@ import com.qlink.auth.repository.AuthProviderRepository
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.SecurityConfig
 import com.qlink.support.AppleTestKeys
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAuthResourceClient
@@ -34,6 +35,7 @@ class SignInServiceTest :
         val authTokenService = koinGet<AuthTokenService>()
         val authResourceClient = koinGet<FakeAuthResourceClient>()
         val mockAuthHttpEngine = koinGet<MockAuthHttpEngine>()
+        val securityConfig = koinGet<SecurityConfig>()
 
         suspend fun insertKakaoUser(): Long {
             val userId = requireNotNull(userRepository.insert(UserFixture.createRandomValidUser()).id)
@@ -55,12 +57,19 @@ class SignInServiceTest :
                 val userId = insertKakaoUser()
 
                 val result = service.signIn(AuthRequestFixture.createKakaoSignInRequest(platform = AuthPlatform.WEB))
-                val persistedRefreshToken = result.cookieRefreshToken?.let { refreshTokenRepository.findByToken(it) }
+                val persistedRefreshToken = result.cookie?.let { refreshTokenRepository.findByToken(it.token) }
 
                 Then("응답 본문의 refresh token은 null이고 쿠키로 보낼 refresh token이 그 사용자의 token으로 저장된다") {
                     result.response.refreshToken.shouldBeNull()
                     persistedRefreshToken.shouldNotBeNull()
                     persistedRefreshToken.userId shouldBe userId
+                }
+
+                Then("쿠키 수명이 저장된 그 token의 만료 시각까지 남은 시간과 같고 refresh token 수명 설정과 같다") {
+                    val cookie = result.cookie.shouldNotBeNull()
+                    persistedRefreshToken.shouldNotBeNull()
+                    cookie.maxAge.toLong() shouldBe (persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt).inWholeSeconds
+                    cookie.maxAge shouldBe securityConfig.refreshDurationSeconds
                 }
             }
 
@@ -71,7 +80,7 @@ class SignInServiceTest :
                 val persistedRefreshToken = result.response.refreshToken?.let { refreshTokenRepository.findByToken(it) }
 
                 Then("응답 본문의 refresh token이 그 사용자의 token으로 저장된다") {
-                    result.cookieRefreshToken.shouldBeNull()
+                    result.cookie.shouldBeNull()
                     persistedRefreshToken.shouldNotBeNull()
                     persistedRefreshToken.userId shouldBe userId
                 }
@@ -90,15 +99,22 @@ class SignInServiceTest :
                         providerType = AuthProviderType.KAKAO,
                         providerId = providerId,
                     )
-                val persistedRefreshToken = result.cookieRefreshToken?.let { refreshTokenRepository.findByToken(it) }
+                val persistedRefreshToken = result.cookie?.let { refreshTokenRepository.findByToken(it.token) }
 
-                Then("사용자와 인증 제공자를 저장하고, 응답 본문의 refresh token은 null이며 쿠키로 보낼 token이 그 사용자의 token으로 저장된다") {
+                Then(
+                    "사용자와 인증 제공자를 저장하고, 응답 본문의 refresh token은 null이며 쿠키로 보낼 token이 그 사용자의 token으로 저장되고 쿠키 수명이 그 token의 만료 시각까지 남은 시간과 같다",
+                ) {
                     result.response.accessToken.shouldNotBeNull()
                     result.response.refreshToken.shouldBeNull()
                     authProvider.shouldNotBeNull()
                     userRepository.findById(authProvider.userId).shouldNotBeNull()
                     persistedRefreshToken.shouldNotBeNull()
                     persistedRefreshToken.userId shouldBe authProvider.userId
+                    result.cookie
+                        .shouldNotBeNull()
+                        .maxAge
+                        .toLong() shouldBe
+                        (persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt).inWholeSeconds
                 }
             }
 
@@ -127,7 +143,7 @@ class SignInServiceTest :
 
                 Then("회원가입 후 응답 본문의 refresh token을 발급하고 저장한다") {
                     authResourceClient.requestedTokens shouldContain "oauth-token"
-                    result.cookieRefreshToken.shouldBeNull()
+                    result.cookie.shouldBeNull()
                     response.accessToken.shouldNotBeNull()
                     response.allowsPrivacy shouldBe false
                     response.allowsAiUsage shouldBe false
@@ -174,7 +190,7 @@ class SignInServiceTest :
                             platform = AuthPlatform.WEB,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.cookieRefreshToken))
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.cookie).token)
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.GOOGLE,

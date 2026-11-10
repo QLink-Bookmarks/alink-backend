@@ -7,12 +7,16 @@ const val REFRESH_TOKEN_COOKIE_NAME = "refresh_token"
 const val REFRESH_TOKEN_COOKIE_PATH = "/api/auth"
 const val CSRF_TOKEN_COOKIE_NAME = "csrf_token"
 
-fun ApplicationCall.appendRefreshTokenCookie(refreshToken: String) {
+fun ApplicationCall.appendRefreshTokenCookie(
+    refreshToken: String,
+    maxAge: Int,
+) {
     response.cookies.append(
         Cookie(
             name = REFRESH_TOKEN_COOKIE_NAME,
             value = refreshToken,
             path = REFRESH_TOKEN_COOKIE_PATH,
+            maxAge = maxAge,
             httpOnly = true,
             secure = true,
             extensions = mapOf("SameSite" to "Strict"),

@@ -5,6 +5,7 @@ import com.qlink.auth.domain.AuthProvider
 import com.qlink.auth.domain.AuthProviderType
 import com.qlink.auth.domain.RefreshToken
 import com.qlink.auth.dto.AuthPlatform
+import com.qlink.auth.dto.RefreshTokenCookie
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.dto.SignInResponse
 import com.qlink.auth.dto.SignInResult
@@ -171,7 +172,11 @@ class SignInService(
                     allowsPrivacy = user.allowsPrivacy,
                     allowsAiUsage = user.allowsAiUsage,
                 ),
-            cookieRefreshToken = refreshToken.takeIf { isWeb },
+            cookie =
+                RefreshTokenCookie(
+                    token = refreshToken,
+                    maxAge = (expiredAt - now).inWholeSeconds.toInt(),
+                ).takeIf { isWeb },
         )
     }
 }
