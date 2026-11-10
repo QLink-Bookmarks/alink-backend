@@ -2,22 +2,22 @@
 
 package com.qlink.auth.dto
 
-data class RefreshTokenCookie(
+data class IssuedRefreshToken(
     val token: String,
     val maxAge: Int,
 )
 
 data class SignInResult(
     val response: SignInResponse,
-    val cookie: RefreshTokenCookie?,
+    val cookie: IssuedRefreshToken?,
 )
 
 data class RotatedAuthTokenResult(
     val accessToken: String,
-    val refreshToken: RefreshTokenCookie,
+    val refreshToken: IssuedRefreshToken,
 )
 
 data class WebAuthTokenResult(
     val response: WebAuthTokenResponse,
-    val cookie: RefreshTokenCookie,
+    val cookie: IssuedRefreshToken,
 )

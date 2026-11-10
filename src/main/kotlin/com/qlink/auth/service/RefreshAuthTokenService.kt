@@ -1,7 +1,7 @@
 package com.qlink.auth.service
 
 import com.qlink.auth.domain.RefreshToken
-import com.qlink.auth.dto.RefreshTokenCookie
+import com.qlink.auth.dto.IssuedRefreshToken
 import com.qlink.auth.dto.RotatedAuthTokenResult
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.BusinessException
@@ -97,7 +97,7 @@ class RefreshAuthTokenService(
                     role = role,
                 ),
             refreshToken =
-                RefreshTokenCookie(
+                IssuedRefreshToken(
                     token = refreshToken.token,
                     maxAge = (refreshToken.expiredAt - now).inWholeSeconds.toInt(),
                 ),
