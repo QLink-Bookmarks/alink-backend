@@ -8,6 +8,8 @@ import com.qlink.auth.service.AuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
 import com.qlink.auth.service.RandomUserNameGenerator
 import com.qlink.auth.service.RefreshAuthTokenService
+import com.qlink.auth.service.RefreshNativeAuthTokenService
+import com.qlink.auth.service.RefreshWebAuthTokenService
 import com.qlink.auth.service.SignInService
 import com.qlink.auth.service.SignOutService
 import com.qlink.bookmarkimport.service.CreateImportPreviewService
@@ -106,6 +108,10 @@ fun serviceModule() =
                 authTokenService = get(),
             )
         }
+
+        single { RefreshWebAuthTokenService(refreshAuthTokenService = get()) }
+
+        single { RefreshNativeAuthTokenService(refreshAuthTokenService = get()) }
 
         single {
             ConnectAuthProviderService(

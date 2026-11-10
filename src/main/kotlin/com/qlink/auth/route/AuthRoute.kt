@@ -6,7 +6,8 @@ import com.qlink.auth.dto.NativeRefreshTokenRequest
 import com.qlink.auth.dto.SignInRequest
 import com.qlink.auth.dto.SignOutRequest
 import com.qlink.auth.service.ConnectAuthProviderService
-import com.qlink.auth.service.RefreshAuthTokenService
+import com.qlink.auth.service.RefreshNativeAuthTokenService
+import com.qlink.auth.service.RefreshWebAuthTokenService
 import com.qlink.auth.service.SignInService
 import com.qlink.auth.service.SignOutService
 import com.qlink.common.cookie.REFRESH_TOKEN_COOKIE_NAME
@@ -35,7 +36,8 @@ const val CSRF_TOKEN_HEADER_NAME = "csrf_token"
 
 fun Route.authRoutes() {
     val signInService by inject<SignInService>()
-    val refreshAuthTokenService by inject<RefreshAuthTokenService>()
+    val refreshWebAuthTokenService by inject<RefreshWebAuthTokenService>()
+    val refreshNativeAuthTokenService by inject<RefreshNativeAuthTokenService>()
     val signOutService by inject<SignOutService>()
     val connectAuthProviderService by inject<ConnectAuthProviderService>()
 
@@ -46,11 +48,11 @@ fun Route.authRoutes() {
         call.respondSuccess(HttpStatusCode.Created, result.response)
     }
 
-    webRefreshRoute(refreshAuthTokenService)
+    webRefreshRoute(refreshWebAuthTokenService)
 
     post<AuthResources.Token.Refresh.Native>(nativeRefreshAuthTokenDocs()) {
         val request = call.receive<NativeRefreshTokenRequest>()
-        val response = refreshAuthTokenService.refreshNative(request.requireRefreshToken())
+        val response = refreshNativeAuthTokenService.refresh(request.requireRefreshToken())
 
         call.respondSuccess(HttpStatusCode.Created, response)
     }
@@ -93,7 +95,7 @@ private suspend fun ApplicationCall.resolveSignOutRefreshToken(): String? =
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
 
-private fun Route.webRefreshRoute(refreshAuthTokenService: RefreshAuthTokenService) {
+private fun Route.webRefreshRoute(refreshWebAuthTokenService: RefreshWebAuthTokenService) {
     resource<AuthResources.Token.Refresh.Web> {
         installCsrfHeaderCheck()
 
@@ -102,7 +104,7 @@ private fun Route.webRefreshRoute(refreshAuthTokenService: RefreshAuthTokenServi
                 call.request.cookies[REFRESH_TOKEN_COOKIE_NAME]?.takeIf { it.isNotBlank() }
                     ?: call.request.headers[REFRESH_TOKEN_HEADER_NAME]?.takeIf { it.isNotBlank() }
                     ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
-            val result = refreshAuthTokenService.refreshWeb(refreshToken)
+            val result = refreshWebAuthTokenService.refresh(refreshToken)
 
             call.appendRefreshTokenCookie(result.cookieRefreshToken)
             call.respondSuccess(HttpStatusCode.Created, result.response)

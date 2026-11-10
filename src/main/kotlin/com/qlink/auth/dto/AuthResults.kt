@@ -7,6 +7,11 @@ data class SignInResult(
     val cookieRefreshToken: String?,
 )
 
+data class RotatedAuthTokenResult(
+    val accessToken: String,
+    val refreshToken: String,
+)
+
 data class WebAuthTokenResult(
     val response: WebAuthTokenResponse,
     val cookieRefreshToken: String,
