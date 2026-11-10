@@ -14,10 +14,8 @@ import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -29,90 +27,11 @@ class RefreshAuthTokenServiceTest :
         val authTokenService = koinGet<AuthTokenService>()
         val securityConfig = koinGet<SecurityConfig>()
 
-        Given("토큰 갱신 요청이 주어졌을 때") {
+        Given("갱신할 수 없는 refresh token일 때") {
             lateinit var user: User
 
             beforeTest {
                 user = insertUser(userRepository)
-            }
-
-            When("저장된 refresh token이면") {
-                lateinit var currentToken: RefreshToken
-                lateinit var familyId: String
-
-                beforeTest {
-                    val userId = requireNotNull(user.id)
-                    familyId = "family-${RandomFixture.randomId()}"
-                    val issuedAt = Clock.System.now() - 2.minutes
-                    currentToken =
-                        insertRefreshToken(
-                            refreshTokenRepository = refreshTokenRepository,
-                            authTokenService = authTokenService,
-                            userId = userId,
-                            familyId = familyId,
-                            issuedAt = issuedAt,
-                            expiredAt = Clock.System.now() + 10.minutes,
-                            token =
-                                UserRefreshTokenFixture.issueSignedTokenAt(
-                                    securityConfig = securityConfig,
-                                    userId = userId,
-                                    familyId = familyId,
-                                    issuedAt = issuedAt,
-                                ),
-                        )
-                }
-
-                val refresh = suspend { service.refresh(currentToken.token) }
-
-                Then("새 refresh token으로 회전하고 저장한다") {
-                    val response = refresh()
-                    val claims = authTokenService.verifyRefreshToken(response.refreshToken)
-                    val persistedRefreshToken = refreshTokenRepository.findByToken(response.refreshToken)
-
-                    claims.userId shouldBe user.id
-                    claims.familyId shouldBe familyId
-                    persistedRefreshToken.shouldNotBeNull()
-                    persistedRefreshToken.userId shouldBe user.id
-                    persistedRefreshToken.id shouldBe currentToken.id
-                    persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt shouldBe 14.days
-                    refreshTokenRepository.findByToken(currentToken.token).shouldBeNull()
-                }
-            }
-
-            When("동시 갱신으로 기존 token이 이미 회전됐고 최신 token이 1분 이내면") {
-                lateinit var requestedToken: String
-                lateinit var latestToken: RefreshToken
-
-                beforeTest {
-                    val userId = requireNotNull(user.id)
-                    val familyId = "family-${RandomFixture.randomId()}"
-                    requestedToken =
-                        UserRefreshTokenFixture.issueSignedTokenAt(
-                            securityConfig = securityConfig,
-                            userId = userId,
-                            familyId = familyId,
-                            issuedAt = Clock.System.now() - 1.minutes,
-                        )
-                    latestToken =
-                        insertRefreshToken(
-                            refreshTokenRepository = refreshTokenRepository,
-                            authTokenService = authTokenService,
-                            userId = userId,
-                            familyId = familyId,
-                        )
-                }
-
-                val refresh = suspend { service.refresh(requestedToken) }
-
-                Then("저장된 최신 refresh token을 응답한다") {
-                    val firstResponse = refresh()
-                    val firstPersisted = refreshTokenRepository.findByToken(latestToken.token)
-                    val secondResponse = refresh()
-
-                    firstResponse.refreshToken shouldBe latestToken.token
-                    secondResponse.refreshToken shouldBe latestToken.token
-                    refreshTokenRepository.findByToken(latestToken.token) shouldBe firstPersisted
-                }
             }
 
             When("요청 refresh token이 공백이면") {

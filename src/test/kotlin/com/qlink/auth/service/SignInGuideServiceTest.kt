@@ -55,7 +55,7 @@ class SignInGuideServiceTest :
             When("처음 로그인하면") {
                 val signIn = suspend { service.signIn(request) }
                 Then("개인 가이드 폴더와 정해진 순서의 네 링크 및 본문 행을 저장한다") {
-                    val response = signIn()
+                    val refreshToken = signIn().response.refreshToken.shouldNotBeNull()
                     val provider =
                         providers
                             .findByProvider(
@@ -63,7 +63,7 @@ class SignInGuideServiceTest :
                                 providerId = providerId,
                             ).shouldNotBeNull()
                     users.findById(provider.userId).shouldNotBeNull()
-                    tokens.findByToken(response.refreshToken).shouldNotBeNull().userId shouldBe provider.userId
+                    tokens.findByToken(refreshToken).shouldNotBeNull().userId shouldBe provider.userId
                     val folder = folders.findAllByOwnerId(provider.userId).single()
                     folder.name shouldBe "ALink Tips"
                     folder.emoji shouldBe "💡"
@@ -125,10 +125,10 @@ class SignInGuideServiceTest :
                     val before = folders.findAllByOwnerId(provider.userId).single()
                     val folderId = before.id.shouldNotBeNull()
                     val ids = links.findAllByFolderIds(listOf(folderId)).map { it.id }
-                    val response = signIn()
+                    val refreshToken = signIn().response.refreshToken.shouldNotBeNull()
                     folders.findAllByOwnerId(provider.userId).map { it.id } shouldBe listOf(folderId)
                     links.findAllByFolderIds(listOf(folderId)).map { it.id } shouldBe ids
-                    tokens.findByToken(response.refreshToken).shouldNotBeNull()
+                    tokens.findByToken(refreshToken).shouldNotBeNull()
                 }
             }
         }
@@ -144,10 +144,10 @@ class SignInGuideServiceTest :
             When("로그인하면") {
                 val signIn = suspend { service.signIn(request) }
                 Then("가이드를 소급 생성하지 않는다") {
-                    val response = signIn()
+                    val refreshToken = signIn().response.refreshToken.shouldNotBeNull()
                     folders.findAllByOwnerId(existingUserId) shouldBe emptyList()
                     links.findAllUrlsByOwnerId(existingUserId) shouldBe emptyList()
-                    tokens.findByToken(response.refreshToken).shouldNotBeNull().userId shouldBe existingUserId
+                    tokens.findByToken(refreshToken).shouldNotBeNull().userId shouldBe existingUserId
                 }
             }
         }

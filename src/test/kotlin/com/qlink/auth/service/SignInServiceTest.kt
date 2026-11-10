@@ -8,17 +8,20 @@ import com.qlink.auth.repository.AuthProviderRepository
 import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.SecurityConfig
 import com.qlink.support.AppleTestKeys
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAuthResourceClient
 import com.qlink.support.GoogleTestKeys
 import com.qlink.support.MockAuthHttpEngine
+import com.qlink.support.fixture.AuthRequestFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
-import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.ktor.http.HttpStatusCode
@@ -32,13 +35,94 @@ class SignInServiceTest :
         val authTokenService = koinGet<AuthTokenService>()
         val authResourceClient = koinGet<FakeAuthResourceClient>()
         val mockAuthHttpEngine = koinGet<MockAuthHttpEngine>()
+        val securityConfig = koinGet<SecurityConfig>()
 
-        Given("인증 API 요청이 주어졌을 때") {
-            When("등록되지 않은 kakao provider user면") {
+        suspend fun insertKakaoUser(): Long {
+            val userId = requireNotNull(userRepository.insert(UserFixture.createRandomValidUser()).id)
+            val providerId = "kakao-${RandomFixture.randomId()}"
+            authProviderRepository.insert(
+                AuthProvider(
+                    userId = userId,
+                    providerType = AuthProviderType.KAKAO,
+                    providerId = providerId,
+                ),
+            )
+            authResourceClient.reset()
+            authResourceClient.providerId = providerId
+            return userId
+        }
+
+        Given("등록된 사용자가 로그인할 때") {
+            When("WEB 플랫폼이면") {
+                val userId = insertKakaoUser()
+
+                val result = service.signIn(AuthRequestFixture.createKakaoSignInRequest(platform = AuthPlatform.WEB))
+                val persistedRefreshToken = result.cookie?.let { refreshTokenRepository.findByToken(it.token) }
+
+                Then("응답 본문의 refresh token은 null이고 쿠키로 보낼 refresh token이 그 사용자의 token으로 저장된다") {
+                    result.response.refreshToken.shouldBeNull()
+                    persistedRefreshToken.shouldNotBeNull()
+                    persistedRefreshToken.userId shouldBe userId
+                }
+
+                Then("쿠키 수명이 저장된 그 token의 만료 시각까지 남은 시간과 같고 refresh token 수명 설정과 같다") {
+                    val cookie = result.cookie.shouldNotBeNull()
+                    persistedRefreshToken.shouldNotBeNull()
+                    cookie.maxAge.toLong() shouldBe (persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt).inWholeSeconds
+                    cookie.maxAge shouldBe securityConfig.refreshDurationSeconds
+                }
+            }
+
+            When("NATIVE 플랫폼이면") {
+                val userId = insertKakaoUser()
+
+                val result = service.signIn(AuthRequestFixture.createKakaoSignInRequest(platform = AuthPlatform.NATIVE))
+                val persistedRefreshToken = result.response.refreshToken?.let { refreshTokenRepository.findByToken(it) }
+
+                Then("응답 본문의 refresh token이 그 사용자의 token으로 저장된다") {
+                    result.cookie.shouldBeNull()
+                    persistedRefreshToken.shouldNotBeNull()
+                    persistedRefreshToken.userId shouldBe userId
+                }
+            }
+        }
+
+        Given("등록되지 않은 사용자가 로그인할 때") {
+            When("kakao WEB 플랫폼이면") {
                 authResourceClient.reset()
                 val providerId = "kakao-${RandomFixture.randomId()}"
                 authResourceClient.providerId = providerId
-                val response =
+
+                val result = service.signIn(AuthRequestFixture.createKakaoSignInRequest(platform = AuthPlatform.WEB))
+                val authProvider =
+                    authProviderRepository.findByProvider(
+                        providerType = AuthProviderType.KAKAO,
+                        providerId = providerId,
+                    )
+                val persistedRefreshToken = result.cookie?.let { refreshTokenRepository.findByToken(it.token) }
+
+                Then(
+                    "사용자와 인증 제공자를 저장하고, 응답 본문의 refresh token은 null이며 쿠키로 보낼 token이 그 사용자의 token으로 저장되고 쿠키 수명이 그 token의 만료 시각까지 남은 시간과 같다",
+                ) {
+                    result.response.accessToken.shouldNotBeNull()
+                    result.response.refreshToken.shouldBeNull()
+                    authProvider.shouldNotBeNull()
+                    userRepository.findById(authProvider.userId).shouldNotBeNull()
+                    persistedRefreshToken.shouldNotBeNull()
+                    persistedRefreshToken.userId shouldBe authProvider.userId
+                    result.cookie
+                        .shouldNotBeNull()
+                        .maxAge
+                        .toLong() shouldBe
+                        (persistedRefreshToken.expiredAt - persistedRefreshToken.issuedAt).inWholeSeconds
+                }
+            }
+
+            When("kakao NATIVE 플랫폼이면") {
+                authResourceClient.reset()
+                val providerId = "kakao-${RandomFixture.randomId()}"
+                authResourceClient.providerId = providerId
+                val result =
                     service.signIn(
                         SignInRequest(
                             provider = "kakao",
@@ -46,17 +130,20 @@ class SignInServiceTest :
                             platform = AuthPlatform.NATIVE,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
+                val response = result.response
+                val refreshToken = requireNotNull(response.refreshToken)
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(refreshToken)
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.KAKAO,
                         providerId = providerId,
                     )
                 val user = userRepository.findById(refreshTokenClaims.userId)
-                val persistedRefreshToken = refreshTokenRepository.findByToken(response.refreshToken)
+                val persistedRefreshToken = refreshTokenRepository.findByToken(refreshToken)
 
-                Then("회원가입 후 token을 발급하고 저장한다") {
+                Then("회원가입 후 응답 본문의 refresh token을 발급하고 저장한다") {
                     authResourceClient.requestedTokens shouldContain "oauth-token"
+                    result.cookie.shouldBeNull()
                     response.accessToken.shouldNotBeNull()
                     response.allowsPrivacy shouldBe false
                     response.allowsAiUsage shouldBe false
@@ -66,44 +153,6 @@ class SignInServiceTest :
                     persistedRefreshToken.shouldNotBeNull()
                     persistedRefreshToken.userId shouldBe refreshTokenClaims.userId
                     persistedRefreshToken.familyId shouldBe refreshTokenClaims.familyId
-                }
-            }
-
-            When("이미 등록된 kakao provider user면") {
-                authResourceClient.reset()
-                val user =
-                    userRepository.insert(
-                        User(
-                            username = "user-${RandomFixture.randomId()}",
-                            nickname = RandomFixture.randomSentenceWithMax(50),
-                        ),
-                    )
-                val userId = requireNotNull(user.id)
-                val providerId = "kakao-${RandomFixture.randomId()}"
-                authProviderRepository.insert(
-                    AuthProvider(
-                        userId = userId,
-                        providerType = AuthProviderType.KAKAO,
-                        providerId = providerId,
-                    ),
-                )
-                authResourceClient.providerId = providerId
-
-                val response =
-                    service.signIn(
-                        SignInRequest(
-                            provider = "KAKAO",
-                            token = "oauth-token",
-                            platform = AuthPlatform.NATIVE,
-                        ),
-                    )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
-                val persistedRefreshToken = refreshTokenRepository.findByToken(response.refreshToken)
-
-                Then("기존 사용자로 로그인하고 token을 저장한다") {
-                    refreshTokenClaims.userId shouldBe userId
-                    persistedRefreshToken.shouldNotBeNull()
-                    persistedRefreshToken.userId shouldBe userId
                 }
             }
 
@@ -128,12 +177,12 @@ class SignInServiceTest :
                 }
             }
 
-            When("등록되지 않은 google WEB provider user면") {
+            When("google WEB provider user면") {
                 mockAuthHttpEngine.reset()
                 val providerId = "google-${RandomFixture.randomId()}"
                 mockAuthHttpEngine.respondJson("""{"sub":"$providerId","email":"user@example.com"}""")
 
-                val response =
+                val result =
                     service.signIn(
                         SignInRequest(
                             provider = "google",
@@ -141,7 +190,7 @@ class SignInServiceTest :
                             platform = AuthPlatform.WEB,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.cookie).token)
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.GOOGLE,
@@ -150,7 +199,7 @@ class SignInServiceTest :
                 val user = userRepository.findById(refreshTokenClaims.userId)
 
                 Then("access token userinfo의 sub로 회원가입 후 token을 발급한다") {
-                    response.accessToken.shouldNotBeNull()
+                    result.response.accessToken.shouldNotBeNull()
                     authProvider.shouldNotBeNull()
                     authProvider.providerType shouldBe AuthProviderType.GOOGLE
                     authProvider.userId shouldBe refreshTokenClaims.userId
@@ -158,13 +207,13 @@ class SignInServiceTest :
                 }
             }
 
-            When("등록되지 않은 google NATIVE provider user면") {
+            When("google NATIVE provider user면") {
                 mockAuthHttpEngine.reset()
                 mockAuthHttpEngine.respondJson(GoogleTestKeys.jwks())
                 val providerId = "google-native-${RandomFixture.randomId()}"
                 val idToken = GoogleTestKeys.idToken(subject = providerId)
 
-                val response =
+                val result =
                     service.signIn(
                         SignInRequest(
                             provider = "google",
@@ -172,7 +221,7 @@ class SignInServiceTest :
                             platform = AuthPlatform.NATIVE,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.response.refreshToken))
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.GOOGLE,
@@ -181,7 +230,7 @@ class SignInServiceTest :
                 val user = userRepository.findById(refreshTokenClaims.userId)
 
                 Then("id_token의 sub로 회원가입 후 token을 발급한다") {
-                    response.accessToken.shouldNotBeNull()
+                    result.response.accessToken.shouldNotBeNull()
                     authProvider.shouldNotBeNull()
                     authProvider.providerType shouldBe AuthProviderType.GOOGLE
                     authProvider.userId shouldBe refreshTokenClaims.userId
@@ -189,14 +238,14 @@ class SignInServiceTest :
                 }
             }
 
-            When("등록되지 않은 naver provider user면") {
+            When("naver provider user면") {
                 mockAuthHttpEngine.reset()
                 val providerId = "naver-${RandomFixture.randomId()}"
                 mockAuthHttpEngine.respondJson(
                     """{"resultcode":"00","message":"success","response":{"id":"$providerId"}}""",
                 )
 
-                val response =
+                val result =
                     service.signIn(
                         SignInRequest(
                             provider = "naver",
@@ -204,7 +253,7 @@ class SignInServiceTest :
                             platform = AuthPlatform.NATIVE,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.response.refreshToken))
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.NAVER,
@@ -213,7 +262,7 @@ class SignInServiceTest :
                 val user = userRepository.findById(refreshTokenClaims.userId)
 
                 Then("naver userinfo의 id로 회원가입 후 token을 발급한다") {
-                    response.accessToken.shouldNotBeNull()
+                    result.response.accessToken.shouldNotBeNull()
                     authProvider.shouldNotBeNull()
                     authProvider.providerType shouldBe AuthProviderType.NAVER
                     authProvider.userId shouldBe refreshTokenClaims.userId
@@ -242,13 +291,13 @@ class SignInServiceTest :
                 }
             }
 
-            When("등록되지 않은 apple provider user면") {
+            When("apple provider user면") {
                 mockAuthHttpEngine.reset()
                 mockAuthHttpEngine.respondJson(AppleTestKeys.jwks())
                 val providerId = "apple-${RandomFixture.randomId()}"
                 val idToken = AppleTestKeys.idToken(subject = providerId)
 
-                val response =
+                val result =
                     service.signIn(
                         SignInRequest(
                             provider = "apple",
@@ -256,7 +305,7 @@ class SignInServiceTest :
                             platform = AuthPlatform.NATIVE,
                         ),
                     )
-                val refreshTokenClaims = authTokenService.verifyRefreshToken(response.refreshToken)
+                val refreshTokenClaims = authTokenService.verifyRefreshToken(requireNotNull(result.response.refreshToken))
                 val authProvider =
                     authProviderRepository.findByProvider(
                         providerType = AuthProviderType.APPLE,
@@ -265,7 +314,7 @@ class SignInServiceTest :
                 val user = userRepository.findById(refreshTokenClaims.userId)
 
                 Then("id_token의 sub로 회원가입 후 token을 발급한다") {
-                    response.accessToken.shouldNotBeNull()
+                    result.response.accessToken.shouldNotBeNull()
                     authProvider.shouldNotBeNull()
                     authProvider.providerType shouldBe AuthProviderType.APPLE
                     authProvider.userId shouldBe refreshTokenClaims.userId
