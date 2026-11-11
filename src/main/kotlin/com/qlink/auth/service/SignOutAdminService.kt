@@ -9,7 +9,10 @@ class SignOutAdminService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val authTokenService: AuthTokenService,
 ) {
-    suspend fun signOut(loginId: Long, refreshToken: String?) = tx.required {
+    suspend fun signOut(
+        loginId: Long,
+        refreshToken: String?,
+    ) = tx.required {
         val claims = refreshToken?.let { runCatching { authTokenService.verifyRefreshToken(it) }.getOrNull() }
         if (claims?.scope == AuthSessionScope.ADMIN && claims.userId == loginId) {
             refreshTokenRepository.deleteByUserIdAndToken(userId = loginId, token = refreshToken)

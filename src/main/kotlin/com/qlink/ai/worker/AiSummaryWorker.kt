@@ -9,6 +9,7 @@ import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummarySnapshot
 import com.qlink.ai.repository.AiJobRepository
@@ -20,6 +21,7 @@ import com.qlink.ai.service.CompleteAiSummaryService
 import com.qlink.ai.service.FailAiSummaryService
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
+import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireTrue
 import com.qlink.common.logging.traceContext
@@ -255,11 +257,25 @@ class AiSummaryWorker(
     }
 
     private suspend fun summarize(context: AiSummaryContext): AiSummaryResult {
+        val currentProvider =
+            tx.readOnly { aiProviderRepository.findById(context.provider.id!!) }
+                ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+        currentProvider.validateActive()
         val models =
             if (context.userProvider.userRole == Role.SUPER_ADMIN) {
-                context.candidateModels
+                AiModelAvailabilityDomainService.selectableModels(
+                    provider = currentProvider,
+                    models =
+                        tx.readOnly {
+                            availableModelRepository.findAllByProviderId(currentProvider.id!!)
+                        },
+                )
             } else {
-                listOf(context.requestModel)
+                val model =
+                    tx.readOnly { availableModelRepository.findById(context.requestModel.id!!) }
+                        ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+                AiModelAvailabilityDomainService.validateUsable(provider = currentProvider, model = model)
+                listOf(model)
             }
         var lastFailure: Throwable? = null
         val availableModels =
@@ -275,6 +291,15 @@ class AiSummaryWorker(
 
                 val summary =
                     catchingFailure {
+                        tx.readOnly {
+                            val provider =
+                                aiProviderRepository.findById(currentProvider.id!!)
+                                    ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                            val freshModel =
+                                availableModelRepository.findById(model.id!!)
+                                    ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+                            AiModelAvailabilityDomainService.validateUsable(provider = provider, model = freshModel)
+                        }
                         aiClientRouter.summarize(
                             AiSummaryClientRequest(
                                 providerType = context.provider.type,

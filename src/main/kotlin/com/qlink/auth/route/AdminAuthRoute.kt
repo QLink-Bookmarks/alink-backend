@@ -3,9 +3,9 @@ package com.qlink.auth.route
 import com.qlink.auth.domain.JwtPrincipal
 import com.qlink.auth.dto.AdminSignInRequest
 import com.qlink.auth.dto.WebAuthTokenResponse
+import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.SignInAdminService
 import com.qlink.auth.service.SignOutAdminService
-import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.common.cookie.ADMIN_REFRESH_TOKEN_COOKIE_NAME
 import com.qlink.common.cookie.appendAdminRefreshTokenCookie
 import com.qlink.common.error.ErrorCode
@@ -45,7 +45,10 @@ internal fun Route.adminAuthRoutes() {
         resource<AuthResources.Admin.Signout> {
             installAdminCsrf()
             deleteRoute(adminSignOutDocs()) {
-                signOut.signOut(loginId = call.principal<JwtPrincipal>()!!.userId, refreshToken = call.request.cookies[ADMIN_REFRESH_TOKEN_COOKIE_NAME])
+                signOut.signOut(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    refreshToken = call.request.cookies[ADMIN_REFRESH_TOKEN_COOKIE_NAME],
+                )
                 call.appendAdminRefreshTokenCookie(refreshToken = "", maxAge = 0)
                 call.respondSuccess(HttpStatusCode.OK)
             }

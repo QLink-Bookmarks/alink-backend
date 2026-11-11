@@ -7,6 +7,12 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
 @Serializable
+data class UpdatePostResponse(
+    val id: Long,
+    val updatedAt: Instant,
+)
+
+@Serializable
 data class CreatePostResponse(
     val id: Long,
 )

@@ -1,7 +1,7 @@
 package com.qlink.auth.service
 
-import com.qlink.auth.domain.RefreshToken
 import com.qlink.auth.domain.AuthSessionScope
+import com.qlink.auth.domain.RefreshToken
 import com.qlink.auth.dto.IssuedRefreshToken
 import com.qlink.auth.dto.RotatedAuthTokenResult
 import com.qlink.auth.repository.RefreshTokenRepository
@@ -21,7 +21,10 @@ internal class RefreshTokenRotator(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val authTokenService: AuthTokenService,
 ) {
-    suspend fun refresh(refreshToken: String?, scope: AuthSessionScope): RotatedAuthTokenResult {
+    suspend fun refresh(
+        refreshToken: String?,
+        scope: AuthSessionScope,
+    ): RotatedAuthTokenResult {
         val token = refreshToken?.takeIf { it.isNotBlank() } ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
         val claims = authTokenService.verifyRefreshToken(token)
         if (claims.scope != scope) throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)

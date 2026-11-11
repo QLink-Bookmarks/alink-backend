@@ -29,15 +29,22 @@ class SignInAdminService(
         type.validateAdminSupported()
         val subject = googleClient.getAdminSubject(request.token)
         return tx.required {
-            val provider = authProviderRepository.findByProvider(providerType = type, providerId = subject)
-                ?: throw BusinessException(ErrorCode.AUTH_ADMIN_REQUIRED)
+            val provider =
+                authProviderRepository.findByProvider(providerType = type, providerId = subject)
+                    ?: throw BusinessException(ErrorCode.AUTH_ADMIN_REQUIRED)
             val user = userRepository.findById(provider.userId) ?: throw BusinessException(ErrorCode.AUTH_ADMIN_REQUIRED)
             AuthAdminPolicy.validate(user.role.isAdmin)
             val now = Clock.System.now()
             val token = authTokenService.issueRefreshToken(userId = provider.userId, scope = AuthSessionScope.ADMIN)
             val expires = authTokenService.refreshTokenExpiredAt(now)
             refreshTokenRepository.insert(
-                RefreshToken(userId = provider.userId, familyId = authTokenService.verifyRefreshToken(token).familyId, token = token, issuedAt = now, expiredAt = expires),
+                RefreshToken(
+                    userId = provider.userId,
+                    familyId = authTokenService.verifyRefreshToken(token).familyId,
+                    token = token,
+                    issuedAt = now,
+                    expiredAt = expires,
+                ),
             )
             RotatedAuthTokenResult(
                 accessToken = authTokenService.issueAccessToken(userId = provider.userId, role = user.role),

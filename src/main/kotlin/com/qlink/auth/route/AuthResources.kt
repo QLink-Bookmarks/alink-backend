@@ -5,16 +5,25 @@ import io.ktor.resources.Resource
 @Resource("/auth")
 class AuthResources {
     @Resource("admin")
-    class Admin(val parent: AuthResources = AuthResources()) {
+    class Admin(
+        val parent: AuthResources = AuthResources(),
+    ) {
         @Resource("sign")
-        class Sign(val parent: Admin = Admin())
+        class Sign(
+            val parent: Admin = Admin(),
+        )
 
         @Resource("token/refresh")
-        class Refresh(val parent: Admin = Admin())
+        class Refresh(
+            val parent: Admin = Admin(),
+        )
 
         @Resource("signout")
-        class Signout(val parent: Admin = Admin())
+        class Signout(
+            val parent: Admin = Admin(),
+        )
     }
+
     @Resource("sign")
     class Sign(
         val parent: AuthResources = AuthResources(),

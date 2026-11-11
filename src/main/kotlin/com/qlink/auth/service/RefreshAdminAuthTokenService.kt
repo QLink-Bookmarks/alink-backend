@@ -13,6 +13,10 @@ class RefreshAdminAuthTokenService(
     private val authTokenService: AuthTokenService,
 ) {
     suspend fun refresh(refreshToken: String?): RotatedAuthTokenResult =
-        RefreshTokenRotator(tx = tx, userRepository = userRepository, refreshTokenRepository = refreshTokenRepository, authTokenService = authTokenService)
-            .refresh(refreshToken = refreshToken, scope = AuthSessionScope.ADMIN)
+        RefreshTokenRotator(
+            tx = tx,
+            userRepository = userRepository,
+            refreshTokenRepository = refreshTokenRepository,
+            authTokenService = authTokenService,
+        ).refresh(refreshToken = refreshToken, scope = AuthSessionScope.ADMIN)
 }

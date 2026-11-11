@@ -174,6 +174,7 @@ below is written in section 2 with its reason.
 | U3 | `/ai/users/providers` | the caller's resource is outside `/users/me` | `/users/me/ai-providers` |
 | O3 | `UpdateLinkResponse`, `UpdateTodoResponse` | echo the request | O3 |
 | O3 | `UpdateFolderResponse`, `AcceptFolderInvitationResponse` | echo the path id; `sharedAt` is derived but not returned | O3 |
+| O1 | `GET /api/ai/providers`, `GET /api/ai/providers/models` | `data` is an array | object wrapping the collection, in a separate Refactor Issue |
 | O6 | `CompleteTodoResponse` | `completeAt` | `completedAt` |
 | L2 | `TodoResources` | `size` defaults to 50 | 15 |
 | L2 | `NotificationResources` | `size` defaults to 30 | 15 |

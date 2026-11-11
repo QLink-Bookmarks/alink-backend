@@ -1,19 +1,27 @@
 package com.qlink.di
 
+import com.qlink.ai.service.AiAdminUserLoader
+import com.qlink.ai.service.CreateAiProviderService
+import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiProviderModelsService
+import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
+import com.qlink.ai.service.UpdateAiProviderActiveService
+import com.qlink.ai.service.UpdateAiProviderService
+import com.qlink.ai.service.UpdateAvailableModelActiveService
+import com.qlink.ai.service.UpdateAvailableModelService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
-import com.qlink.auth.service.SignInAdminService
-import com.qlink.auth.service.SignOutAdminService
-import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
 import com.qlink.auth.service.RandomUserNameGenerator
+import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.RefreshAuthTokenService
 import com.qlink.auth.service.RefreshNativeAuthTokenService
 import com.qlink.auth.service.RefreshWebAuthTokenService
+import com.qlink.auth.service.SignInAdminService
 import com.qlink.auth.service.SignInService
+import com.qlink.auth.service.SignOutAdminService
 import com.qlink.auth.service.SignOutService
 import com.qlink.bookmarkimport.service.CreateImportPreviewService
 import com.qlink.bookmarkimport.service.CreateImportReversalService
@@ -50,8 +58,11 @@ import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.notification.service.SendAnnouncementService
 import com.qlink.notification.service.SendNotificationService
 import com.qlink.post.service.CreatePostService
+import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
 import com.qlink.post.service.GetPostsService
+import com.qlink.post.service.PostEditorLoader
+import com.qlink.post.service.UpdatePostService
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
 import com.qlink.todo.service.DeleteTodoService
@@ -69,8 +80,82 @@ import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
-        single { SignInAdminService(tx = get(), userRepository = get(), authProviderRepository = get(), refreshTokenRepository = get(), googleClient = get(), authTokenService = get()) }
-        single { RefreshAdminAuthTokenService(tx = get(), userRepository = get(), refreshTokenRepository = get(), authTokenService = get()) }
+        single {
+            PostEditorLoader(userRepository = get())
+        }
+        single {
+            UpdatePostService(tx = get(), editorLoader = get(), postRepository = get())
+        }
+        single {
+            DeletePostService(
+                tx = get(),
+                editorLoader = get(),
+                postRepository = get(),
+                notificationRepository = get(),
+            )
+        }
+        single {
+            GetAiProviderService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
+        single {
+            AiAdminUserLoader(userRepository = get())
+        }
+        single {
+            CreateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderActiveService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
+        single {
+            CreateAvailableModelService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+            )
+        }
+        single {
+            UpdateAvailableModelService(tx = get(), adminUserLoader = get(), availableModelRepository = get())
+        }
+        single {
+            UpdateAvailableModelActiveService(
+                tx = get(),
+                adminUserLoader = get(),
+                availableModelRepository = get(),
+            )
+        }
+        single {
+            SignInAdminService(
+                tx = get(),
+                userRepository = get(),
+                authProviderRepository = get(),
+                refreshTokenRepository = get(),
+                googleClient = get(),
+                authTokenService = get(),
+            )
+        }
+        single {
+            RefreshAdminAuthTokenService(
+                tx = get(),
+                userRepository = get(),
+                refreshTokenRepository = get(),
+                authTokenService = get(),
+            )
+        }
         single { SignOutAdminService(tx = get(), refreshTokenRepository = get(), authTokenService = get()) }
         single {
             CreateLinkPreviewService(
@@ -189,6 +274,9 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
+                availableModelRepository = get(),
+                adminUserLoader = get(),
+                aiClientRouter = get(),
             )
         }
 
@@ -448,6 +536,7 @@ fun serviceModule() =
             GetPostsService(
                 tx = get(),
                 postRepository = get(),
+                userRepository = get(),
             )
         }
 
@@ -478,6 +567,7 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiJobRepository = get(),
                 dispatcher = get(),
+                aiProviderRepository = get(),
                 urlResolver = get(),
                 linkContentRepository = get(),
                 linkContentSignal = get(),

@@ -3,8 +3,8 @@ package com.qlink.auth.service
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
-import com.qlink.auth.domain.Role
 import com.qlink.auth.domain.AuthSessionScope
+import com.qlink.auth.domain.Role
 import com.qlink.auth.dto.RefreshTokenClaims
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
@@ -90,10 +90,11 @@ class AuthTokenService(
         return RefreshTokenClaims(
             userId = userId,
             familyId = familyId,
-            scope = decoded.getClaim("scope").asString()?.let {
-                AuthSessionScope.entries.firstOrNull { scope -> scope.name == it }
-                    ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)
-            } ?: AuthSessionScope.CHANNEL,
+            scope =
+                decoded.getClaim("scope").asString()?.let {
+                    AuthSessionScope.entries.firstOrNull { scope -> scope.name == it }
+                        ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)
+                } ?: AuthSessionScope.CHANNEL,
         )
     }
 }
