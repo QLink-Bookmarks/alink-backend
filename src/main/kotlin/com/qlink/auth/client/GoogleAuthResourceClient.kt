@@ -69,6 +69,9 @@ class GoogleAuthResourceClient(
         )
     }
 
+    suspend fun getAdminSubject(token: String): String =
+        idTokenVerifier.verifyAndGetSubject(idToken = token, allowedAudiences = googleConfig.adminClientIds)
+
     private suspend fun fromIdToken(idToken: String): AuthResource {
         val subject = idTokenVerifier.verifyAndGetSubject(idToken, googleConfig.clientIds)
         return AuthResource(

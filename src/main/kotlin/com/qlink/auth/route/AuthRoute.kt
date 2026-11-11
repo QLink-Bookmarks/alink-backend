@@ -35,6 +35,7 @@ const val REFRESH_TOKEN_HEADER_NAME = "refresh_token"
 const val CSRF_TOKEN_HEADER_NAME = "csrf_token"
 
 fun Route.authRoutes() {
+    adminAuthRoutes()
     val signInService by inject<SignInService>()
     val refreshWebAuthTokenService by inject<RefreshWebAuthTokenService>()
     val refreshNativeAuthTokenService by inject<RefreshNativeAuthTokenService>()

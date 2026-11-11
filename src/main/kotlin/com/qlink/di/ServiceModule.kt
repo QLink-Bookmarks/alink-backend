@@ -5,6 +5,9 @@ import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
+import com.qlink.auth.service.SignInAdminService
+import com.qlink.auth.service.SignOutAdminService
+import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
 import com.qlink.auth.service.RandomUserNameGenerator
 import com.qlink.auth.service.RefreshAuthTokenService
@@ -66,6 +69,9 @@ import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
+        single { SignInAdminService(tx = get(), userRepository = get(), authProviderRepository = get(), refreshTokenRepository = get(), googleClient = get(), authTokenService = get()) }
+        single { RefreshAdminAuthTokenService(tx = get(), userRepository = get(), refreshTokenRepository = get(), authTokenService = get()) }
+        single { SignOutAdminService(tx = get(), refreshTokenRepository = get(), authTokenService = get()) }
         single {
             CreateLinkPreviewService(
                 tx = get(),

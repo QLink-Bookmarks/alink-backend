@@ -121,6 +121,7 @@ apple:
     - com.qlinkapps.qlink.web
 
 google:
+  adminClientIds: []
   clientIds:
     - 942900946985-9if8aeuu5hdqjamhkd4pc5n6vdmg50jq.apps.googleusercontent.com
     - 942900946985-0v9dn3405fuv1ut2h1m59ebk6me39gh7.apps.googleusercontent.com

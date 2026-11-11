@@ -4,6 +4,8 @@ import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
 import com.qlink.auth.domain.Role
+import com.qlink.auth.domain.AuthSessionScope
+import com.qlink.auth.dto.RefreshTokenClaims
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.SecurityConfig
@@ -14,11 +16,6 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
-
-data class RefreshTokenClaims(
-    val userId: Long,
-    val familyId: String,
-)
 
 class AuthTokenService(
     private val securityConfig: SecurityConfig,
@@ -45,12 +42,15 @@ class AuthTokenService(
     fun issueRefreshToken(
         userId: Long,
         familyId: String = UUID.randomUUID().toString(),
+        scope: AuthSessionScope = AuthSessionScope.CHANNEL,
     ): String {
         val jwt =
             JWT
                 .create()
                 .withSubject(userId.toString())
                 .withClaim("familyId", familyId)
+                .withClaim("scope", scope.name)
+                .withJWTId(UUID.randomUUID().toString())
                 .withIssuedAt(Date.from(Clock.System.now().toJavaInstant()))
                 .sign(algorithm)
 
@@ -90,6 +90,10 @@ class AuthTokenService(
         return RefreshTokenClaims(
             userId = userId,
             familyId = familyId,
+            scope = decoded.getClaim("scope").asString()?.let {
+                AuthSessionScope.entries.firstOrNull { scope -> scope.name == it }
+                    ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)
+            } ?: AuthSessionScope.CHANNEL,
         )
     }
 }
