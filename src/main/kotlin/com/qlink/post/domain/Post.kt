@@ -7,7 +7,7 @@ import kotlin.time.Instant
 
 private const val MAX_TITLE_LENGTH = 100
 
-class Post(
+data class Post(
     val id: Long? = null,
     val title: String,
     val contents: String,
@@ -24,4 +24,14 @@ class Post(
 
     val isAnnouncement: Boolean
         get() = type == PostType.ANNOUNCEMENT
+
+    fun validateReadable(isAdmin: Boolean) = type.validateReadable(isAdmin)
+
+    fun validateEditable() = type.validateEditable()
+
+    fun change(
+        title: String,
+        contents: String,
+        now: Instant,
+    ): Post = copy(title = title, contents = contents, updatedAt = now)
 }

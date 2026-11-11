@@ -38,6 +38,13 @@ import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbNotificationRepository : NotificationRepository {
+    override suspend fun deleteByContext(
+        context: NotificationContext,
+        contextId: Long,
+    ) {
+        Notifications.deleteWhere { (Notifications.context eq context) and (Notifications.contextId eq contextId) }
+    }
+
     override suspend fun insert(notification: Notification): Notification =
         Notifications
             .insertReturning { it.fromDomain(notification) }
