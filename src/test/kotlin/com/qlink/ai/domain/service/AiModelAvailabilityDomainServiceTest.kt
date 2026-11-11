@@ -35,7 +35,11 @@ class AiModelAvailabilityDomainServiceTest :
                 }
             }
             When("제공자가 비활성이면") {
-                val selected = AiModelAvailabilityDomainService.selectableModels(provider = provider.copy(isActive = false), models = models)
+                val selected =
+                    AiModelAvailabilityDomainService.selectableModels(
+                        provider = provider.copy(isActive = false),
+                        models = models,
+                    )
                 Then("빈 목록을 반환한다") {
                     selected shouldBe emptyList()
                 }

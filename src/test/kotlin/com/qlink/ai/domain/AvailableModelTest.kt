@@ -16,7 +16,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "model-A.1_2",
-                        priority = RandomFixture.randomInt(1, 100),
+                        priority = 1,
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -176,13 +176,14 @@ class AvailableModelTest :
             When("설정을 바꾸면 식별자 유지와 제한 해제") {
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId())
                 val now = RandomFixture.randomFutureInstantAfterTomorrow()
-                val action = { original.change(priority = RandomFixture.randomInt(1, 100), rpdLimit = null, tpdLimit = null, now = now) }
+                val priority = RandomFixture.randomInt(1, 100)
+                val action = { original.change(priority = priority, rpdLimit = null, tpdLimit = null, now = now) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.id shouldBe original.id
                     changed.model shouldBe original.model
                     changed.providerId shouldBe original.providerId
-                    changed.priority shouldBe 1
+                    changed.priority shouldBe priority
                     changed.rpdLimit shouldBe null
                     changed.tpdLimit shouldBe null
                     changed.updatedAt shouldBe now
@@ -244,7 +245,11 @@ class AvailableModelTest :
             }
             When("비활성 상태를 true로 변경") {
                 val original =
-                    AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId(), isActive = false)
+                    AiFixture.createRandomAvailableModelOf(
+                        providerId = RandomFixture.randomId(),
+                        id = RandomFixture.randomId(),
+                        isActive = false,
+                    )
                 val action = { original.changeActive(isActive = true, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
