@@ -274,7 +274,6 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
-                availableModelRepository = get(),
                 adminUserLoader = get(),
                 aiClientRouter = get(),
             )

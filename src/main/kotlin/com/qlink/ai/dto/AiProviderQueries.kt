@@ -5,9 +5,19 @@ package com.qlink.ai.dto
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.repository.table.AiProviders
 import com.qlink.ai.repository.table.AvailableModels
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.ResultRow
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
+
+data class AiProviderListQuery(
+    val id: Long,
+    val type: AiProviderType,
+    val isActive: Boolean,
+    val modelCount: Int,
+    val activeModelCount: Int,
+    val updatedAt: Instant,
+)
 
 data class AiProviderQuery(
     val id: Long,
@@ -27,6 +37,19 @@ data class AiModelQuery(
     val isActive: Boolean,
     val updatedAt: Instant,
 )
+
+fun ResultRow.toAiProviderListQuery(
+    modelCount: Expression<Long>,
+    activeModelCount: Expression<Long>,
+): AiProviderListQuery =
+    AiProviderListQuery(
+        id = this[AiProviders.id],
+        type = this[AiProviders.type],
+        isActive = this[AiProviders.isActive],
+        modelCount = this[modelCount].toInt(),
+        activeModelCount = this[activeModelCount].toInt(),
+        updatedAt = this[AiProviders.updatedAt].toKotlinInstant(),
+    )
 
 fun ResultRow.toAiProviderQuery(): AiProviderQuery =
     AiProviderQuery(

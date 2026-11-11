@@ -2,9 +2,10 @@ package com.qlink.ai.repository
 
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiProviderListQuery
 
 interface AiProviderRepository {
-    suspend fun findQueries(includesInactive: Boolean): List<com.qlink.ai.dto.AiProviderQuery>
+    suspend fun findListQueries(includesInactive: Boolean): List<AiProviderListQuery>
 
     suspend fun findQuery(id: Long): com.qlink.ai.dto.AiProviderQuery?
 

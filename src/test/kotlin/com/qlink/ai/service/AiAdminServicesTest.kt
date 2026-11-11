@@ -259,16 +259,20 @@ class AiAdminServicesTest :
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
                     providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.CLAUDE, isActive = false))
+                    models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
                 }
                 val action = suspend { getProviders.getAiProviders() }
                 Then("저장소 상태와 응답을 확인한다") {
                     val visible = action()
                     visible.size shouldBe 1
-                    visible.single().modelCount shouldBe 1
+                    visible.single().modelCount shouldBe 2
                     visible.single().activeModelCount shouldBe 1
                     visible.single().isExecutable shouldBe true
                     val all = getProviders.getAiProviders(loginId = admin.id, includesInactive = true)
                     all.map { it.type } shouldBe listOf(AiProviderType.CLAUDE, AiProviderType.OPENAI)
+                    val withoutModels = all.first { it.type == AiProviderType.CLAUDE }
+                    withoutModels.modelCount shouldBe 0
+                    withoutModels.activeModelCount shouldBe 0
                     all.first { it.id == provider.id }.updatedAt shouldBe providers.findById(provider.id!!)!!.updatedAt
                 }
             }

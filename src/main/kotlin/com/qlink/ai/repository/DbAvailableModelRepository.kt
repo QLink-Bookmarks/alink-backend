@@ -10,14 +10,22 @@ import com.qlink.ai.repository.table.toAvailableModelDomain
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.insertReturning
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 
 class DbAvailableModelRepository : AvailableModelRepository {
     override suspend fun findQueries(providerId: Long): List<AiModelQuery> =
         AvailableModels
-            .selectAll()
-            .where { AvailableModels.providerId eq providerId }
+            .select(
+                AvailableModels.id,
+                AvailableModels.model,
+                AvailableModels.priority,
+                AvailableModels.rpdLimit,
+                AvailableModels.tpdLimit,
+                AvailableModels.isActive,
+                AvailableModels.updatedAt,
+            ).where { AvailableModels.providerId eq providerId }
             .orderBy(AvailableModels.priority to SortOrder.ASC, AvailableModels.id to SortOrder.ASC)
             .map { it.toAiModelQuery() }
 
