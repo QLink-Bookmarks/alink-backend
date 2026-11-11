@@ -14,10 +14,10 @@ object UserFixture {
             allowsReminder = allowsReminder,
         )
 
-    fun createRandomValidSuperAdmin(): User = createRandomValidUser().copyForRole(role = Role.SUPER_ADMIN)
+    fun createRandomValidSuperAdmin(): User = createRandomValidUser().copyForTestRole(role = Role.SUPER_ADMIN)
 }
 
-private fun User.copyForRole(role: Role): User =
+fun User.copyForTestRole(role: Role): User =
     User(
         id = id,
         username = username,

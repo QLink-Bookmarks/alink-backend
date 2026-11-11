@@ -2,6 +2,14 @@
 
 package com.qlink.auth.dto
 
+import com.qlink.auth.domain.AuthSessionScope
+
+data class RefreshTokenClaims(
+    val userId: Long,
+    val familyId: String,
+    val scope: AuthSessionScope,
+)
+
 data class IssuedRefreshToken(
     val token: String,
     val maxAge: Int,

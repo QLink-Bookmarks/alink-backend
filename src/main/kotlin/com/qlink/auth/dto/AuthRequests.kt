@@ -6,6 +6,12 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import kotlinx.serialization.Serializable
 
+@Serializable
+data class AdminSignInRequest(
+    val provider: String,
+    val token: String,
+)
+
 enum class AuthPlatform {
     WEB,
     NATIVE,
