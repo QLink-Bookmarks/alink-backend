@@ -43,6 +43,8 @@ class GetPostsServiceTest :
         val service = koinGet<GetPostsService>()
         val postRepository = koinGet<PostRepository>()
         val userRepository = koinGet<UserRepository>()
+        lateinit var admin: User
+        beforeTest { admin = userRepository.insert(UserFixture.createRandomValidSuperAdmin()) }
 
         suspend fun seed(): User {
             val author = userRepository.insert(UserFixture.createRandomValidUser())
@@ -59,7 +61,7 @@ class GetPostsServiceTest :
 
                     val response =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -78,7 +80,7 @@ class GetPostsServiceTest :
 
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_FORBIDDEN.message) {
                         service.getPosts(
-                            role = Role.NORMAL,
+                            loginId = null,
                             type = "feedback",
                             query = null,
                             order = "latest",
@@ -94,7 +96,7 @@ class GetPostsServiceTest :
 
                     val response =
                         service.getPosts(
-                            role = Role.ADMIN,
+                            loginId = admin.id,
                             type = "FEEDBACK",
                             query = "피드백",
                             order = "latest",
@@ -117,7 +119,7 @@ class GetPostsServiceTest :
 
                     val page1 =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -128,7 +130,7 @@ class GetPostsServiceTest :
 
                     val page2 =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -143,7 +145,7 @@ class GetPostsServiceTest :
                 Then("예외를 반환한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) {
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "earliest",
@@ -196,7 +198,7 @@ class GetPostsServiceTest :
                 cursor: String? = null,
                 size: Int = 10,
             ) = service.getPosts(
-                role = role,
+                loginId = if (role.isAdmin) admin.id else null,
                 type = type,
                 query = query,
                 orderKey = orderKey,
@@ -387,7 +389,7 @@ class GetPostsServiceTest :
                 val get =
                     suspend {
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "asc",

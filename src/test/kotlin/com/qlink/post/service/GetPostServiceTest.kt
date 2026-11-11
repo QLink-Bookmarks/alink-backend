@@ -1,6 +1,5 @@
 package com.qlink.post.service
 
-import com.qlink.auth.domain.Role
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.post.domain.Post
@@ -21,12 +20,14 @@ class GetPostServiceTest :
         val service = koinGet<GetPostService>()
         val postRepository = koinGet<PostRepository>()
         val userRepository = koinGet<UserRepository>()
+        lateinit var admin: User
 
         Given("게시글 상세 조회 서비스 테스트") {
             lateinit var author: User
 
             beforeTest {
                 author = userRepository.insert(UserFixture.createRandomValidUser())
+                admin = userRepository.insert(UserFixture.createRandomValidSuperAdmin())
             }
 
             When("FEEDBACK 상세를 관리자가 조회하면") {
@@ -37,13 +38,15 @@ class GetPostServiceTest :
                         )
                     postRepository.insertImages(listOf(PostImage(postId = post.id!!, url = "https://images.archivelink.app/a.png")))
 
-                    val response = service.getPost(post.id!!, Role.ADMIN)
+                    val response = service.getPost(post.id!!, admin.id)
 
                     response.id shouldBe post.id
                     response.contents shouldBe "내용"
                     response.type shouldBe PostType.FEEDBACK
                     response.author shouldBe author.nickname
                     response.imageUrls shouldContainExactly listOf("https://images.archivelink.app/a.png")
+                    service.getPost(post.id!!, admin.id) shouldBe response
+                    postRepository.findById(post.id!!) shouldBe post
                 }
             }
 
@@ -55,7 +58,7 @@ class GetPostServiceTest :
                         )
 
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_FORBIDDEN.message) {
-                        service.getPost(post.id!!, Role.NORMAL)
+                        service.getPost(post.id!!, author.id)
                     }
                 }
             }
@@ -68,7 +71,7 @@ class GetPostServiceTest :
                         )
                     postRepository.insertImages(listOf(PostImage(postId = post.id!!, url = "https://images.archivelink.app/a.png")))
 
-                    val response = service.getPost(post.id!!, Role.GUEST)
+                    val response = service.getPost(post.id!!, null)
 
                     response.type shouldBe PostType.ANNOUNCEMENT
                     response.author shouldBe author.nickname
@@ -79,7 +82,7 @@ class GetPostServiceTest :
             When("존재하지 않는 게시글을 조회하면") {
                 Then("예외를 반환한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_NOT_FOUND.message) {
-                        service.getPost(987654321L, Role.ADMIN)
+                        service.getPost(postId = 987654321L, loginId = admin.id)
                     }
                 }
             }

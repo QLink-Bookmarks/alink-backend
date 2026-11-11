@@ -255,7 +255,10 @@ object ServiceTestEnvironment {
             }
 
             single {
-                com.qlink.config.GoogleConfig(clientIds = listOf(GoogleTestKeys.CLIENT_ID))
+                com.qlink.config.GoogleConfig(
+                    clientIds = listOf(GoogleTestKeys.CLIENT_ID),
+                    adminClientIds = mutableListOf("admin.apps.googleusercontent.com"),
+                )
             }
 
             single {

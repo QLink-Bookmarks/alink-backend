@@ -16,17 +16,35 @@ import kotlin.random.Random
 import kotlin.time.Instant
 
 object AiFixture {
-    fun createRandomValidAiProvider(type: AiProviderType = randomAiProviderType()): AiProvider =
+    fun createRandomValidAiProvider(
+        type: AiProviderType = randomAiProviderType(),
+        isActive: Boolean = true,
+        id: Long? = null,
+    ): AiProvider =
         AiProvider(
+            id = id,
             type = type,
-            baseUrl = RandomFixture.randomUrl(),
+            isActive = isActive,
+            baseUrl =
+                when (type) {
+                    AiProviderType.GEMINI -> "https://generativelanguage.googleapis.com"
+                    AiProviderType.OPENAI -> "https://api.openai.com"
+                    AiProviderType.CLAUDE -> "https://api.anthropic.com"
+                } + "/v${RandomFixture.randomInt(1, 9)}",
         )
 
-    fun createRandomAvailableModelOf(providerId: Long): AvailableModel =
+    fun createRandomAvailableModelOf(
+        providerId: Long,
+        isActive: Boolean = true,
+        id: Long? = null,
+        priority: Int = RandomFixture.randomInt(1, 100),
+    ): AvailableModel =
         AvailableModel(
+            id = id,
+            isActive = isActive,
             providerId = providerId,
             model = "model-${RandomFixture.randomId()}",
-            priority = RandomFixture.randomInt(1, 100),
+            priority = priority,
             rpdLimit = RandomFixture.randomInt(1, 1000),
             tpdLimit = RandomFixture.randomInt(1, 10_000_000),
         )
