@@ -19,6 +19,7 @@ object AvailableModels : Table("available_models") {
     val rpdLimit = integer("rpd_limit").nullable()
     val tpdLimit = integer("tpd_limit").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
+    val isActive = bool("is_active").default(true)
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
 
     override val primaryKey = PrimaryKey(id)
@@ -32,6 +33,7 @@ object AvailableModels : Table("available_models") {
 fun ResultRow.toAvailableModelDomain(): AvailableModel =
     AvailableModel(
         id = this[AvailableModels.id],
+        isActive = this[AvailableModels.isActive],
         providerId = this[AvailableModels.providerId],
         model = this[AvailableModels.model],
         priority = this[AvailableModels.priority],
@@ -42,6 +44,7 @@ fun ResultRow.toAvailableModelDomain(): AvailableModel =
     )
 
 fun UpdateBuilder<*>.fromDomain(availableModel: AvailableModel) {
+    this[AvailableModels.isActive] = availableModel.isActive
     this[AvailableModels.providerId] = availableModel.providerId
     this[AvailableModels.model] = availableModel.model
     this[AvailableModels.priority] = availableModel.priority

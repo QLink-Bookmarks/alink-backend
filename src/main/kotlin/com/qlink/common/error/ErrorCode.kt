@@ -111,6 +111,15 @@ enum class ErrorCode(
     AI_API_KEY_MISSING("AI_500_0001", 500, "AI API 키가 설정되지 않았어요"),
     AI_SUMMARY_LINK_MISMATCH("AI_500_0002", 500, "AI 응답의 링크가 요청한 링크와 달라요"),
     AI_EMPTY_RESPONSE("AI_502_0001", 502, "AI 응답이 비어 있어요"),
+    AI_PROVIDER_BASE_URL_INVALID("AI_400_0004", 400, "AI 제공자 공식 HTTPS 주소를 입력해 주세요"),
+    AI_MODEL_NAME_BLANK("AI_400_0005", 400, "모델 식별자를 입력해 주세요"),
+    AI_MODEL_NAME_OVER_MAX("AI_400_0006", 400, "모델 식별자는 최대 100자예요"),
+    AI_MODEL_NAME_INVALID("AI_400_0007", 400, "모델 식별자에는 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있어요"),
+    AI_MODEL_PRIORITY_NOT_POSITIVE("AI_400_0008", 400, "모델 우선순위는 1 이상이어야 해요"),
+    AI_MODEL_LIMIT_NOT_POSITIVE("AI_400_0009", 400, "모델 제한은 1 이상이어야 해요"),
+    AI_PROVIDER_CLIENT_MISSING("AI_422_0002", 422, "실행 어댑터가 없는 업체는 활성화할 수 없어요"),
+    AI_PROVIDER_INACTIVE("AI_422_0003", 422, "비활성 AI 제공자는 사용할 수 없어요"),
+    AI_MODEL_INACTIVE("AI_422_0004", 422, "비활성 AI 모델은 사용할 수 없어요"),
 
     // Todo
     TODO_TITLE_BLANK("TODO_400_0001", 400, "액션 제목이 입력되지 않았어요"),
