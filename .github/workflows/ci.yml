@@ -9,6 +9,7 @@ on:
       - "refactor/**"
       - "fix/**"
       - "codex/**"
+      - "issue-admin-1-*"
 
 permissions:
   contents: read
