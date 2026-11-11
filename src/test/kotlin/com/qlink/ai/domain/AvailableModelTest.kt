@@ -16,7 +16,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "model-A.1_2",
-                        priority = 1,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -34,7 +34,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "a".repeat(100),
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 1,
                         tpdLimit = 1,
                     )
@@ -52,7 +52,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "a".repeat(101),
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 1,
                         tpdLimit = 1,
                     )
@@ -66,7 +66,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = " ",
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -80,7 +80,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "../model",
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -94,7 +94,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "a:b",
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -108,7 +108,7 @@ class AvailableModelTest :
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
                         model = "a b",
-                        priority = 2,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
                     )
@@ -121,7 +121,7 @@ class AvailableModelTest :
                 val action = {
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
-                        model = "valid",
+                        model = "model-${RandomFixture.randomId()}",
                         priority = 0,
                         rpdLimit = null,
                         tpdLimit = null,
@@ -135,7 +135,7 @@ class AvailableModelTest :
                 val action = {
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
-                        model = "valid",
+                        model = "model-${RandomFixture.randomId()}",
                         priority = -1,
                         rpdLimit = null,
                         tpdLimit = null,
@@ -149,8 +149,8 @@ class AvailableModelTest :
                 val action = {
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
-                        model = "valid",
-                        priority = 1,
+                        model = "model-${RandomFixture.randomId()}",
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 0,
                         tpdLimit = null,
                     )
@@ -163,8 +163,8 @@ class AvailableModelTest :
                 val action = {
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
-                        model = "valid",
-                        priority = 1,
+                        model = "model-${RandomFixture.randomId()}",
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = -1,
                     )
@@ -176,7 +176,7 @@ class AvailableModelTest :
             When("설정을 바꾸면 식별자 유지와 제한 해제") {
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId())
                 val now = RandomFixture.randomFutureInstantAfterTomorrow()
-                val action = { original.change(priority = 1, rpdLimit = null, tpdLimit = null, now = now) }
+                val action = { original.change(priority = RandomFixture.randomInt(1, 100), rpdLimit = null, tpdLimit = null, now = now) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.id shouldBe original.id
@@ -206,7 +206,7 @@ class AvailableModelTest :
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId())
                 val action = {
                     original.change(
-                        priority = 1,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 0,
                         tpdLimit = null,
                         now = RandomFixture.randomFutureInstantAfterTomorrow(),
@@ -220,7 +220,7 @@ class AvailableModelTest :
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId())
                 val action = {
                     original.change(
-                        priority = 1,
+                        priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = 0,
                         now = RandomFixture.randomFutureInstantAfterTomorrow(),
@@ -242,8 +242,9 @@ class AvailableModelTest :
                     original.isActive shouldBe true
                 }
             }
-            When("활성 상태를 true로 변경") {
-                val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId())
+            When("비활성 상태를 true로 변경") {
+                val original =
+                    AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId(), isActive = false)
                 val action = { original.changeActive(isActive = true, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
@@ -251,7 +252,14 @@ class AvailableModelTest :
                     changed.id shouldBe original.id
                     changed.model shouldBe original.model
                     changed.providerId shouldBe original.providerId
-                    changed shouldBe original
+                    original.isActive shouldBe false
+                }
+            }
+            When("같은 활성 상태를 요청하면") {
+                val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId())
+                val action = { original.changeActive(isActive = true, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
+                Then("원래 모델과 변경 시각을 유지한다") {
+                    action() shouldBe original
                 }
             }
             When("비활성 모델 검증") {
