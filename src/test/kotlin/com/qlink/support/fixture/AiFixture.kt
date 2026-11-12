@@ -7,6 +7,8 @@ import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
+import com.qlink.ai.domain.DailyUsage
+import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummarySnapshot
 import com.qlink.ai.dto.AiSummaryTodoRequest
@@ -16,6 +18,23 @@ import kotlin.random.Random
 import kotlin.time.Instant
 
 object AiFixture {
+    fun createUserProviderOf(
+        userId: Long,
+        providerId: Long,
+    ): UserProvider = UserProvider(userId = userId, providerId = providerId, apiKey = RandomFixture.randomFixedSentence(40))
+
+    fun createDailyUsageOf(
+        userProviderId: Long,
+        modelId: Long,
+    ): DailyUsage =
+        DailyUsage(
+            userProviderId = userProviderId,
+            modelId = modelId,
+            usageDate = RandomFixture.randomDateTime().toLocalDate(),
+            requests = RandomFixture.randomInt(1, 100),
+            tokens = RandomFixture.randomInt(1, 1000),
+        )
+
     fun createRandomValidAiProvider(
         type: AiProviderType = randomAiProviderType(),
         isActive: Boolean = true,
