@@ -1,7 +1,6 @@
 package com.qlink.auth.service
 
 import com.qlink.auth.client.GoogleAuthResourceClient
-import com.qlink.auth.domain.AuthAdminPolicy
 import com.qlink.auth.domain.AuthProviderType
 import com.qlink.auth.domain.AuthSessionScope
 import com.qlink.auth.domain.RefreshToken
@@ -33,7 +32,7 @@ class SignInAdminService(
                 authProviderRepository.findByProvider(providerType = type, providerId = subject)
                     ?: throw BusinessException(ErrorCode.AUTH_ADMIN_REQUIRED)
             val user = userRepository.findById(provider.userId) ?: throw BusinessException(ErrorCode.AUTH_ADMIN_REQUIRED)
-            AuthAdminPolicy.validate(user.role.isAdmin)
+            user.role.validateAdmin()
             val now = Clock.System.now()
             val token = authTokenService.issueRefreshToken(userId = provider.userId, scope = AuthSessionScope.ADMIN)
             val expires = authTokenService.refreshTokenExpiredAt(now)
