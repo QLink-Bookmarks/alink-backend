@@ -35,6 +35,7 @@ fun aiModule(config: ApplicationConfig) =
             val monitoringConfig = get<MonitoringConfig>()
 
             HttpClient(CIO) {
+                followRedirects = false
                 expectSuccess = false
                 install(ContentNegotiation) {
                     json(

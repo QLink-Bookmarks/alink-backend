@@ -33,7 +33,14 @@ class UpdateMySettingsService(
                 }
 
             request.defaultProviderId?.let {
-                aiProviderRepository.findById(it) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                val provider = aiProviderRepository.findById(it) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                provider.validateActive()
+            }
+            if (request.defaultModelId != null) {
+                targetModel?.validateActive()
+                val provider =
+                    aiProviderRepository.findById(targetModel!!.providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                provider.validateActive()
             }
             targetProviderId?.let { providerId -> targetModel?.validateProvider(providerId) }
 

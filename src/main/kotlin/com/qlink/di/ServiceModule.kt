@@ -544,6 +544,7 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiJobRepository = get(),
                 dispatcher = get(),
+                aiProviderRepository = get(),
                 urlResolver = get(),
                 linkContentRepository = get(),
                 linkContentSignal = get(),
