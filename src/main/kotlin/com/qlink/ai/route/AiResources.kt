@@ -27,6 +27,22 @@ class AiResources {
         )
     }
 
+    @Resource("models")
+    class Models(
+        val parent: AiResources = AiResources(),
+    ) {
+        @Resource("{id}")
+        class ById(
+            val parent: Models = Models(),
+            val id: Long,
+        ) {
+            @Resource("active")
+            class Active(
+                val parent: ById,
+            )
+        }
+    }
+
     @Resource("users/providers")
     class UserProviders(
         val parent: AiResources = AiResources(),

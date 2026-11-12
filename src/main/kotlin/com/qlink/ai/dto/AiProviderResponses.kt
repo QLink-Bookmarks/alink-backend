@@ -60,6 +60,12 @@ data class UpdateAiActiveResponse(
 )
 
 @Serializable
+data class UpdateAvailableModelResponse(
+    val id: Long,
+    val updatedAt: Instant,
+)
+
+@Serializable
 data class PutAiUserProviderResponse(
     val id: Long,
 )

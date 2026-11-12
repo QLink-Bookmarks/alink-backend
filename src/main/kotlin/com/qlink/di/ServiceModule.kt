@@ -2,12 +2,15 @@ package com.qlink.di
 
 import com.qlink.ai.service.AiAdminUserLoader
 import com.qlink.ai.service.CreateAiProviderService
+import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
+import com.qlink.ai.service.UpdateAvailableModelActiveService
+import com.qlink.ai.service.UpdateAvailableModelService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
@@ -74,6 +77,20 @@ import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
+        single {
+            CreateAvailableModelService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+            )
+        }
+        single {
+            UpdateAvailableModelService(tx = get(), adminUserLoader = get(), availableModelRepository = get())
+        }
+        single {
+            UpdateAvailableModelActiveService(tx = get(), adminUserLoader = get(), availableModelRepository = get())
+        }
         single {
             GetAiProviderService(
                 tx = get(),
