@@ -1,7 +1,6 @@
 package com.qlink.ai.service
 
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.domain.AiAdminPolicy
 import com.qlink.ai.dto.AiProviderResponse
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.common.transaction.TransactionRunner
@@ -9,7 +8,7 @@ import com.qlink.common.transaction.TransactionRunner
 class GetAiProvidersService(
     private val tx: TransactionRunner,
     private val aiProviderRepository: AiProviderRepository,
-    private val adminUserLoader: AiAdminUserLoader,
+    private val adminValidator: AiAdminValidator,
     private val aiClientRouter: AiClientRouter,
 ) {
     suspend fun getAiProviders(
@@ -17,7 +16,7 @@ class GetAiProvidersService(
         includesInactive: Boolean = false,
     ): List<AiProviderResponse> =
         tx.readOnly {
-            if (includesInactive) AiAdminPolicy.validate(adminUserLoader.load(loginId).role.isAdmin)
+            if (includesInactive) adminValidator.validate(loginId)
             aiProviderRepository
                 .findListQueries(includesInactive)
                 .map {

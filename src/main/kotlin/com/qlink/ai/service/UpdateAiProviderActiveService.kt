@@ -1,7 +1,6 @@
 package com.qlink.ai.service
 
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.domain.AiAdminPolicy
 import com.qlink.ai.dto.UpdateAiActiveRequest
 import com.qlink.ai.dto.UpdateAiActiveResponse
 import com.qlink.ai.repository.AiProviderRepository
@@ -12,7 +11,7 @@ import kotlin.time.Clock
 
 class UpdateAiProviderActiveService(
     private val tx: TransactionRunner,
-    private val adminUserLoader: AiAdminUserLoader,
+    private val adminValidator: AiAdminValidator,
     private val aiProviderRepository: AiProviderRepository,
     private val aiClientRouter: AiClientRouter,
 ) {
@@ -22,7 +21,7 @@ class UpdateAiProviderActiveService(
         request: UpdateAiActiveRequest,
     ): UpdateAiActiveResponse =
         tx.required {
-            AiAdminPolicy.validate(adminUserLoader.load(loginId).role.isAdmin)
+            adminValidator.validate(loginId)
             val provider = aiProviderRepository.findById(id) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
             val changed =
                 provider.changeActive(

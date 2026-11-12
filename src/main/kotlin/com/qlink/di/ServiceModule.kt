@@ -1,6 +1,6 @@
 package com.qlink.di
 
-import com.qlink.ai.service.AiAdminUserLoader
+import com.qlink.ai.service.AiAdminValidator
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiProviderModelsService
@@ -21,7 +21,6 @@ import com.qlink.auth.service.RefreshNativeAuthTokenService
 import com.qlink.auth.service.RefreshWebAuthTokenService
 import com.qlink.auth.service.SignInAdminService
 import com.qlink.auth.service.SignInService
-import com.qlink.auth.service.SignOutAdminService
 import com.qlink.auth.service.SignOutService
 import com.qlink.bookmarkimport.service.CreateImportPreviewService
 import com.qlink.bookmarkimport.service.CreateImportReversalService
@@ -80,39 +79,39 @@ fun serviceModule() =
         single {
             CreateAvailableModelService(
                 tx = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiProviderRepository = get(),
                 availableModelRepository = get(),
             )
         }
         single {
-            UpdateAvailableModelService(tx = get(), adminUserLoader = get(), availableModelRepository = get())
+            UpdateAvailableModelService(tx = get(), adminValidator = get(), availableModelRepository = get())
         }
         single {
-            UpdateAvailableModelActiveService(tx = get(), adminUserLoader = get(), availableModelRepository = get())
+            UpdateAvailableModelActiveService(tx = get(), adminValidator = get(), availableModelRepository = get())
         }
         single {
             GetAiProviderService(
                 tx = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiProviderRepository = get(),
                 availableModelRepository = get(),
                 aiClientRouter = get(),
             )
         }
         single {
-            AiAdminUserLoader(userRepository = get())
+            AiAdminValidator(userRepository = get())
         }
         single {
-            CreateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+            CreateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
         }
         single {
-            UpdateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+            UpdateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
         }
         single {
             UpdateAiProviderActiveService(
                 tx = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiProviderRepository = get(),
                 aiClientRouter = get(),
             )
@@ -127,15 +126,7 @@ fun serviceModule() =
                 authTokenService = get(),
             )
         }
-        single {
-            RefreshAdminAuthTokenService(
-                tx = get(),
-                userRepository = get(),
-                refreshTokenRepository = get(),
-                authTokenService = get(),
-            )
-        }
-        single { SignOutAdminService(tx = get(), refreshTokenRepository = get(), authTokenService = get()) }
+        single { RefreshAdminAuthTokenService(refreshAuthTokenService = get()) }
         single {
             CreateLinkPreviewService(
                 tx = get(),
@@ -253,7 +244,7 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiClientRouter = get(),
             )
         }
