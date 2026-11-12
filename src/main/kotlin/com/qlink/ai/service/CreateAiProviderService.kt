@@ -1,6 +1,5 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.domain.AiAdminPolicy
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.dto.CreateAiProviderRequest
 import com.qlink.ai.dto.CreateAiResourceResponse
@@ -11,7 +10,7 @@ import com.qlink.common.transaction.TransactionRunner
 
 class CreateAiProviderService(
     private val tx: TransactionRunner,
-    private val adminUserLoader: AiAdminUserLoader,
+    private val adminValidator: AiAdminValidator,
     private val aiProviderRepository: AiProviderRepository,
 ) {
     suspend fun createAiProvider(
@@ -19,7 +18,7 @@ class CreateAiProviderService(
         request: CreateAiProviderRequest,
     ): CreateAiResourceResponse =
         tx.required {
-            AiAdminPolicy.validate(adminUserLoader.load(loginId).role.isAdmin)
+            adminValidator.validate(loginId)
             if (aiProviderRepository.findByType(request.type) != null) throw BusinessException(ErrorCode.AI_PROVIDER_DUPLICATE_TYPE)
             val saved = aiProviderRepository.insert(AiProvider.create(type = request.type, baseUrl = request.baseUrl))
             CreateAiResourceResponse(id = saved.id!!)

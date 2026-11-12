@@ -1,6 +1,5 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.domain.AiAdminPolicy
 import com.qlink.ai.dto.UpdateAvailableModelRequest
 import com.qlink.ai.dto.UpdateAvailableModelResponse
 import com.qlink.ai.repository.AvailableModelRepository
@@ -11,7 +10,7 @@ import kotlin.time.Clock
 
 class UpdateAvailableModelService(
     private val tx: TransactionRunner,
-    private val adminUserLoader: AiAdminUserLoader,
+    private val adminValidator: AiAdminValidator,
     private val availableModelRepository: AvailableModelRepository,
 ) {
     suspend fun updateAvailableModel(
@@ -20,7 +19,7 @@ class UpdateAvailableModelService(
         request: UpdateAvailableModelRequest,
     ): UpdateAvailableModelResponse =
         tx.required {
-            AiAdminPolicy.validate(adminUserLoader.load(loginId).role.isAdmin)
+            adminValidator.validate(loginId)
             val model = availableModelRepository.findById(id) ?: throw BusinessException(ErrorCode.AI_ADMIN_MODEL_NOT_FOUND)
             val saved =
                 availableModelRepository.update(
