@@ -18,7 +18,6 @@ import com.qlink.auth.service.RefreshNativeAuthTokenService
 import com.qlink.auth.service.RefreshWebAuthTokenService
 import com.qlink.auth.service.SignInAdminService
 import com.qlink.auth.service.SignInService
-import com.qlink.auth.service.SignOutAdminService
 import com.qlink.auth.service.SignOutService
 import com.qlink.bookmarkimport.service.CreateImportPreviewService
 import com.qlink.bookmarkimport.service.CreateImportReversalService
@@ -110,15 +109,7 @@ fun serviceModule() =
                 authTokenService = get(),
             )
         }
-        single {
-            RefreshAdminAuthTokenService(
-                tx = get(),
-                userRepository = get(),
-                refreshTokenRepository = get(),
-                authTokenService = get(),
-            )
-        }
-        single { SignOutAdminService(tx = get(), refreshTokenRepository = get(), authTokenService = get()) }
+        single { RefreshAdminAuthTokenService(refreshAuthTokenService = get()) }
         single {
             CreateLinkPreviewService(
                 tx = get(),
