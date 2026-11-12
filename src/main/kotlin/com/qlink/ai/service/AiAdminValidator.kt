@@ -2,14 +2,14 @@ package com.qlink.ai.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.user.domain.User
+import com.qlink.common.error.requireTrue
 import com.qlink.user.repository.UserRepository
 
-class AiAdminUserLoader(
+class AiAdminValidator(
     private val userRepository: UserRepository,
 ) {
-    suspend fun load(loginId: Long?): User {
+    suspend fun validate(loginId: Long?) {
         val user = loginId?.let { userRepository.findById(it) } ?: throw BusinessException(ErrorCode.AI_ADMIN_USER_NOT_FOUND)
-        return user
+        user.role.isAdmin.requireTrue(ErrorCode.AI_ADMIN_REQUIRED)
     }
 }

@@ -1,6 +1,6 @@
 package com.qlink.di
 
-import com.qlink.ai.service.AiAdminUserLoader
+import com.qlink.ai.service.AiAdminValidator
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
@@ -76,25 +76,25 @@ fun serviceModule() =
         single {
             GetAiProviderService(
                 tx = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiProviderRepository = get(),
                 availableModelRepository = get(),
                 aiClientRouter = get(),
             )
         }
         single {
-            AiAdminUserLoader(userRepository = get())
+            AiAdminValidator(userRepository = get())
         }
         single {
-            CreateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+            CreateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
         }
         single {
-            UpdateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+            UpdateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
         }
         single {
             UpdateAiProviderActiveService(
                 tx = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiProviderRepository = get(),
                 aiClientRouter = get(),
             )
@@ -227,7 +227,7 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
-                adminUserLoader = get(),
+                adminValidator = get(),
                 aiClientRouter = get(),
             )
         }

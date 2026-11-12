@@ -1,7 +1,6 @@
 package com.qlink.ai.service
 
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.domain.AiAdminPolicy
 import com.qlink.ai.dto.AdminAiModelResponse
 import com.qlink.ai.dto.AiProviderDetailResponse
 import com.qlink.ai.repository.AiProviderRepository
@@ -12,7 +11,7 @@ import com.qlink.common.transaction.TransactionRunner
 
 class GetAiProviderService(
     private val tx: TransactionRunner,
-    private val adminUserLoader: AiAdminUserLoader,
+    private val adminValidator: AiAdminValidator,
     private val aiProviderRepository: AiProviderRepository,
     private val availableModelRepository: AvailableModelRepository,
     private val aiClientRouter: AiClientRouter,
@@ -22,7 +21,7 @@ class GetAiProviderService(
         id: Long,
     ): AiProviderDetailResponse =
         tx.readOnly {
-            AiAdminPolicy.validate(adminUserLoader.load(loginId).role.isAdmin)
+            adminValidator.validate(loginId)
             val row = aiProviderRepository.findQuery(id) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
             AiProviderDetailResponse(
                 id = row.id,
