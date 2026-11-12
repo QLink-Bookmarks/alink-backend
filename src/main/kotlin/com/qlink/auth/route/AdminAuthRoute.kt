@@ -5,7 +5,7 @@ import com.qlink.auth.dto.AdminSignInRequest
 import com.qlink.auth.dto.WebAuthTokenResponse
 import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.SignInAdminService
-import com.qlink.auth.service.SignOutAdminService
+import com.qlink.auth.service.SignOutService
 import com.qlink.common.cookie.ADMIN_REFRESH_TOKEN_COOKIE_NAME
 import com.qlink.common.cookie.appendAdminRefreshTokenCookie
 import com.qlink.common.error.ErrorCode
@@ -26,7 +26,7 @@ import io.github.smiley4.ktoropenapi.post as postRoute
 internal fun Route.adminAuthRoutes() {
     val signIn by inject<SignInAdminService>()
     val refresh by inject<RefreshAdminAuthTokenService>()
-    val signOut by inject<SignOutAdminService>()
+    val signOut by inject<SignOutService>()
 
     post<AuthResources.Admin.Sign>(adminSignInDocs()) {
         val result = signIn.signIn(call.receive<AdminSignInRequest>())

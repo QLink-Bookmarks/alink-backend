@@ -50,5 +50,6 @@ internal fun adminSignOutDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.OK) { body<ApiResponse<Unit>>() }
             authErrorResponse()
             code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AUTH_CSRF_TOKEN_INVALID) } }
+            code(HttpStatusCode.NotFound) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.USER_NOT_FOUND) } }
         }
     }
