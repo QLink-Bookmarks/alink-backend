@@ -7,7 +7,19 @@ class AiResources {
     @Resource("providers")
     class Providers(
         val parent: AiResources = AiResources(),
+        val includesInactive: Boolean = false,
     ) {
+        @Resource("{id}")
+        class ById(
+            val parent: Providers = Providers(),
+            val id: Long,
+        ) {
+            @Resource("active")
+            class Active(
+                val parent: ById,
+            )
+        }
+
         @Resource("models")
         class Models(
             val parent: Providers = Providers(),

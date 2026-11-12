@@ -16,14 +16,21 @@ import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
 
 fun Route.aiRoutes() {
+    aiAdminRoutes()
     val getAiProvidersService by inject<GetAiProvidersService>()
     val getAiProviderModelsService by inject<GetAiProviderModelsService>()
     val putAiUserProviderService by inject<PutAiUserProviderService>()
 
-    get<AiResources.Providers>(getAiProvidersDocs()) {
-        val response = getAiProvidersService.getAiProviders()
+    authenticate(optional = true) {
+        get<AiResources.Providers>(getAiProvidersDocs()) { resource ->
+            val response =
+                getAiProvidersService.getAiProviders(
+                    loginId = call.principal<JwtPrincipal>()?.userId,
+                    includesInactive = resource.includesInactive,
+                )
 
-        call.respondSuccess(HttpStatusCode.OK, response)
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
     }
 
     authenticate(optional = true) {

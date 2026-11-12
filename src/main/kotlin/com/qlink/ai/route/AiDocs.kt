@@ -15,12 +15,16 @@ import io.ktor.http.HttpStatusCode
 internal fun getAiProvidersDocs(): RouteConfig.() -> Unit =
     {
         summary = "AI Provider 목록 조회 API"
-        description = "지원하는 AI Provider 목록을 조회합니다. 인증이 필요하지 않습니다."
+        description = "활성 제공자를 조회합니다. includesInactive=true는 현재 관리자 권한이 필요합니다."
+        request { queryParameter<Boolean>("includesInactive") { description = "비활성 포함 여부 (기본 false)" } }
         response {
             code(HttpStatusCode.OK) {
                 description = "AI Provider 목록 조회 성공"
                 body<ApiResponse<List<AiProviderResponse>>>()
             }
+            authErrorResponse()
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND) } }
         }
     }
 

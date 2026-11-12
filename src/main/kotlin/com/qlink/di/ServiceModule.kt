@@ -1,8 +1,13 @@
 package com.qlink.di
 
+import com.qlink.ai.service.AiAdminUserLoader
+import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.GetAiProviderModelsService
+import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
+import com.qlink.ai.service.UpdateAiProviderActiveService
+import com.qlink.ai.service.UpdateAiProviderService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
@@ -69,6 +74,32 @@ import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
+        single {
+            GetAiProviderService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
+        single {
+            AiAdminUserLoader(userRepository = get())
+        }
+        single {
+            CreateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderService(tx = get(), adminUserLoader = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderActiveService(
+                tx = get(),
+                adminUserLoader = get(),
+                aiProviderRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
         single {
             SignInAdminService(
                 tx = get(),
@@ -205,6 +236,8 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
+                adminUserLoader = get(),
+                aiClientRouter = get(),
             )
         }
 

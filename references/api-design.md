@@ -173,6 +173,7 @@ below is written in section 2 with its reason.
 | M | `AiResources.UserProviders` PUT | upsert returns 201 | 200 |
 | U3 | `/ai/users/providers` | the caller's resource is outside `/users/me` | `/users/me/ai-providers` |
 | O3 | `UpdateLinkResponse`, `UpdateTodoResponse` | echo the request | O3 |
+| O1 | `GET /api/ai/providers`, `GET /api/ai/providers/models` | `data` is an array | `{ providers: [] }` in a separate Refactor Issue |
 | O3 | `UpdateFolderResponse`, `AcceptFolderInvitationResponse` | echo the path id; `sharedAt` is derived but not returned | O3 |
 | O6 | `CompleteTodoResponse` | `completeAt` | `completedAt` |
 | L2 | `TodoResources` | `size` defaults to 50 | 15 |
