@@ -42,7 +42,7 @@ class AdminAuthServicesTest :
         val signIn = koinGet<SignInAdminService>()
         val refresh = koinGet<RefreshAdminAuthTokenService>()
         val channelRefresh = koinGet<RefreshAuthTokenService>()
-        val signOut = koinGet<SignOutAdminService>()
+        val signOut = koinGet<SignOutService>()
         val googleConfig = koinGet<GoogleConfig>()
         val engine = koinGet<MockAuthHttpEngine>()
         Given("관리자 Google 연동 계정") {
