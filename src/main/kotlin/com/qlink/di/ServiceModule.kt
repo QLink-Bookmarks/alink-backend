@@ -58,8 +58,11 @@ import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.notification.service.SendAnnouncementService
 import com.qlink.notification.service.SendNotificationService
 import com.qlink.post.service.CreatePostService
+import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
 import com.qlink.post.service.GetPostsService
+import com.qlink.post.service.PostEditorLoader
+import com.qlink.post.service.UpdatePostService
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
 import com.qlink.todo.service.DeleteTodoService
@@ -514,6 +517,18 @@ fun serviceModule() =
             GetPostsService(
                 tx = get(),
                 postRepository = get(),
+                userRepository = get(),
+            )
+        }
+
+        single { PostEditorLoader(userRepository = get()) }
+        single { UpdatePostService(tx = get(), editorLoader = get(), postRepository = get()) }
+        single {
+            DeletePostService(
+                tx = get(),
+                editorLoader = get(),
+                postRepository = get(),
+                notificationRepository = get(),
             )
         }
 

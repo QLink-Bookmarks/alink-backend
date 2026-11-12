@@ -10,6 +10,8 @@ import com.qlink.post.dto.CreatePostRequest
 import com.qlink.post.dto.CreatePostResponse
 import com.qlink.post.dto.GetPostResponse
 import com.qlink.post.dto.GetPostsContentResponse
+import com.qlink.post.dto.UpdatePostRequest
+import com.qlink.post.dto.UpdatePostResponse
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
 
@@ -49,6 +51,46 @@ internal fun createPostDocs(): RouteConfig.() -> Unit =
                     examples(ErrorCode.POST_AUTHOR_NOT_FOUND)
                 }
             }
+        }
+    }
+
+internal fun updatePostDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "공지 제목·본문 수정 (알림 재발송 없음)"
+        request { body<UpdatePostRequest>() }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<UpdatePostResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> {
+                    examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
+                        ErrorCode.POST_TITLE_BLANK,
+                        ErrorCode.POST_TITLE_OVER_MAX,
+                        ErrorCode.POST_CONTENTS_BLANK,
+                    )
+                }
+            }
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_EDITOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
+            }
+            code(HttpStatusCode.UnprocessableEntity) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_FEEDBACK_NOT_EDITABLE) } }
+        }
+    }
+
+internal fun deletePostDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "공지와 해당 인앱 알림 삭제 (기기 푸시 회수 불가)"
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<Unit>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) } }
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_EDITOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
+            }
+            code(HttpStatusCode.UnprocessableEntity) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_FEEDBACK_NOT_EDITABLE) } }
         }
     }
 

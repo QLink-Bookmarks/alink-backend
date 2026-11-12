@@ -22,12 +22,25 @@ import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.jdbc.andWhere
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.updateReturning
 import kotlin.time.toKotlinInstant
 
 class DbPostRepository : PostRepository {
+    override suspend fun update(post: Post): Post =
+        Posts
+            .updateReturning(where = { Posts.id eq post.id!! }) {
+                it.fromDomain(post)
+            }.single()
+            .toPostDomain()
+
+    override suspend fun delete(id: Long) {
+        Posts.deleteWhere { Posts.id eq id }
+    }
+
     override suspend fun insert(post: Post): Post =
         Posts
             .insertReturning { it.fromDomain(post) }
