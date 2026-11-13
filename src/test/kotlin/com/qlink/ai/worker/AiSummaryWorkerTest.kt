@@ -23,6 +23,7 @@ import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.copyForTestActive
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
 import com.qlink.todo.repository.TodoRepository
@@ -100,7 +101,7 @@ class AiSummaryWorkerTest :
                         if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
                         enqueue(role)
                         val provider = aiProviderRepository.findById(key.providerId)!!
-                        aiProviderRepository.update(provider.copy(isActive = false))
+                        aiProviderRepository.update(provider.copyForTestActive(isActive = false))
                     }
                     val action = suspend { worker.proceed(jobId) }
                     Then("AI 호출 없이 작업과 링크가 실패하고 키와 요청 참조는 남는다") {
@@ -119,7 +120,7 @@ class AiSummaryWorkerTest :
                     beforeTest {
                         if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
                         enqueue(role)
-                        availableModelRepository.update(model.copy(isActive = false))
+                        availableModelRepository.update(model.copyForTestActive(isActive = false))
                     }
                     val action = suspend { worker.proceed(jobId) }
                     Then("후보가 없어 AI 호출과 사용량 기록 없이 실패한다") {
@@ -141,7 +142,7 @@ class AiSummaryWorkerTest :
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
                     enqueue(Role.SUPER_ADMIN)
-                    availableModelRepository.update(model.copy(isActive = false))
+                    availableModelRepository.update(model.copyForTestActive(isActive = false))
                     fallback =
                         availableModelRepository.insert(
                             AiFixture.createRandomAvailableModelOf(providerId = key.providerId, priority = 2),
@@ -172,9 +173,9 @@ class AiSummaryWorkerTest :
                         fakeAiClient.beforeSummary = {
                             if (deactivateProvider) {
                                 val provider = aiProviderRepository.findById(key.providerId)!!
-                                aiProviderRepository.update(provider.copy(isActive = false))
+                                aiProviderRepository.update(provider.copyForTestActive(isActive = false))
                             } else {
-                                availableModelRepository.update(fallback.copy(isActive = false))
+                                availableModelRepository.update(fallback.copyForTestActive(isActive = false))
                             }
                         }
                     }
