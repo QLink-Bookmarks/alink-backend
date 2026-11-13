@@ -27,6 +27,7 @@ import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.copyForTestActive
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.domain.UserTheme
@@ -118,7 +119,7 @@ class AiAvailabilityServicesTest :
             When("내 모델은 비활성 제공자·모델 제외하고 키 보존") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    providers.update(provider.copy(isActive = false))
+                    providers.update(provider.copyForTestActive(isActive = false))
                 }
                 val action = suspend { getModels.getAiProviderModels(loginId = user.id!!, isMine = true) }
                 Then("저장소 상태와 응답을 확인한다") {
@@ -142,7 +143,7 @@ class AiAvailabilityServicesTest :
             When("기본 키 DEFAULT는 활성 최소 우선순위 모델") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    models.update(model.copy(isActive = false))
+                    models.update(model.copyForTestActive(isActive = false))
                     models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = 2))
                     models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = 2))
                     models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = 3))
@@ -164,7 +165,7 @@ class AiAvailabilityServicesTest :
             When("비활성 제공자 키 등록은 검증 요청·저장 없이 거절") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    providers.update(provider.copy(isActive = false))
+                    providers.update(provider.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend {
@@ -182,7 +183,7 @@ class AiAvailabilityServicesTest :
             When("비활성 제공자 기본값 지정 거절") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    providers.update(provider.copy(isActive = false))
+                    providers.update(provider.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend {
@@ -199,7 +200,7 @@ class AiAvailabilityServicesTest :
             When("비활성 제공자 요약은 작업·링크 생성 없이 거절") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    providers.update(provider.copy(isActive = false))
+                    providers.update(provider.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend {
@@ -219,7 +220,7 @@ class AiAvailabilityServicesTest :
             When("비활성 모델 기본값 지정 거절") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    models.update(model.copy(isActive = false))
+                    models.update(model.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend { settings.updateMySettings(loginId = user.id!!, request = UpdateMySettingsRequest(defaultModelId = model.id)) }
@@ -231,7 +232,7 @@ class AiAvailabilityServicesTest :
             When("비활성 모델 요약은 작업·링크 생성 없이 거절") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    models.update(model.copy(isActive = false))
+                    models.update(model.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend {
@@ -251,8 +252,8 @@ class AiAvailabilityServicesTest :
             When("비활성 기본 모델이 있어도 테마 변경 가능") {
                 beforeTest {
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                    models.update(model.copy(isActive = false))
-                    providers.update(provider.copy(isActive = false))
+                    models.update(model.copyForTestActive(isActive = false))
+                    providers.update(provider.copyForTestActive(isActive = false))
                 }
                 val action =
                     suspend {

@@ -15,7 +15,6 @@ import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
 import com.qlink.auth.service.RandomUserNameGenerator
-import com.qlink.auth.service.RefreshAdminAuthTokenService
 import com.qlink.auth.service.RefreshAuthTokenService
 import com.qlink.auth.service.RefreshNativeAuthTokenService
 import com.qlink.auth.service.RefreshWebAuthTokenService
@@ -129,7 +128,6 @@ fun serviceModule() =
                 authTokenService = get(),
             )
         }
-        single { RefreshAdminAuthTokenService(refreshAuthTokenService = get()) }
         single {
             CreateLinkPreviewService(
                 tx = get(),

@@ -2,6 +2,7 @@ package com.qlink.ai.domain.service
 
 import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.copyForTestActive
 import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
@@ -37,7 +38,7 @@ class AiModelAvailabilityDomainServiceTest :
             When("제공자가 비활성이면") {
                 val selected =
                     AiModelAvailabilityDomainService.selectableModels(
-                        provider = provider.copy(isActive = false),
+                        provider = provider.copyForTestActive(isActive = false),
                         models = models,
                     )
                 Then("빈 목록을 반환한다") {
@@ -45,7 +46,11 @@ class AiModelAvailabilityDomainServiceTest :
                 }
             }
             When("비활성 제공자의 기본 모델을 선택하면") {
-                val selected = AiModelAvailabilityDomainService.defaultModel(provider = provider.copy(isActive = false), models = models)
+                val selected =
+                    AiModelAvailabilityDomainService.defaultModel(
+                        provider = provider.copyForTestActive(isActive = false),
+                        models = models,
+                    )
                 Then("기본 모델이 없다") {
                     selected shouldBe null
                 }

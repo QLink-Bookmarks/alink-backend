@@ -22,6 +22,7 @@ import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.WorkerConfig
+import com.qlink.support.fixture.RandomFixture
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.channels.Channel
 import org.koin.dsl.module
@@ -170,6 +171,7 @@ suspend fun insertAiContext(
             AiProvider(
                 type = type,
                 baseUrl = "https://example.com",
+                activeAt = RandomFixture.randomPastInstant(),
             ),
         )
     val model =
@@ -180,6 +182,7 @@ suspend fun insertAiContext(
                 priority = 1,
                 rpdLimit = 20,
                 tpdLimit = 2_000_000,
+                activeAt = RandomFixture.randomPastInstant(),
             ),
         )
     val userProvider =

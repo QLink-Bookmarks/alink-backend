@@ -8,6 +8,7 @@ import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
+import kotlin.time.Clock
 
 class CreateAvailableModelService(
     private val tx: TransactionRunner,
@@ -29,6 +30,7 @@ class CreateAvailableModelService(
                     priority = request.priority,
                     rpdLimit = request.rpdLimit,
                     tpdLimit = request.tpdLimit,
+                    now = Clock.System.now(),
                 )
             if (availableModelRepository.findAllByProviderId(request.providerId).any {
                     it.model == request.model

@@ -17,6 +17,7 @@ import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -25,7 +26,7 @@ import org.jetbrains.exposed.v1.jdbc.updateReturning
 class DbAiProviderRepository : AiProviderRepository {
     override suspend fun findListQueries(includesInactive: Boolean): List<AiProviderListQuery> {
         val modelCount = AvailableModels.id.count()
-        val activeModelCount = Case().When(AvailableModels.isActive eq true, AvailableModels.id).Else(Op.nullOp()).count()
+        val activeModelCount = Case().When(AvailableModels.activeAt.isNotNull(), AvailableModels.id).Else(Op.nullOp()).count()
         return AiProviders
             .join(
                 otherTable = AvailableModels,
@@ -34,12 +35,12 @@ class DbAiProviderRepository : AiProviderRepository {
             ).select(
                 AiProviders.id,
                 AiProviders.type,
-                AiProviders.isActive,
+                AiProviders.activeAt,
                 AiProviders.updatedAt,
                 modelCount,
                 activeModelCount,
-            ).apply { if (!includesInactive) where { AiProviders.isActive eq true } }
-            .groupBy(AiProviders.id, AiProviders.type, AiProviders.isActive, AiProviders.updatedAt)
+            ).apply { if (!includesInactive) where { AiProviders.activeAt.isNotNull() } }
+            .groupBy(AiProviders.id, AiProviders.type, AiProviders.activeAt, AiProviders.updatedAt)
             .orderBy(AiProviders.type to SortOrder.ASC, AiProviders.id to SortOrder.ASC)
             .map { it.toAiProviderListQuery(modelCount = modelCount, activeModelCount = activeModelCount) }
     }
