@@ -35,6 +35,7 @@ class PutAiUserProviderServiceTest :
                     AiProvider(
                         type = type,
                         baseUrl = RandomFixture.randomUrl(),
+                        activeAt = RandomFixture.randomPastInstant(),
                     ),
                 )
 

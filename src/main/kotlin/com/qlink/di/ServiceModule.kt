@@ -1,8 +1,16 @@
 package com.qlink.di
 
+import com.qlink.ai.service.AiAdminValidator
+import com.qlink.ai.service.CreateAiProviderService
+import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiProviderModelsService
+import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
+import com.qlink.ai.service.UpdateAiProviderActiveService
+import com.qlink.ai.service.UpdateAiProviderService
+import com.qlink.ai.service.UpdateAvailableModelActiveService
+import com.qlink.ai.service.UpdateAvailableModelService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.service.AuthTokenService
 import com.qlink.auth.service.ConnectAuthProviderService
@@ -48,8 +56,10 @@ import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.notification.service.SendAnnouncementService
 import com.qlink.notification.service.SendNotificationService
 import com.qlink.post.service.CreatePostService
+import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
 import com.qlink.post.service.GetPostsService
+import com.qlink.post.service.UpdatePostService
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
 import com.qlink.todo.service.DeleteTodoService
@@ -67,6 +77,46 @@ import org.slf4j.LoggerFactory
 
 fun serviceModule() =
     module {
+        single {
+            CreateAvailableModelService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+            )
+        }
+        single {
+            UpdateAvailableModelService(tx = get(), adminValidator = get(), availableModelRepository = get())
+        }
+        single {
+            UpdateAvailableModelActiveService(tx = get(), adminValidator = get(), availableModelRepository = get())
+        }
+        single {
+            GetAiProviderService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                availableModelRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
+        single {
+            AiAdminValidator(userRepository = get())
+        }
+        single {
+            CreateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderService(tx = get(), adminValidator = get(), aiProviderRepository = get())
+        }
+        single {
+            UpdateAiProviderActiveService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                aiClientRouter = get(),
+            )
+        }
         single {
             SignInAdminService(
                 tx = get(),
@@ -194,6 +244,8 @@ fun serviceModule() =
             GetAiProvidersService(
                 tx = get(),
                 aiProviderRepository = get(),
+                adminValidator = get(),
+                aiClientRouter = get(),
             )
         }
 
@@ -453,6 +505,24 @@ fun serviceModule() =
             GetPostsService(
                 tx = get(),
                 postRepository = get(),
+                userRepository = get(),
+            )
+        }
+
+        single {
+            UpdatePostService(
+                tx = get(),
+                userRepository = get(),
+                postRepository = get(),
+            )
+        }
+
+        single {
+            DeletePostService(
+                tx = get(),
+                userRepository = get(),
+                postRepository = get(),
+                notificationRepository = get(),
             )
         }
 
@@ -483,6 +553,7 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiJobRepository = get(),
                 dispatcher = get(),
+                aiProviderRepository = get(),
                 urlResolver = get(),
                 linkContentRepository = get(),
                 linkContentSignal = get(),

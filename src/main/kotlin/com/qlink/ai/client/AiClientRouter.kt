@@ -9,6 +9,8 @@ class AiClientRouter(
 ) {
     private val clientsByProvider = clients.associateBy { it.providerType }
 
+    fun isExecutable(providerType: AiProviderType): Boolean = providerType in clientsByProvider
+
     suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
         val client = clientsByProvider[request.providerType] ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_SUPPORTED)
 
