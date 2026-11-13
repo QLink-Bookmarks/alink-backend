@@ -8,6 +8,11 @@ import com.qlink.notification.dto.SearchNotificationsQuery
 import kotlin.time.Instant
 
 interface NotificationRepository {
+    suspend fun deleteByContext(
+        context: NotificationContext,
+        contextId: Long,
+    )
+
     suspend fun insert(notification: Notification): Notification
 
     suspend fun findById(notificationId: Long): Notification?

@@ -162,6 +162,8 @@ enum class ErrorCode(
     POST_FEEDBACK_FORBIDDEN("POST_403_0002", 403, "피드백에 대한 권한이 없어요"),
     POST_AUTHOR_NOT_FOUND("POST_404_0001", 404, "작성자를 찾을 수 없어요"),
     POST_NOT_FOUND("POST_404_0002", 404, "게시글을 찾을 수 없어요"),
+    POST_ANNOUNCEMENT_NOT_FOUND("POST_404_0004", 404, "관리할 공지를 찾을 수 없어요"),
+    POST_FEEDBACK_NOT_EDITABLE("POST_422_0001", 422, "피드백은 수정하거나 삭제할 수 없어요"),
 
     // Device
     DEVICE_PLATFORM_NOT_SUPPORTED("DEVICE_400_0001", 400, "지원하지 않는 디바이스 플랫폼이에요"),

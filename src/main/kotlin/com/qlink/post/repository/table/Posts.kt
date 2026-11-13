@@ -9,6 +9,7 @@ import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.javatime.CurrentTimestamp
 import org.jetbrains.exposed.v1.javatime.timestamp
+import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 object Posts : Table("posts") {
@@ -40,6 +41,7 @@ fun ResultRow.toPostDomain(): Post =
     )
 
 fun UpdateBuilder<*>.fromDomain(post: Post) {
+    post.updatedAt?.let { this[Posts.updatedAt] = it.toJavaInstant() }
     this[Posts.title] = post.title
     this[Posts.contents] = post.contents
     this[Posts.type] = post.type
