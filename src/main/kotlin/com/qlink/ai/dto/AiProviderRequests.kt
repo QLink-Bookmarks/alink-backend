@@ -22,6 +22,22 @@ data class UpdateAiActiveRequest(
 )
 
 @Serializable
+data class CreateAvailableModelRequest(
+    val providerId: Long,
+    val model: String,
+    val priority: Int,
+    val rpdLimit: Int? = null,
+    val tpdLimit: Int? = null,
+)
+
+@Serializable
+data class UpdateAvailableModelRequest(
+    val priority: Int,
+    val rpdLimit: Int? = null,
+    val tpdLimit: Int? = null,
+)
+
+@Serializable
 data class PutAiUserProviderRequest(
     val providerId: Long,
     val apiKey: String,

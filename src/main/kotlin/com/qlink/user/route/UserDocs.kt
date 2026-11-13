@@ -137,6 +137,12 @@ internal fun updateMySettingsDocs(): RouteConfig.() -> Unit =
                     )
                 }
             }
+            code(HttpStatusCode.UnprocessableEntity) {
+                description = "새 기본 제공자 또는 모델이 비활성"
+                body<ApiResponse<ErrorDetail>> {
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE)
+                }
+            }
         }
     }
 

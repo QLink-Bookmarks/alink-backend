@@ -1,16 +1,21 @@
 package com.qlink.ai.route
 
 import com.qlink.ai.dto.CreateAiProviderRequest
+import com.qlink.ai.dto.CreateAvailableModelRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
 import com.qlink.ai.dto.UpdateAiProviderRequest
+import com.qlink.ai.dto.UpdateAvailableModelRequest
 import com.qlink.ai.service.CreateAiProviderService
+import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
+import com.qlink.ai.service.UpdateAvailableModelActiveService
+import com.qlink.ai.service.UpdateAvailableModelService
 import com.qlink.auth.domain.JwtPrincipal
 import com.qlink.common.response.respondSuccess
 import io.github.smiley4.ktoropenapi.resources.get
@@ -31,6 +36,9 @@ fun Route.aiRoutes() {
     val createAiProviderService by inject<CreateAiProviderService>()
     val updateAiProviderService by inject<UpdateAiProviderService>()
     val updateAiProviderActiveService by inject<UpdateAiProviderActiveService>()
+    val createAvailableModelService by inject<CreateAvailableModelService>()
+    val updateAvailableModelService by inject<UpdateAvailableModelService>()
+    val updateAvailableModelActiveService by inject<UpdateAvailableModelActiveService>()
 
     authenticate(optional = true) {
         get<AiResources.Providers>(getAiProvidersDocs()) { resource ->
@@ -92,6 +100,32 @@ fun Route.aiRoutes() {
         put<AiResources.Providers.ById.Active>(updateAiProviderActiveDocs()) { resource ->
             val response =
                 updateAiProviderActiveService.updateAiProviderActive(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    id = resource.parent.id,
+                    request = call.receive<UpdateAiActiveRequest>(),
+                )
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        post<AiResources.Models>(createAvailableModelDocs()) {
+            val response =
+                createAvailableModelService.createAvailableModel(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    request = call.receive<CreateAvailableModelRequest>(),
+                )
+            call.respondSuccess(HttpStatusCode.Created, response)
+        }
+        put<AiResources.Models.ById>(updateAvailableModelDocs()) { resource ->
+            val response =
+                updateAvailableModelService.updateAvailableModel(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    id = resource.id,
+                    request = call.receive<UpdateAvailableModelRequest>(),
+                )
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        put<AiResources.Models.ById.Active>(updateAvailableModelActiveDocs()) { resource ->
+            val response =
+                updateAvailableModelActiveService.updateAvailableModelActive(
                     loginId = call.principal<JwtPrincipal>()!!.userId,
                     id = resource.parent.id,
                     request = call.receive<UpdateAiActiveRequest>(),

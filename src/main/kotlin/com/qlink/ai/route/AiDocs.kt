@@ -5,12 +5,15 @@ import com.qlink.ai.dto.AiProviderModelsResponse
 import com.qlink.ai.dto.AiProviderResponse
 import com.qlink.ai.dto.CreateAiProviderRequest
 import com.qlink.ai.dto.CreateAiResourceResponse
+import com.qlink.ai.dto.CreateAvailableModelRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
 import com.qlink.ai.dto.UpdateAiActiveRequest
 import com.qlink.ai.dto.UpdateAiActiveResponse
 import com.qlink.ai.dto.UpdateAiProviderRequest
 import com.qlink.ai.dto.UpdateAiProviderResponse
+import com.qlink.ai.dto.UpdateAvailableModelRequest
+import com.qlink.ai.dto.UpdateAvailableModelResponse
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
 import com.qlink.common.error.ErrorCode
@@ -89,9 +92,9 @@ internal fun putAiUserProviderDocs(): RouteConfig.() -> Unit =
                 }
             }
             code(HttpStatusCode.UnprocessableEntity) {
-                description = "AI 제공자 서비스 일시적 사용 불가"
+                description = "AI 제공자 비활성 또는 서비스 일시적 사용 불가"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
                 }
             }
         }
@@ -151,5 +154,62 @@ internal fun updateAiProviderActiveDocs(): RouteConfig.() -> Unit =
                 body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND) }
             }
             code(HttpStatusCode.UnprocessableEntity) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_PROVIDER_CLIENT_MISSING) } }
+        }
+    }
+
+internal fun createAvailableModelDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 모델 추가 (현재 DB 관리자 권한 필요)"
+        request { body<CreateAvailableModelRequest>() }
+        response {
+            code(HttpStatusCode.Created) { body<ApiResponse<CreateAiResourceResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> {
+                    examples(
+                        ErrorCode.AI_MODEL_NAME_BLANK,
+                        ErrorCode.AI_MODEL_NAME_OVER_MAX,
+                        ErrorCode.AI_MODEL_NAME_INVALID,
+                        ErrorCode.AI_MODEL_PRIORITY_NOT_POSITIVE,
+                        ErrorCode.AI_MODEL_LIMIT_NOT_POSITIVE,
+                    )
+                }
+            }
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_MODEL_PROVIDER_NOT_FOUND) }
+            }
+            code(HttpStatusCode.Conflict) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_MODEL_DUPLICATE) } }
+        }
+    }
+
+internal fun updateAvailableModelDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 모델 설정 수정 (현재 DB 관리자 권한 필요)"
+        request { body<UpdateAvailableModelRequest>() }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<UpdateAvailableModelResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_MODEL_PRIORITY_NOT_POSITIVE, ErrorCode.AI_MODEL_LIMIT_NOT_POSITIVE) }
+            }
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_MODEL_NOT_FOUND) }
+            }
+        }
+    }
+
+internal fun updateAvailableModelActiveDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 모델 활성 상태 변경 (현재 DB 관리자 권한 필요)"
+        request { body<UpdateAiActiveRequest>() }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<UpdateAiActiveResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_MODEL_NOT_FOUND) }
+            }
         }
     }
