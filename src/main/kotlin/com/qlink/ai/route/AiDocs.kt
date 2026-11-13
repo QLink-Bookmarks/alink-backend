@@ -92,9 +92,9 @@ internal fun putAiUserProviderDocs(): RouteConfig.() -> Unit =
                 }
             }
             code(HttpStatusCode.UnprocessableEntity) {
-                description = "AI 제공자 서비스 일시적 사용 불가"
+                description = "AI 제공자 비활성 또는 서비스 일시적 사용 불가"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
                 }
             }
         }

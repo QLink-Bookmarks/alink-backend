@@ -120,10 +120,12 @@ class FakeAiClient : AiClient {
     val requestedModels: MutableList<String> = mutableListOf()
     val requestedApiKeys: MutableList<String> = mutableListOf()
     var validationStatusCode: Int? = null
+    var beforeSummary: (suspend (AiSummaryClientRequest) -> Unit)? = null
 
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
         requestedModels.add(request.model)
         requestedApiKeys.add(request.apiKey)
+        beforeSummary?.invoke(request)
         failuresByModel[request.model]?.let { throw it }
 
         return AiSummaryClientResponse(
@@ -152,6 +154,7 @@ class FakeAiClient : AiClient {
         requestedModels.clear()
         requestedApiKeys.clear()
         validationStatusCode = null
+        beforeSummary = null
     }
 }
 

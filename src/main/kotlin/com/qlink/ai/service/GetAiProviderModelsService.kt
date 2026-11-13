@@ -1,6 +1,7 @@
 package com.qlink.ai.service
 
 import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
 import com.qlink.ai.dto.AiProviderModelResponse
 import com.qlink.ai.dto.AiProviderModelsResponse
 import com.qlink.ai.repository.AiProviderRepository
@@ -48,7 +49,8 @@ class GetAiProviderModelsService(
                     userProvider = userProvidersByProviderId[providerId],
                     defaultProvider = defaultProvidersByProviderId[providerId],
                 )
-            }.sortedWith(compareBy({ it.providerType.name }, { it.providerId }))
+            }.filter { it.models.isNotEmpty() }
+            .sortedWith(compareBy({ it.providerType.name }, { it.providerId }))
     }
 
     private suspend fun getAvailableProviderModels(): List<AiProviderModelsResponse> =
@@ -61,9 +63,11 @@ class GetAiProviderModelsService(
                     providerId = providerId,
                     providerType = provider.type,
                     models =
-                        availableModelRepository
-                            .findAllByProviderId(providerId)
-                            .map {
+                        AiModelAvailabilityDomainService
+                            .selectableModels(
+                                provider = provider,
+                                models = availableModelRepository.findAllByProviderId(providerId),
+                            ).map {
                                 AiProviderModelResponse(
                                     id = it.id!!,
                                     model = it.model,
@@ -71,7 +75,8 @@ class GetAiProviderModelsService(
                                 )
                             },
                 )
-            }.sortedWith(compareBy({ it.providerType.name }, { it.providerId }))
+            }.filter { it.models.isNotEmpty() }
+            .sortedWith(compareBy({ it.providerType.name }, { it.providerId }))
 
     private suspend fun Long.toResponse(
         userProvider: UserProvider?,
@@ -79,7 +84,11 @@ class GetAiProviderModelsService(
     ): AiProviderModelsResponse {
         val providerId = this
         val provider = aiProviderRepository.findById(providerId) ?: throw BusinessException(ErrorCode.AI_USER_PROVIDER_NOT_FOUND)
-        val models = availableModelRepository.findAllByProviderId(providerId)
+        val models =
+            AiModelAvailabilityDomainService.selectableModels(
+                provider = provider,
+                models = availableModelRepository.findAllByProviderId(providerId),
+            )
 
         return AiProviderModelsResponse(
             providerId = provider.id!!,

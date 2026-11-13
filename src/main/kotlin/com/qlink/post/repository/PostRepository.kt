@@ -8,6 +8,10 @@ import com.qlink.post.dto.PostSearchCursor
 import com.qlink.post.dto.SearchPostsQuery
 
 interface PostRepository {
+    suspend fun update(post: Post): Post
+
+    suspend fun delete(id: Long)
+
     suspend fun insert(post: Post): Post
 
     suspend fun insertImages(images: List<PostImage>): List<PostImage>

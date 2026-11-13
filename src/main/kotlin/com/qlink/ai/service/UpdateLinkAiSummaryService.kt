@@ -1,10 +1,12 @@
 package com.qlink.ai.service
 
 import com.qlink.ai.domain.AiJob
+import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.AiSummaryResponse
 import com.qlink.ai.dto.AiSummaryTodoRequest
 import com.qlink.ai.repository.AiJobRepository
+import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.ai.worker.AiSummaryDispatcher
@@ -45,6 +47,7 @@ class UpdateLinkAiSummaryService(
     private val linkRepository: LinkRepository,
     private val userProviderRepository: UserProviderRepository,
     private val availableModelRepository: AvailableModelRepository,
+    private val aiProviderRepository: AiProviderRepository,
     private val aiJobRepository: AiJobRepository,
     private val dispatcher: AiSummaryDispatcher,
     private val urlResolver: PreviewImageUrlResolver,
@@ -74,6 +77,9 @@ class UpdateLinkAiSummaryService(
                         .findById(request.modelId)
                         ?.takeIf { it.providerId == userProvider.providerId }
                         ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+                val provider =
+                    aiProviderRepository.findById(userProvider.providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
                 request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
                 val fixedFolder = request.folderId?.let { findWritableFolder(loginId, it) }
                 val now = Clock.System.now()

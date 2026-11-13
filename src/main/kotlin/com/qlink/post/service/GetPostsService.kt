@@ -1,6 +1,5 @@
 package com.qlink.post.service
 
-import com.qlink.auth.domain.Role
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.Base64CursorCodec
@@ -16,13 +15,15 @@ import com.qlink.post.dto.PostSearchCursor
 import com.qlink.post.dto.PostSearchCursorValue
 import com.qlink.post.dto.SearchPostsQuery
 import com.qlink.post.repository.PostRepository
+import com.qlink.user.repository.UserRepository
 
 class GetPostsService(
     private val tx: TransactionRunner,
     private val postRepository: PostRepository,
+    private val userRepository: UserRepository,
 ) {
     suspend fun getPosts(
-        role: Role,
+        loginId: Long?,
         type: String?,
         query: String?,
         orderKey: String? = null,
@@ -31,7 +32,8 @@ class GetPostsService(
     ): ScrollResponse<GetPostsContentResponse> =
         tx.readOnly {
             val postType = PostType.from(type ?: DEFAULT_POST_TYPE)
-            postType.validateReadable(role.isAdmin)
+            val user = loginId?.let { userRepository.findById(it) }
+            postType.validateReadable(user?.role?.isAdmin == true)
 
             val sort = PostSort.of(orderKey = orderKey, order = order)
             val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort) }
