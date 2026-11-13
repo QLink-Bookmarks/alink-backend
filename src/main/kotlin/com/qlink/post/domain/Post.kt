@@ -7,7 +7,7 @@ import kotlin.time.Instant
 
 private const val MAX_TITLE_LENGTH = 100
 
-data class Post(
+class Post(
     val id: Long? = null,
     val title: String,
     val contents: String,
@@ -33,5 +33,14 @@ data class Post(
         title: String,
         contents: String,
         now: Instant,
-    ): Post = copy(title = title, contents = contents, updatedAt = now)
+    ): Post =
+        Post(
+            id = id,
+            title = title,
+            contents = contents,
+            type = type,
+            authorId = authorId,
+            createdAt = createdAt,
+            updatedAt = now,
+        )
 }

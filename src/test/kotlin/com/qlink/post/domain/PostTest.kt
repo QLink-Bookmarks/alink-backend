@@ -13,7 +13,7 @@ class PostTest :
     BehaviorSpec({
         Given("저장된 공지") {
             When("제목과 본문 변경은 원본 식별자와 작성자·타입 유지") {
-                val original = PostFixture.createRandomPostOf(authorId = RandomFixture.randomId()).copy(id = RandomFixture.randomId())
+                val original = PostFixture.createRandomPostOf(authorId = RandomFixture.randomId(), id = RandomFixture.randomId())
                 val title = RandomFixture.randomSentenceWithMax(100)
                 val contents = RandomFixture.randomSentenceWithMax(200)
                 val now = RandomFixture.randomFutureInstantAfterTomorrow()

@@ -11,6 +11,7 @@ import com.qlink.support.fixture.PostFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
+import com.qlink.support.shouldBeStoredAs
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -49,7 +50,7 @@ class GetPostServiceTest :
                     response.updatedAt shouldBe feedback.updatedAt
                     response.imageUrls shouldBe listOf(imageUrl)
                     service.getPost(postId = feedback.id!!, loginId = admin.id) shouldBe response
-                    posts.findById(feedback.id!!) shouldBe feedback
+                    posts.findById(feedback.id!!)!!.shouldBeStoredAs(feedback)
                     posts.findImagesByPostId(feedback.id!!).map { it.url } shouldBe listOf(imageUrl)
                 }
             }
@@ -57,7 +58,7 @@ class GetPostServiceTest :
                 val action = suspend { service.getPost(postId = feedback.id!!, loginId = author.id) }
                 Then("현재 DB 역할로 거절한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_FORBIDDEN.message) { action() }
-                    posts.findById(feedback.id!!) shouldBe feedback
+                    posts.findById(feedback.id!!)!!.shouldBeStoredAs(feedback)
                 }
             }
             When("게스트가 공지를 조회하면") {
