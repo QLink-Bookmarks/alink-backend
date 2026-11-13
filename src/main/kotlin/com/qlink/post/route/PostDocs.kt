@@ -73,7 +73,7 @@ internal fun updatePostDocs(): RouteConfig.() -> Unit =
             }
             code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN) } }
             code(HttpStatusCode.NotFound) {
-                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_EDITOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_AUTHOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
             }
             code(HttpStatusCode.UnprocessableEntity) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_FEEDBACK_NOT_EDITABLE) } }
         }
@@ -88,7 +88,7 @@ internal fun deletePostDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.BadRequest) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) } }
             code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN) } }
             code(HttpStatusCode.NotFound) {
-                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_EDITOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_AUTHOR_NOT_FOUND, ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND) }
             }
             code(HttpStatusCode.UnprocessableEntity) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.POST_FEEDBACK_NOT_EDITABLE) } }
         }

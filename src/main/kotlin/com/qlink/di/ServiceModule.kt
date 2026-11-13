@@ -59,7 +59,6 @@ import com.qlink.post.service.CreatePostService
 import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
 import com.qlink.post.service.GetPostsService
-import com.qlink.post.service.PostEditorLoader
 import com.qlink.post.service.UpdatePostService
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
@@ -510,12 +509,18 @@ fun serviceModule() =
             )
         }
 
-        single { PostEditorLoader(userRepository = get()) }
-        single { UpdatePostService(tx = get(), editorLoader = get(), postRepository = get()) }
+        single {
+            UpdatePostService(
+                tx = get(),
+                userRepository = get(),
+                postRepository = get(),
+            )
+        }
+
         single {
             DeletePostService(
                 tx = get(),
-                editorLoader = get(),
+                userRepository = get(),
                 postRepository = get(),
                 notificationRepository = get(),
             )

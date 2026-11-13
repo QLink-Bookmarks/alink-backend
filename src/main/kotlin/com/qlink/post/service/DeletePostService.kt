@@ -7,10 +7,11 @@ import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.post.domain.PostType
 import com.qlink.post.repository.PostRepository
+import com.qlink.user.repository.UserRepository
 
 class DeletePostService(
     private val tx: TransactionRunner,
-    private val editorLoader: PostEditorLoader,
+    private val userRepository: UserRepository,
     private val postRepository: PostRepository,
     private val notificationRepository: NotificationRepository,
 ) {
@@ -18,7 +19,8 @@ class DeletePostService(
         loginId: Long,
         id: Long,
     ) = tx.required {
-        PostType.ANNOUNCEMENT.validateManageable(editorLoader.load(loginId).role.isAdmin)
+        val user = userRepository.findById(loginId) ?: throw BusinessException(ErrorCode.POST_AUTHOR_NOT_FOUND)
+        PostType.ANNOUNCEMENT.validateManageable(user.role.isAdmin)
         val post = postRepository.findById(id) ?: throw BusinessException(ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND)
         post.validateEditable()
         notificationRepository.deleteByContext(context = NotificationContext.ANNOUNCE, contextId = id)

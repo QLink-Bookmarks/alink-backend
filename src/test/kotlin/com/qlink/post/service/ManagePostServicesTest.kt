@@ -15,6 +15,7 @@ import com.qlink.support.fixture.PostFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
+import com.qlink.support.shouldBeStoredAs
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldNotThrowAny
@@ -102,15 +103,15 @@ class ManagePostServicesTest :
                 val action = suspend { update.updatePost(loginId = normal.id!!, id = post.id!!, request = request) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
             When("수정 사용자 없음 거절") {
                 val action = suspend { update.updatePost(loginId = RandomFixture.randomId(), id = post.id!!, request = request) }
                 Then("저장소 상태와 응답을 확인한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_EDITOR_NOT_FOUND.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_AUTHOR_NOT_FOUND.message) { action() }
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
@@ -118,7 +119,7 @@ class ManagePostServicesTest :
                 val action = suspend { update.updatePost(loginId = admin.id!!, id = RandomFixture.randomId(), request = request) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
@@ -130,7 +131,7 @@ class ManagePostServicesTest :
                 val action = suspend { update.updatePost(loginId = admin.id!!, id = post.id!!, request = request) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_NOT_EDITABLE.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
@@ -138,15 +139,15 @@ class ManagePostServicesTest :
                 val action = suspend { delete.deletePost(loginId = normal.id!!, id = post.id!!) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_ANNOUNCEMENT_FORBIDDEN.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
             When("삭제 사용자 없음 거절") {
                 val action = suspend { delete.deletePost(loginId = RandomFixture.randomId(), id = post.id!!) }
                 Then("저장소 상태와 응답을 확인한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_EDITOR_NOT_FOUND.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_AUTHOR_NOT_FOUND.message) { action() }
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
@@ -154,7 +155,7 @@ class ManagePostServicesTest :
                 val action = suspend { delete.deletePost(loginId = admin.id!!, id = RandomFixture.randomId()) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_ANNOUNCEMENT_NOT_FOUND.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
@@ -166,7 +167,7 @@ class ManagePostServicesTest :
                 val action = suspend { delete.deletePost(loginId = admin.id!!, id = post.id!!) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_NOT_EDITABLE.message) { action() }
-                    posts.findById(post.id!!) shouldBe post
+                    posts.findById(post.id!!)!!.shouldBeStoredAs(post)
                     notifications.findByContext(context = NotificationContext.ANNOUNCE, contextId = other.id!!).size shouldBe 1
                 }
             }
