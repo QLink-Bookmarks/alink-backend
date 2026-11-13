@@ -45,7 +45,7 @@ fun ResultRow.toAiProviderListQuery(
     AiProviderListQuery(
         id = this[AiProviders.id],
         type = this[AiProviders.type],
-        isActive = this[AiProviders.isActive],
+        isActive = this[AiProviders.activeAt] != null,
         modelCount = this[modelCount].toInt(),
         activeModelCount = this[activeModelCount].toInt(),
         updatedAt = this[AiProviders.updatedAt].toKotlinInstant(),
@@ -56,7 +56,7 @@ fun ResultRow.toAiProviderQuery(): AiProviderQuery =
         id = this[AiProviders.id],
         type = this[AiProviders.type],
         baseUrl = this[AiProviders.baseUrl],
-        isActive = this[AiProviders.isActive],
+        isActive = this[AiProviders.activeAt] != null,
         createdAt = this[AiProviders.createdAt].toKotlinInstant(),
         updatedAt = this[AiProviders.updatedAt].toKotlinInstant(),
     )
@@ -68,6 +68,6 @@ fun ResultRow.toAiModelQuery(): AiModelQuery =
         priority = this[AvailableModels.priority],
         rpdLimit = this[AvailableModels.rpdLimit],
         tpdLimit = this[AvailableModels.tpdLimit],
-        isActive = this[AvailableModels.isActive],
+        isActive = this[AvailableModels.activeAt] != null,
         updatedAt = this[AvailableModels.updatedAt].toKotlinInstant(),
     )

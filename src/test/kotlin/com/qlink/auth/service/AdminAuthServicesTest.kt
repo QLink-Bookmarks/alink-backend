@@ -40,8 +40,7 @@ class AdminAuthServicesTest :
         val tokens = koinGet<RefreshTokenRepository>()
         val tokenService = koinGet<AuthTokenService>()
         val signIn = koinGet<SignInAdminService>()
-        val refresh = koinGet<RefreshAdminAuthTokenService>()
-        val channelRefresh = koinGet<RefreshAuthTokenService>()
+        val refresh = koinGet<RefreshAuthTokenService>()
         val signOut = koinGet<SignOutService>()
         val googleConfig = koinGet<GoogleConfig>()
         val engine = koinGet<MockAuthHttpEngine>()
@@ -209,7 +208,7 @@ class AdminAuthServicesTest :
                 }
             }
             When("관리자 토큰 회전·유예 재사용은 최신 토큰 유지") {
-                val action = suspend { refresh.refresh(adminToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = adminToken.token, scope = AuthSessionScope.ADMIN) }
                 Then("저장소 상태와 응답을 확인한다") {
                     val first = action()
                     first.refreshToken.token shouldNotBe adminToken.token
@@ -239,7 +238,7 @@ class AdminAuthServicesTest :
                         ),
                     )
                 }
-                val action = suspend { refresh.refresh(adminToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = adminToken.token, scope = AuthSessionScope.ADMIN) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AUTH_REFRESH_TOKEN_REUSED.message) { action() }
                     tokens.findLatestByUserIdAndFamilyId(userId = admin.id!!, familyId = adminToken.familyId).shouldBeNull()
@@ -251,7 +250,7 @@ class AdminAuthServicesTest :
                     if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
                     users.update(admin.copyForTestRole(Role.NORMAL))
                 }
-                val action = suspend { refresh.refresh(adminToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = adminToken.token, scope = AuthSessionScope.ADMIN) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AUTH_ADMIN_REQUIRED.message) { action() }
                     tokens.findLatestByUserIdAndFamilyId(userId = admin.id!!, familyId = adminToken.familyId).shouldBeNull()
@@ -259,21 +258,21 @@ class AdminAuthServicesTest :
                 }
             }
             When("채널 토큰으로 관리자 갱신 거절·보존") {
-                val action = suspend { refresh.refresh(channelToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = channelToken.token, scope = AuthSessionScope.ADMIN) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AUTH_REFRESH_TOKEN_INVALID.message) { action() }
                     tokens.findByToken(channelToken.token) shouldBe channelToken
                 }
             }
             When("관리자 토큰으로 채널 갱신 거절·보존") {
-                val action = suspend { channelRefresh.refresh(adminToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = adminToken.token) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AUTH_REFRESH_TOKEN_INVALID.message) { action() }
                     tokens.findByToken(adminToken.token) shouldBe adminToken
                 }
             }
             When("scope 없는 기존 채널 토큰 회전") {
-                val action = suspend { channelRefresh.refresh(channelToken.token) }
+                val action = suspend { refresh.refresh(refreshToken = channelToken.token) }
                 Then("저장소 상태와 응답을 확인한다") {
                     val result = action()
                     tokenService.verifyRefreshToken(result.refreshToken.token).scope shouldBe AuthSessionScope.CHANNEL
@@ -282,7 +281,7 @@ class AdminAuthServicesTest :
                 }
             }
             When("쿠키 토큰 없음") {
-                val action = suspend { refresh.refresh(null) }
+                val action = suspend { refresh.refresh(refreshToken = null, scope = AuthSessionScope.ADMIN) }
                 Then("저장소 상태와 응답을 확인한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AUTH_REFRESH_TOKEN_MISSING.message) { action() }
                 }

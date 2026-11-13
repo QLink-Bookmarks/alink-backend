@@ -23,6 +23,7 @@ import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.copyForTestActive
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
@@ -78,7 +79,7 @@ class AiModelAdminServicesTest :
                     lateinit var request: CreateAvailableModelRequest
                     beforeTest {
                         if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
-                        provider = providers.update(provider.copy(isActive = providerActive))
+                        provider = providers.update(provider.copyForTestActive(isActive = providerActive))
                         val candidate = AiFixture.createRandomAvailableModelOf(providerId = provider.id!!)
                         request =
                             CreateAvailableModelRequest(
@@ -117,7 +118,7 @@ class AiModelAdminServicesTest :
                     }
                 Then("중복 오류이며 기존 모델만 남는다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AI_MODEL_DUPLICATE.message) { action() }
-                    models.findAllByProviderId(provider.id!!) shouldBe listOf(model)
+                    models.findAllByProviderId(provider.id!!).single().shouldBeStoredAs(model)
                 }
             }
             When("다른 제공자에 같은 식별자로 추가하면") {
@@ -145,7 +146,7 @@ class AiModelAdminServicesTest :
                     val saved = models.findById(action().id).shouldNotBeNull()
                     saved.providerId shouldBe other.id
                     saved.model shouldBe model.model
-                    models.findById(model.id!!) shouldBe model
+                    models.findById(model.id!!)!!.shouldBeStoredAs(model)
                 }
             }
             When("제한과 우선순위를 수정하면") {
@@ -163,13 +164,13 @@ class AiModelAdminServicesTest :
                 Then("설정과 수정 시각만 바뀌고 식별자와 모든 참조는 유지된다") {
                     val result = action()
                     val saved = models.findById(model.id!!).shouldNotBeNull()
-                    saved shouldBe
-                        model.copy(
-                            priority = request.priority,
-                            rpdLimit = request.rpdLimit,
-                            tpdLimit = request.tpdLimit,
-                            updatedAt = saved.updatedAt,
-                        )
+                    saved.id shouldBe model.id
+                    saved.providerId shouldBe model.providerId
+                    saved.model shouldBe model.model
+                    saved.priority shouldBe request.priority
+                    saved.rpdLimit shouldBe request.rpdLimit
+                    saved.tpdLimit shouldBe request.tpdLimit
+                    saved.activeAt shouldBe model.activeAt
                     saved.updatedAt shouldNotBe model.updatedAt
                     result.id shouldBe saved.id
                     result.updatedAt shouldBe saved.updatedAt
@@ -232,7 +233,7 @@ class AiModelAdminServicesTest :
                     inactive.isActive shouldBe false
                     first.updatedAt shouldBe inactive.updatedAt
                     action() shouldBe first
-                    models.findById(model.id!!) shouldBe inactive
+                    models.findById(model.id!!)!!.shouldBeStoredAs(inactive)
                     val savedUser = users.findById(normal.id!!).shouldNotBeNull()
                     savedUser.defaultAiProviderId shouldBe normal.defaultAiProviderId
                     savedUser.defaultModelId shouldBe normal.defaultModelId
@@ -261,7 +262,13 @@ class AiModelAdminServicesTest :
                             request = UpdateAiActiveRequest(isActive = true),
                         )
                     val saved = models.findById(model.id!!).shouldNotBeNull()
-                    saved shouldBe model.copy(updatedAt = saved.updatedAt)
+                    saved.id shouldBe model.id
+                    saved.providerId shouldBe model.providerId
+                    saved.model shouldBe model.model
+                    saved.priority shouldBe model.priority
+                    saved.rpdLimit shouldBe model.rpdLimit
+                    saved.tpdLimit shouldBe model.tpdLimit
+                    saved.activeAt.shouldNotBeNull()
                     restored.id shouldBe model.id
                     restored.isActive shouldBe true
                     restored.updatedAt shouldBe saved.updatedAt
@@ -301,8 +308,8 @@ class AiModelAdminServicesTest :
                     When("$name 요청이 ${errorCode.name} 조건이면") {
                         Then("거절하고 모델과 제공자를 보존한다") {
                             shouldThrowWithMessage<BusinessException>(errorCode.message) { action() }
-                            models.findAllByProviderId(provider.id!!) shouldBe listOf(model)
-                            providers.findById(provider.id!!) shouldBe provider
+                            models.findAllByProviderId(provider.id!!).single().shouldBeStoredAs(model)
+                            providers.findById(provider.id!!)!!.shouldBeStoredAs(provider)
                         }
                     }
                 }
@@ -322,7 +329,7 @@ class AiModelAdminServicesTest :
                     }
                 Then("모델 생성 제공자 없음 오류가 발생한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AI_ADMIN_MODEL_PROVIDER_NOT_FOUND.message) { action() }
-                    models.findAllByProviderId(provider.id!!) shouldBe listOf(model)
+                    models.findAllByProviderId(provider.id!!).single().shouldBeStoredAs(model)
                 }
             }
             When("없는 모델의 설정을 수정하면") {
@@ -336,7 +343,7 @@ class AiModelAdminServicesTest :
                     }
                 Then("모델 없음 오류가 발생한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AI_ADMIN_MODEL_NOT_FOUND.message) { action() }
-                    models.findById(model.id!!) shouldBe model
+                    models.findById(model.id!!)!!.shouldBeStoredAs(model)
                 }
             }
             When("없는 모델의 상태를 변경하면") {
@@ -350,8 +357,27 @@ class AiModelAdminServicesTest :
                     }
                 Then("모델 없음 오류가 발생한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.AI_ADMIN_MODEL_NOT_FOUND.message) { action() }
-                    models.findById(model.id!!) shouldBe model
+                    models.findById(model.id!!)!!.shouldBeStoredAs(model)
                 }
             }
         }
     })
+
+private fun AvailableModel.shouldBeStoredAs(expected: AvailableModel) {
+    id shouldBe expected.id
+    providerId shouldBe expected.providerId
+    model shouldBe expected.model
+    priority shouldBe expected.priority
+    rpdLimit shouldBe expected.rpdLimit
+    tpdLimit shouldBe expected.tpdLimit
+    activeAt shouldBe expected.activeAt
+    updatedAt shouldBe expected.updatedAt
+}
+
+private fun AiProvider.shouldBeStoredAs(expected: AiProvider) {
+    id shouldBe expected.id
+    type shouldBe expected.type
+    baseUrl shouldBe expected.baseUrl
+    activeAt shouldBe expected.activeAt
+    updatedAt shouldBe expected.updatedAt
+}
