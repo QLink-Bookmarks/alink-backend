@@ -1,5 +1,6 @@
 package com.qlink.auth.service
 
+import com.qlink.auth.domain.AuthSessionScope
 import com.qlink.auth.domain.RefreshToken
 import com.qlink.auth.dto.IssuedRefreshToken
 import com.qlink.auth.dto.RotatedAuthTokenResult
@@ -20,14 +21,22 @@ class RefreshAuthTokenService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val authTokenService: AuthTokenService,
 ) {
-    suspend fun refresh(refreshToken: String?): RotatedAuthTokenResult {
+    suspend fun refresh(
+        refreshToken: String?,
+        scope: AuthSessionScope = AuthSessionScope.CHANNEL,
+    ): RotatedAuthTokenResult {
         val token = refreshToken?.takeIf { it.isNotBlank() } ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_MISSING)
         val claims = authTokenService.verifyRefreshToken(token)
+        if (claims.scope != scope) throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)
         val now = Clock.System.now()
 
         val result =
             tx.required {
                 val user = userRepository.findById(claims.userId) ?: throw BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID)
+                if (scope == AuthSessionScope.ADMIN && !user.role.isAdmin) {
+                    refreshTokenRepository.deleteByUserIdAndFamilyId(userId = claims.userId, familyId = claims.familyId)
+                    return@required RefreshResult.Failure(ErrorCode.AUTH_ADMIN_REQUIRED)
+                }
                 val current =
                     refreshTokenRepository.findByTokenAndFamily(
                         userId = claims.userId,
@@ -40,6 +49,7 @@ class RefreshAuthTokenService(
                         authTokenService.issueRefreshToken(
                             userId = claims.userId,
                             familyId = claims.familyId,
+                            scope = scope,
                         )
                     val rotated =
                         current.rotate(
@@ -103,15 +113,4 @@ class RefreshAuthTokenService(
                 ),
         )
     }
-}
-
-private sealed interface RefreshResult {
-    data class Success(
-        val user: User,
-        val refreshToken: RefreshToken,
-    ) : RefreshResult
-
-    data class Failure(
-        val errorCode: ErrorCode,
-    ) : RefreshResult
 }

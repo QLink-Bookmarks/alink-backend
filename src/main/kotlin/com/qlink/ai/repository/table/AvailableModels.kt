@@ -19,6 +19,7 @@ object AvailableModels : Table("available_models") {
     val rpdLimit = integer("rpd_limit").nullable()
     val tpdLimit = integer("tpd_limit").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
+    val activeAt = timestamp("active_at").nullable()
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
 
     override val primaryKey = PrimaryKey(id)
@@ -32,6 +33,7 @@ object AvailableModels : Table("available_models") {
 fun ResultRow.toAvailableModelDomain(): AvailableModel =
     AvailableModel(
         id = this[AvailableModels.id],
+        activeAt = this[AvailableModels.activeAt]?.toKotlinInstant(),
         providerId = this[AvailableModels.providerId],
         model = this[AvailableModels.model],
         priority = this[AvailableModels.priority],
@@ -42,6 +44,7 @@ fun ResultRow.toAvailableModelDomain(): AvailableModel =
     )
 
 fun UpdateBuilder<*>.fromDomain(availableModel: AvailableModel) {
+    this[AvailableModels.activeAt] = availableModel.activeAt?.toJavaInstant()
     this[AvailableModels.providerId] = availableModel.providerId
     this[AvailableModels.model] = availableModel.model
     this[AvailableModels.priority] = availableModel.priority

@@ -1,6 +1,5 @@
 package com.qlink.post.service
 
-import com.qlink.auth.domain.Role
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
@@ -15,11 +14,12 @@ class GetPostService(
 ) {
     suspend fun getPost(
         postId: Long,
-        role: Role,
+        loginId: Long?,
     ): GetPostResponse =
         tx.readOnly {
             val post = postRepository.findById(postId) ?: throw BusinessException(ErrorCode.POST_NOT_FOUND)
-            post.type.validateReadable(role.isAdmin)
+            val user = loginId?.let { userRepository.findById(it) }
+            post.validateReadable(user?.role?.isAdmin == true)
 
             val author = userRepository.findById(post.authorId)
             val images = if (post.type.hasImage) postRepository.findImagesByPostId(postId) else emptyList()

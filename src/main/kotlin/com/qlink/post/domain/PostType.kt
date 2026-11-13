@@ -20,6 +20,10 @@ enum class PostType {
         }
     }
 
+    fun validateEditable() {
+        if (this != ANNOUNCEMENT) throw BusinessException(ErrorCode.POST_FEEDBACK_NOT_EDITABLE)
+    }
+
     val hasImage: Boolean
         get() = this == FEEDBACK
 

@@ -10,6 +10,10 @@ enum class AuthProviderType {
     APPLE,
     ;
 
+    fun validateAdminSupported() {
+        if (this != GOOGLE) throw BusinessException(ErrorCode.AUTH_ADMIN_PROVIDER_NOT_SUPPORTED)
+    }
+
     companion object {
         fun fromRequestName(requestName: String): AuthProviderType =
             entries.firstOrNull { it.name.equals(requestName, ignoreCase = true) }

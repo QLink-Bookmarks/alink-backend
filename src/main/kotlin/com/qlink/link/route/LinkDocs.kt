@@ -125,10 +125,17 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
                     examples(
                         ErrorCode.LINK_NOT_FOUND,
                         ErrorCode.AI_USER_PROVIDER_NOT_FOUND,
+                        ErrorCode.AI_PROVIDER_NOT_FOUND,
                         ErrorCode.AI_MODEL_NOT_FOUND,
                         ErrorCode.LINK_OWNER_NOT_FOUND,
                         ErrorCode.LINK_FOLDER_NOT_FOUND,
                     )
+                }
+            }
+            code(HttpStatusCode.UnprocessableEntity) {
+                description = "요약에 사용할 제공자 또는 모델이 비활성"
+                body<ApiResponse<ErrorDetail>> {
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE)
                 }
             }
         }

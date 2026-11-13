@@ -1,8 +1,7 @@
 package com.qlink.post.service
 
-import com.qlink.auth.domain.Role
+import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.notification.service.SendAnnouncementService
 import com.qlink.post.domain.Post
@@ -23,15 +22,14 @@ class CreatePostService(
 ) {
     suspend fun createPost(
         loginId: Long,
-        role: Role,
         request: CreatePostRequest,
     ): CreatePostResponse {
         val type = PostType.from(request.type)
-        type.validateManageable(role.isAdmin)
 
         val post =
             tx.required {
-                userRepository.emptyById(loginId).requireFalse(ErrorCode.POST_AUTHOR_NOT_FOUND)
+                val user = userRepository.findById(loginId) ?: throw BusinessException(ErrorCode.POST_AUTHOR_NOT_FOUND)
+                type.validateManageable(user.role.isAdmin)
 
                 val saved =
                     postRepository.insert(
@@ -43,7 +41,7 @@ class CreatePostService(
                         ),
                     )
 
-                if (request.imageUrls.isNotEmpty()) {
+                if (type.hasImage && request.imageUrls.isNotEmpty()) {
                     postRepository.insertImages(request.imageUrls.map { PostImage(postId = saved.id!!, url = it) })
                 }
 
