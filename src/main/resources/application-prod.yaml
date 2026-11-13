@@ -10,6 +10,7 @@ http:
     hosts:
       - archivelink.app
       - api.archivelink.app
+      - admin.archivelink.app
 linkContent:
   lambdaFunction: alink-link-content-prod:live
 worker:
