@@ -8,6 +8,7 @@ import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeSameInstanceAs
 
 class AiProviderTest :
     BehaviorSpec({
@@ -17,6 +18,7 @@ class AiProviderTest :
                 Then("규칙에 맞게 처리한다") {
                     val result = action()
                     result.isActive shouldBe false
+                    result.activeAt shouldBe null
                     result.baseUrl shouldBe "https://api.openai.com/v1"
                 }
             }
@@ -51,6 +53,7 @@ class AiProviderTest :
                     changed.id shouldBe original.id
                     changed.type shouldBe original.type
                     changed.baseUrl shouldBe "https://api.openai.com/v2"
+                    changed.activeAt shouldBe original.activeAt
                     changed.updatedAt shouldBe now
                     original.updatedAt shouldBe null
                 }
@@ -69,6 +72,7 @@ class AiProviderTest :
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.isActive shouldBe true
+                    changed.activeAt shouldBe now
                     changed.id shouldBe original.id
                     changed.type shouldBe original.type
                     changed.updatedAt shouldBe now
@@ -91,7 +95,7 @@ class AiProviderTest :
                     changed.isActive shouldBe false
                     changed.id shouldBe original.id
                     changed.type shouldBe original.type
-                    changed shouldBe original
+                    changed shouldBeSameInstanceAs original
                 }
             }
             When("상태 true에서 false, 실행 어댑터 false") {
@@ -101,6 +105,7 @@ class AiProviderTest :
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.isActive shouldBe false
+                    changed.activeAt shouldBe null
                     changed.id shouldBe original.id
                     changed.type shouldBe original.type
                     changed.updatedAt shouldBe now
@@ -112,7 +117,7 @@ class AiProviderTest :
                     original.changeActive(isActive = true, isExecutable = false, now = RandomFixture.randomFutureInstantAfterTomorrow())
                 }
                 Then("원래 상태와 변경 시각을 유지한다") {
-                    action() shouldBe original
+                    action() shouldBeSameInstanceAs original
                 }
             }
             When("활성 상태 false를 검증하면") {

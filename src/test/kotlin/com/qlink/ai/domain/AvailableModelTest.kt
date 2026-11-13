@@ -7,11 +7,13 @@ import com.qlink.support.fixture.RandomFixture
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeSameInstanceAs
 
 class AvailableModelTest :
     BehaviorSpec({
         Given("모델 생성과 변경 규칙") {
             When("정상") {
+                val now = RandomFixture.randomPastInstant()
                 val action = {
                     AvailableModel.create(
                         providerId = RandomFixture.randomId(),
@@ -19,11 +21,13 @@ class AvailableModelTest :
                         priority = 1,
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = now,
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
                     val saved = action()
                     saved.isActive shouldBe true
+                    saved.activeAt shouldBe now
                     saved.model shouldBe "model-A.1_2"
                     saved.rpdLimit shouldBe null
                     saved.tpdLimit shouldBe null
@@ -37,6 +41,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 1,
                         tpdLimit = 1,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -55,6 +60,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 1,
                         tpdLimit = 1,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -69,6 +75,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -83,6 +90,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -97,6 +105,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -111,6 +120,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -125,6 +135,7 @@ class AvailableModelTest :
                         priority = 0,
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -139,6 +150,7 @@ class AvailableModelTest :
                         priority = -1,
                         rpdLimit = null,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -153,6 +165,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = 0,
                         tpdLimit = null,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -167,6 +180,7 @@ class AvailableModelTest :
                         priority = RandomFixture.randomInt(1, 100),
                         rpdLimit = null,
                         tpdLimit = -1,
+                        now = RandomFixture.randomPastInstant(),
                     )
                 }
                 Then("규칙에 맞게 처리한다") {
@@ -233,10 +247,13 @@ class AvailableModelTest :
             }
             When("활성 상태를 false로 변경") {
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId(), id = RandomFixture.randomId())
-                val action = { original.changeActive(isActive = false, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
+                val now = RandomFixture.randomFutureInstantAfterTomorrow()
+                val action = { original.changeActive(isActive = false, now = now) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.isActive shouldBe false
+                    changed.activeAt shouldBe null
+                    changed.updatedAt shouldBe now
                     changed.id shouldBe original.id
                     changed.model shouldBe original.model
                     changed.providerId shouldBe original.providerId
@@ -250,10 +267,13 @@ class AvailableModelTest :
                         id = RandomFixture.randomId(),
                         isActive = false,
                     )
-                val action = { original.changeActive(isActive = true, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
+                val now = RandomFixture.randomFutureInstantAfterTomorrow()
+                val action = { original.changeActive(isActive = true, now = now) }
                 Then("규칙에 맞게 처리한다") {
                     val changed = action()
                     changed.isActive shouldBe true
+                    changed.activeAt shouldBe now
+                    changed.updatedAt shouldBe now
                     changed.id shouldBe original.id
                     changed.model shouldBe original.model
                     changed.providerId shouldBe original.providerId
@@ -264,7 +284,7 @@ class AvailableModelTest :
                 val original = AiFixture.createRandomAvailableModelOf(providerId = RandomFixture.randomId())
                 val action = { original.changeActive(isActive = true, now = RandomFixture.randomFutureInstantAfterTomorrow()) }
                 Then("원래 모델과 변경 시각을 유지한다") {
-                    action() shouldBe original
+                    action() shouldBeSameInstanceAs original
                 }
             }
             When("비활성 모델 검증") {

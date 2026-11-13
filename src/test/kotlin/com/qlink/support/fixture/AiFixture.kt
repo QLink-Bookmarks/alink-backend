@@ -24,7 +24,7 @@ object AiFixture {
         AiProvider(
             id = id,
             type = type,
-            isActive = isActive,
+            activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
             baseUrl =
                 when (type) {
                     AiProviderType.GEMINI -> "https://generativelanguage.googleapis.com"
@@ -41,7 +41,7 @@ object AiFixture {
     ): AvailableModel =
         AvailableModel(
             id = id,
-            isActive = isActive,
+            activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
             providerId = providerId,
             model = "model-${RandomFixture.randomId()}",
             priority = priority,
@@ -132,3 +132,26 @@ object AiFixture {
 
     private fun randomAiProviderType(): AiProviderType = AiProviderType.entries[Random.nextInt(AiProviderType.entries.size)]
 }
+
+fun AiProvider.copyForTestActive(isActive: Boolean): AiProvider =
+    AiProvider(
+        id = id,
+        type = type,
+        baseUrl = baseUrl,
+        activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+fun AvailableModel.copyForTestActive(isActive: Boolean): AvailableModel =
+    AvailableModel(
+        id = id,
+        providerId = providerId,
+        model = model,
+        priority = priority,
+        rpdLimit = rpdLimit,
+        tpdLimit = tpdLimit,
+        activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
