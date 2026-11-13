@@ -2,7 +2,9 @@ package com.qlink.auth.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.qlink.auth.domain.AuthSessionScope
 import com.qlink.auth.domain.Role
+import com.qlink.auth.dto.RefreshTokenClaims
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.SecurityConfig
@@ -49,7 +51,18 @@ class AuthTokenServiceTest :
                 val claims = service.verifyRefreshToken(refreshToken)
 
                 Then("사용자와 family id를 복원한다") {
-                    claims shouldBe RefreshTokenClaims(userId = userId, familyId = familyId)
+                    claims shouldBe RefreshTokenClaims(userId = userId, familyId = familyId, scope = AuthSessionScope.CHANNEL)
+                }
+            }
+
+            When("관리자 scope로 refresh token을 발급하고 검증하면") {
+                val userId = RandomFixture.randomId()
+                val token = service.issueRefreshToken(userId = userId, scope = AuthSessionScope.ADMIN)
+
+                Then("관리자 scope와 사용자를 복원한다") {
+                    val claims = service.verifyRefreshToken(token)
+                    claims.userId shouldBe userId
+                    claims.scope shouldBe AuthSessionScope.ADMIN
                 }
             }
 

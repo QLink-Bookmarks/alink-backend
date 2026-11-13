@@ -32,6 +32,7 @@ class PutAiUserProviderService(
                 aiProviderRepository.findById(request.providerId)
                     ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
 
+            provider.validateActive()
             runCatching {
                 aiClientRouter.validateApiKey(
                     providerType = provider.type,

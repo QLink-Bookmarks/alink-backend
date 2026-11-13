@@ -9,6 +9,7 @@ http:
     hosts:
       - dev.archivelink.app
       - dev.api.archivelink.app
+      - admin.archivelink.app
 linkContent:
   lambdaFunction: alink-link-content-dev:live
 worker:

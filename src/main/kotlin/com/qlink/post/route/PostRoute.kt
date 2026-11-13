@@ -5,11 +5,16 @@ import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.plugin.jwtPrincipalOrGuest
 import com.qlink.post.dto.CreatePostRequest
+import com.qlink.post.dto.UpdatePostRequest
 import com.qlink.post.service.CreatePostService
+import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
 import com.qlink.post.service.GetPostsService
+import com.qlink.post.service.UpdatePostService
+import io.github.smiley4.ktoropenapi.resources.delete
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
+import io.github.smiley4.ktoropenapi.resources.put
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
@@ -21,12 +26,27 @@ fun Route.postRoutes() {
     val createPostService by inject<CreatePostService>()
     val getPostService by inject<GetPostService>()
     val getPostsService by inject<GetPostsService>()
+    val updatePostService by inject<UpdatePostService>()
+    val deletePostService by inject<DeletePostService>()
 
     authenticate {
+        put<PostResources.ById>(updatePostDocs()) { resource ->
+            val response =
+                updatePostService.updatePost(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    id = resource.id,
+                    request = call.receive<UpdatePostRequest>(),
+                )
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        delete<PostResources.ById>(deletePostDocs()) { resource ->
+            deletePostService.deletePost(loginId = call.principal<JwtPrincipal>()!!.userId, id = resource.id)
+            call.respondSuccess(HttpStatusCode.OK)
+        }
         post<PostResources>(createPostDocs()) {
             val principal = call.principal<JwtPrincipal>()!!
             val request = call.receive<CreatePostRequest>()
-            val response = createPostService.createPost(principal.userId, principal.role, request)
+            val response = createPostService.createPost(loginId = principal.userId, request = request)
 
             call.respondSuccess(HttpStatusCode.Created, response)
         }
@@ -37,7 +57,7 @@ fun Route.postRoutes() {
             val principal = call.jwtPrincipalOrGuest()
             val response =
                 getPostsService.getPosts(
-                    role = principal.role,
+                    loginId = principal.userId.takeIf { it > 0 },
                     type = resource.type,
                     query = resource.query,
                     orderKey = resource.orderKey,
@@ -54,7 +74,7 @@ fun Route.postRoutes() {
 
         get<PostResources.ById>(getPostDocs()) { resource ->
             val principal = call.jwtPrincipalOrGuest()
-            val response = getPostService.getPost(resource.id, principal.role)
+            val response = getPostService.getPost(postId = resource.id, loginId = principal.userId.takeIf { it > 0 })
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }

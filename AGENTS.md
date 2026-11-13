@@ -11,6 +11,8 @@ conventions that are not obvious from reading the code.
 - Dependencies follow the allowed list in D1–D9 of `references/domain-review.md`; anything not listed is not allowed.
 - One top-level type per file, except DTO files. Pure-mechanism extensions on Kotlin or JDK types go in `common`
   util files. See F1–F3 in `references/domain-review.md`.
+- Match the house style in `references/house-style.md`: copy the closest sibling on `main`, extend an existing
+  service before adding one, one route file per domain, no comments, no `require`/`check`, constructor-injected loggers.
 
 ## Testing Rules
 
@@ -121,6 +123,7 @@ Consult these resources as needed:
 ```
 references/
   domain-review.md                Domain, VO, common, service, query and ErrorCode placement rules
+  house-style.md                  Precedent over invention: sibling files, extend before add, comments, require, loggers
   project-management-workflow.md  Issue/Project/PR stages, confirmation gates, section rules
   test-criteria.md                Domain and service test case form, coverage axes, Infra plan checks
 ```

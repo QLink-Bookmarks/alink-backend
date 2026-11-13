@@ -299,11 +299,14 @@ module "ecs" {
     LINK_PREVIEW_LAMBDA_FUNCTION = "alink-link-preview-dev:live"
     LINK_PREVIEW_LAMBDA_ENDPOINT = ""
   }
-  task_secret_values = {
-    DB_PASSWORD              = var.db_password
-    FCM_SERVICE_ACCOUNT_JSON = var.fcm_service_account_json
-    EXPO_ACCESS_TOKEN        = var.expo_access_token
-  }
+  task_secret_values = merge(
+    {
+      DB_PASSWORD              = var.db_password
+      FCM_SERVICE_ACCOUNT_JSON = var.fcm_service_account_json
+      EXPO_ACCESS_TOKEN        = var.expo_access_token
+    },
+    var.google_admin_client_ids == "" ? {} : { GOOGLE_ADMIN_CLIENT_IDS = var.google_admin_client_ids },
+  )
   ssm_parameter_prefix     = var.ssm_parameter_prefix
   task_healthcheck_command = var.ecs_task_healthcheck_command
   task_definition_tag_name = var.ecs_task_definition_tag_name

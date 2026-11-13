@@ -24,4 +24,23 @@ class Post(
 
     val isAnnouncement: Boolean
         get() = type == PostType.ANNOUNCEMENT
+
+    fun validateReadable(isAdmin: Boolean) = type.validateReadable(isAdmin)
+
+    fun validateEditable() = type.validateEditable()
+
+    fun change(
+        title: String,
+        contents: String,
+        now: Instant,
+    ): Post =
+        Post(
+            id = id,
+            title = title,
+            contents = contents,
+            type = type,
+            authorId = authorId,
+            createdAt = createdAt,
+            updatedAt = now,
+        )
 }

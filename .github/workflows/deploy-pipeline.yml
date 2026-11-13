@@ -39,6 +39,8 @@ on:
         required: false
       TF_VAR_GOOGLE_CLIENT_IDS:
         required: false
+      TF_VAR_GOOGLE_ADMIN_CLIENT_IDS:
+        required: false
       TF_VAR_JWT_SECRET:
         required: false
       TF_VAR_AI_API_KEY_ENCRYPTION_KEY_BASE64:
@@ -127,6 +129,7 @@ jobs:
           TF_VAR_expo_access_token: ${{ secrets.TF_VAR_EXPO_ACCESS_TOKEN }}
           TF_VAR_apple_client_ids: ${{ secrets.TF_VAR_APPLE_CLIENT_IDS }}
           TF_VAR_google_client_ids: ${{ secrets.TF_VAR_GOOGLE_CLIENT_IDS }}
+          TF_VAR_google_admin_client_ids: ${{ secrets.TF_VAR_GOOGLE_ADMIN_CLIENT_IDS }}
           TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
           TF_VAR_ai_api_key_encryption_key_base64: ${{ secrets.TF_VAR_AI_API_KEY_ENCRYPTION_KEY_BASE64 }}
           TF_VAR_rds_db_name: ${{ inputs.rds_db_name }}
@@ -152,6 +155,7 @@ jobs:
           TF_VAR_expo_access_token: ${{ secrets.TF_VAR_EXPO_ACCESS_TOKEN }}
           TF_VAR_apple_client_ids: ${{ secrets.TF_VAR_APPLE_CLIENT_IDS }}
           TF_VAR_google_client_ids: ${{ secrets.TF_VAR_GOOGLE_CLIENT_IDS }}
+          TF_VAR_google_admin_client_ids: ${{ secrets.TF_VAR_GOOGLE_ADMIN_CLIENT_IDS }}
           TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
           TF_VAR_ai_api_key_encryption_key_base64: ${{ secrets.TF_VAR_AI_API_KEY_ENCRYPTION_KEY_BASE64 }}
           TF_VAR_rds_db_name: ${{ inputs.rds_db_name }}

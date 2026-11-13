@@ -35,6 +35,7 @@ class GetAiProviderModelsServiceTest :
                     AiProvider(
                         type = type,
                         baseUrl = RandomFixture.randomUrl(),
+                        activeAt = RandomFixture.randomPastInstant(),
                     ),
                 )
 
@@ -50,6 +51,7 @@ class GetAiProviderModelsServiceTest :
                     priority = priority,
                     rpdLimit = RandomFixture.randomInt(1, 1000),
                     tpdLimit = RandomFixture.randomInt(1, 10_000_000),
+                    activeAt = RandomFixture.randomPastInstant(),
                 ),
             )
 

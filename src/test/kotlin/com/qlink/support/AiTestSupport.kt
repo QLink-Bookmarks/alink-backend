@@ -22,6 +22,7 @@ import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.WorkerConfig
+import com.qlink.support.fixture.RandomFixture
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.channels.Channel
 import org.koin.dsl.module
@@ -119,10 +120,12 @@ class FakeAiClient : AiClient {
     val requestedModels: MutableList<String> = mutableListOf()
     val requestedApiKeys: MutableList<String> = mutableListOf()
     var validationStatusCode: Int? = null
+    var beforeSummary: (suspend (AiSummaryClientRequest) -> Unit)? = null
 
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
         requestedModels.add(request.model)
         requestedApiKeys.add(request.apiKey)
+        beforeSummary?.invoke(request)
         failuresByModel[request.model]?.let { throw it }
 
         return AiSummaryClientResponse(
@@ -151,6 +154,7 @@ class FakeAiClient : AiClient {
         requestedModels.clear()
         requestedApiKeys.clear()
         validationStatusCode = null
+        beforeSummary = null
     }
 }
 
@@ -167,6 +171,7 @@ suspend fun insertAiContext(
             AiProvider(
                 type = type,
                 baseUrl = "https://example.com",
+                activeAt = RandomFixture.randomPastInstant(),
             ),
         )
     val model =
@@ -177,6 +182,7 @@ suspend fun insertAiContext(
                 priority = 1,
                 rpdLimit = 20,
                 tpdLimit = 2_000_000,
+                activeAt = RandomFixture.randomPastInstant(),
             ),
         )
     val userProvider =
