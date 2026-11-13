@@ -1,9 +1,10 @@
 package com.qlink.auth.route
 
+import com.qlink.auth.domain.AuthSessionScope
 import com.qlink.auth.domain.JwtPrincipal
 import com.qlink.auth.dto.AdminSignInRequest
 import com.qlink.auth.dto.WebAuthTokenResponse
-import com.qlink.auth.service.RefreshAdminAuthTokenService
+import com.qlink.auth.service.RefreshAuthTokenService
 import com.qlink.auth.service.SignInAdminService
 import com.qlink.auth.service.SignOutService
 import com.qlink.common.cookie.ADMIN_REFRESH_TOKEN_COOKIE_NAME
@@ -25,7 +26,7 @@ import io.github.smiley4.ktoropenapi.post as postRoute
 
 internal fun Route.adminAuthRoutes() {
     val signIn by inject<SignInAdminService>()
-    val refresh by inject<RefreshAdminAuthTokenService>()
+    val refresh by inject<RefreshAuthTokenService>()
     val signOut by inject<SignOutService>()
 
     post<AuthResources.Admin.Sign>(adminSignInDocs()) {
@@ -36,7 +37,11 @@ internal fun Route.adminAuthRoutes() {
     resource<AuthResources.Admin.Refresh> {
         installAdminCsrf()
         postRoute(adminRefreshDocs()) {
-            val result = refresh.refresh(call.request.cookies[ADMIN_REFRESH_TOKEN_COOKIE_NAME])
+            val result =
+                refresh.refresh(
+                    refreshToken = call.request.cookies[ADMIN_REFRESH_TOKEN_COOKIE_NAME],
+                    scope = AuthSessionScope.ADMIN,
+                )
             call.appendAdminRefreshTokenCookie(refreshToken = result.refreshToken.token, maxAge = result.refreshToken.maxAge)
             call.respondSuccess(HttpStatusCode.Created, WebAuthTokenResponse(accessToken = result.accessToken))
         }

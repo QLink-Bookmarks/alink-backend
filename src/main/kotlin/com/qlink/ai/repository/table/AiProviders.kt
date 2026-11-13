@@ -16,7 +16,7 @@ object AiProviders : Table("ai_providers") {
     val type = enumerationByName<AiProviderType>("type", 10)
     val baseUrl = varchar("base_url", 255)
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
-    val isActive = bool("is_active").default(true)
+    val activeAt = timestamp("active_at").nullable()
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
 
     override val primaryKey = PrimaryKey(id)
@@ -29,7 +29,7 @@ object AiProviders : Table("ai_providers") {
 fun ResultRow.toAiProviderDomain(): AiProvider =
     AiProvider(
         id = this[AiProviders.id],
-        isActive = this[AiProviders.isActive],
+        activeAt = this[AiProviders.activeAt]?.toKotlinInstant(),
         type = this[AiProviders.type],
         baseUrl = this[AiProviders.baseUrl],
         createdAt = this[AiProviders.createdAt].toKotlinInstant(),
@@ -37,7 +37,7 @@ fun ResultRow.toAiProviderDomain(): AiProvider =
     )
 
 fun UpdateBuilder<*>.fromDomain(aiProvider: AiProvider) {
-    this[AiProviders.isActive] = aiProvider.isActive
+    this[AiProviders.activeAt] = aiProvider.activeAt?.toJavaInstant()
     this[AiProviders.type] = aiProvider.type
     this[AiProviders.baseUrl] = aiProvider.baseUrl
 }

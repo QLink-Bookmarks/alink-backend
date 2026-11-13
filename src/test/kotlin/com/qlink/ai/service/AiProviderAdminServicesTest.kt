@@ -256,9 +256,17 @@ class AiProviderAdminServicesTest :
                     When("$name 요청에 ${errorCode.name} 조건이면") {
                         Then("거절하고 제공자와 모델을 보존한다") {
                             shouldThrowWithMessage<BusinessException>(errorCode.message) { action() }
-                            providers.findById(provider.id!!) shouldBe provider
+                            providers.findById(provider.id!!)!!.let {
+                                it.baseUrl shouldBe provider.baseUrl
+                                it.activeAt shouldBe provider.activeAt
+                                it.updatedAt shouldBe provider.updatedAt
+                            }
                             providers.findAll().size shouldBe 1
-                            models.findById(model.id!!) shouldBe model
+                            models.findById(model.id!!)!!.let {
+                                it.priority shouldBe model.priority
+                                it.activeAt shouldBe model.activeAt
+                                it.updatedAt shouldBe model.updatedAt
+                            }
                         }
                     }
                 }

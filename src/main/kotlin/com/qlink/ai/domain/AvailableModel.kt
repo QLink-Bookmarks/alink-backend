@@ -6,17 +6,20 @@ import com.qlink.common.error.requireNotOver
 import com.qlink.common.error.requireTrue
 import kotlin.time.Instant
 
-data class AvailableModel(
+class AvailableModel(
     val id: Long? = null,
     val providerId: Long,
     val model: String,
     val priority: Int,
     val rpdLimit: Int?,
     val tpdLimit: Int?,
-    val isActive: Boolean = true,
+    val activeAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
 ) {
+    val isActive: Boolean
+        get() = activeAt != null
+
     fun change(
         priority: Int,
         rpdLimit: Int?,
@@ -24,13 +27,36 @@ data class AvailableModel(
         now: Instant,
     ): AvailableModel {
         validateLimits(priority = priority, rpdLimit = rpdLimit, tpdLimit = tpdLimit)
-        return copy(priority = priority, rpdLimit = rpdLimit, tpdLimit = tpdLimit, updatedAt = now)
+        return AvailableModel(
+            id = id,
+            providerId = providerId,
+            model = model,
+            priority = priority,
+            rpdLimit = rpdLimit,
+            tpdLimit = tpdLimit,
+            activeAt = activeAt,
+            createdAt = createdAt,
+            updatedAt = now,
+        )
     }
 
     fun changeActive(
         isActive: Boolean,
         now: Instant,
-    ): AvailableModel = if (this.isActive == isActive) this else copy(isActive = isActive, updatedAt = now)
+    ): AvailableModel {
+        if (this.isActive == isActive) return this
+        return AvailableModel(
+            id = id,
+            providerId = providerId,
+            model = model,
+            priority = priority,
+            rpdLimit = rpdLimit,
+            tpdLimit = tpdLimit,
+            activeAt = now.takeIf { isActive },
+            createdAt = createdAt,
+            updatedAt = now,
+        )
+    }
 
     fun validateActive() {
         isActive.requireTrue(ErrorCode.AI_MODEL_INACTIVE)
@@ -47,12 +73,20 @@ data class AvailableModel(
             priority: Int,
             rpdLimit: Int?,
             tpdLimit: Int?,
+            now: Instant,
         ): AvailableModel {
             model.requireNotBlank(ErrorCode.AI_MODEL_NAME_BLANK)
             model.requireNotOver(100, ErrorCode.AI_MODEL_NAME_OVER_MAX)
             model.matches(Regex("[A-Za-z0-9._-]+")).requireTrue(ErrorCode.AI_MODEL_NAME_INVALID)
             validateLimits(priority = priority, rpdLimit = rpdLimit, tpdLimit = tpdLimit)
-            return AvailableModel(providerId = providerId, model = model, priority = priority, rpdLimit = rpdLimit, tpdLimit = tpdLimit)
+            return AvailableModel(
+                providerId = providerId,
+                model = model,
+                priority = priority,
+                rpdLimit = rpdLimit,
+                tpdLimit = tpdLimit,
+                activeAt = now,
+            )
         }
 
         private fun validateLimits(
