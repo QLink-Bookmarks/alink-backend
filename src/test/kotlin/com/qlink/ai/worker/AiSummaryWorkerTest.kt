@@ -19,6 +19,7 @@ import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAiClient
 import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkFixture
+import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
@@ -149,6 +150,7 @@ class AiSummaryWorkerTest :
                             priority = 2,
                             rpdLimit = 20,
                             tpdLimit = 2_000_000,
+                            activeAt = RandomFixture.randomPastInstant(),
                         ),
                     )
                     val request =
@@ -209,6 +211,7 @@ class AiSummaryWorkerTest :
                                 priority = 2,
                                 rpdLimit = 20,
                                 tpdLimit = 2_000_000,
+                                activeAt = RandomFixture.randomPastInstant(),
                             ),
                         )
                     fakeAiClient.failuresByModel =

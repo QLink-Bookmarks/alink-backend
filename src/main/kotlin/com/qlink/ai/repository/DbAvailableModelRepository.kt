@@ -23,7 +23,7 @@ class DbAvailableModelRepository : AvailableModelRepository {
                 AvailableModels.priority,
                 AvailableModels.rpdLimit,
                 AvailableModels.tpdLimit,
-                AvailableModels.isActive,
+                AvailableModels.activeAt,
                 AvailableModels.updatedAt,
             ).where { AvailableModels.providerId eq providerId }
             .orderBy(AvailableModels.priority to SortOrder.ASC, AvailableModels.id to SortOrder.ASC)
