@@ -1,6 +1,8 @@
 package com.qlink.ai.repository
 
 import com.qlink.ai.domain.AvailableModel
+import com.qlink.ai.dto.AiModelQuery
+import com.qlink.ai.dto.toAiModelQuery
 import com.qlink.ai.repository.table.AvailableModels
 import com.qlink.ai.repository.table.fromDomain
 import com.qlink.ai.repository.table.refreshAvailableModelUpdatedAt
@@ -8,10 +10,25 @@ import com.qlink.ai.repository.table.toAvailableModelDomain
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.insertReturning
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 
 class DbAvailableModelRepository : AvailableModelRepository {
+    override suspend fun findQueries(providerId: Long): List<AiModelQuery> =
+        AvailableModels
+            .select(
+                AvailableModels.id,
+                AvailableModels.model,
+                AvailableModels.priority,
+                AvailableModels.rpdLimit,
+                AvailableModels.tpdLimit,
+                AvailableModels.activeAt,
+                AvailableModels.updatedAt,
+            ).where { AvailableModels.providerId eq providerId }
+            .orderBy(AvailableModels.priority to SortOrder.ASC, AvailableModels.id to SortOrder.ASC)
+            .map { it.toAiModelQuery() }
+
     override suspend fun insert(availableModel: AvailableModel): AvailableModel =
         AvailableModels
             .insertReturning { it.fromDomain(availableModel) }

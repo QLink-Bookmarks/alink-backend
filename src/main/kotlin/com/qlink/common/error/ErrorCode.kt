@@ -117,6 +117,13 @@ enum class ErrorCode(
     AI_MODEL_NAME_INVALID("AI_400_0007", 400, "모델 식별자에는 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있어요"),
     AI_MODEL_PRIORITY_NOT_POSITIVE("AI_400_0008", 400, "모델 우선순위는 1 이상이어야 해요"),
     AI_MODEL_LIMIT_NOT_POSITIVE("AI_400_0009", 400, "모델 제한은 1 이상이어야 해요"),
+    AI_ADMIN_REQUIRED("AI_403_0002", 403, "AI 설정 관리 권한이 없어요"),
+    AI_ADMIN_USER_NOT_FOUND("AI_404_0004", 404, "AI 설정을 관리할 사용자를 찾을 수 없어요"),
+    AI_ADMIN_PROVIDER_NOT_FOUND("AI_404_0005", 404, "관리할 AI 제공자를 찾을 수 없어요"),
+    AI_ADMIN_MODEL_PROVIDER_NOT_FOUND("AI_404_0006", 404, "모델을 추가할 제공자를 찾을 수 없어요"),
+    AI_ADMIN_MODEL_NOT_FOUND("AI_404_0007", 404, "관리할 AI 모델을 찾을 수 없어요"),
+    AI_PROVIDER_DUPLICATE_TYPE("AI_409_0001", 409, "이미 등록된 AI 업체예요"),
+    AI_MODEL_DUPLICATE("AI_409_0002", 409, "이 제공자에 이미 등록된 모델이에요"),
     AI_PROVIDER_CLIENT_MISSING("AI_422_0002", 422, "실행 어댑터가 없는 업체는 활성화할 수 없어요"),
     AI_PROVIDER_INACTIVE("AI_422_0003", 422, "비활성 AI 제공자는 사용할 수 없어요"),
     AI_MODEL_INACTIVE("AI_422_0004", 422, "비활성 AI 모델은 사용할 수 없어요"),
@@ -155,6 +162,8 @@ enum class ErrorCode(
     POST_FEEDBACK_FORBIDDEN("POST_403_0002", 403, "피드백에 대한 권한이 없어요"),
     POST_AUTHOR_NOT_FOUND("POST_404_0001", 404, "작성자를 찾을 수 없어요"),
     POST_NOT_FOUND("POST_404_0002", 404, "게시글을 찾을 수 없어요"),
+    POST_ANNOUNCEMENT_NOT_FOUND("POST_404_0004", 404, "관리할 공지를 찾을 수 없어요"),
+    POST_FEEDBACK_NOT_EDITABLE("POST_422_0001", 422, "피드백은 수정하거나 삭제할 수 없어요"),
 
     // Device
     DEVICE_PLATFORM_NOT_SUPPORTED("DEVICE_400_0001", 400, "지원하지 않는 디바이스 플랫폼이에요"),

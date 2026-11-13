@@ -43,6 +43,11 @@ class GetPostsServiceTest :
         val service = koinGet<GetPostsService>()
         val postRepository = koinGet<PostRepository>()
         val userRepository = koinGet<UserRepository>()
+        lateinit var admin: User
+        beforeTest {
+            if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
+            admin = userRepository.insert(UserFixture.createRandomValidSuperAdmin())
+        }
 
         suspend fun seed(): User {
             val author = userRepository.insert(UserFixture.createRandomValidUser())
@@ -59,7 +64,7 @@ class GetPostsServiceTest :
 
                     val response =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -73,18 +78,23 @@ class GetPostsServiceTest :
             }
 
             When("일반 사용자가 FEEDBACK 목록을 조회하면") {
-                Then("권한 예외를 반환한다") {
-                    seed()
-
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_FORBIDDEN.message) {
+                lateinit var normal: User
+                beforeTest {
+                    if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
+                    normal = seed()
+                }
+                val action =
+                    suspend {
                         service.getPosts(
-                            role = Role.NORMAL,
+                            loginId = normal.id,
                             type = "feedback",
                             query = null,
                             order = "latest",
                             scrollRequest = ScrollRequest(size = 30),
                         )
                     }
+                Then("권한 예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.POST_FEEDBACK_FORBIDDEN.message) { action() }
                 }
             }
 
@@ -94,7 +104,7 @@ class GetPostsServiceTest :
 
                     val response =
                         service.getPosts(
-                            role = Role.ADMIN,
+                            loginId = admin.id,
                             type = "FEEDBACK",
                             query = "피드백",
                             order = "latest",
@@ -117,7 +127,7 @@ class GetPostsServiceTest :
 
                     val page1 =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -128,7 +138,7 @@ class GetPostsServiceTest :
 
                     val page2 =
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "latest",
@@ -143,7 +153,7 @@ class GetPostsServiceTest :
                 Then("예외를 반환한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) {
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "earliest",
@@ -196,7 +206,7 @@ class GetPostsServiceTest :
                 cursor: String? = null,
                 size: Int = 10,
             ) = service.getPosts(
-                role = role,
+                loginId = if (role.isAdmin) admin.id else null,
                 type = type,
                 query = query,
                 orderKey = orderKey,
@@ -373,6 +383,16 @@ class GetPostsServiceTest :
                 }
             }
 
+            When("현재 관리자가 피드백을 기본 순서로 조회하면") {
+                val get = suspend { getPosts(role = Role.ADMIN, type = "FEEDBACK") }
+
+                Then("피드백만 최신 id 순서로 반환한다") {
+                    val actual = get()
+                    actual.contents.map { it.id } shouldBe feedbackIds.sortedDescending()
+                    actual.contents.map { it.id }.forEach { postRepository.findById(it)!!.type shouldBe PostType.FEEDBACK }
+                }
+            }
+
             When("관리자가 피드백을 생성일 오름차순으로 조회하면") {
                 val get = suspend { getPosts(role = Role.ADMIN, type = "FEEDBACK", order = "asc") }
 
@@ -387,7 +407,7 @@ class GetPostsServiceTest :
                 val get =
                     suspend {
                         service.getPosts(
-                            role = Role.GUEST,
+                            loginId = null,
                             type = null,
                             query = null,
                             order = "asc",
