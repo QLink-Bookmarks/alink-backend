@@ -344,6 +344,13 @@ variable "google_client_ids" {
   description = "Comma-separated Google OAuth client IDs accepted as native id_token audience"
 }
 
+variable "google_admin_client_ids" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Comma-separated Google OAuth client IDs accepted as admin web id_token audience; empty skips the SSM parameter"
+}
+
 variable "ecs_task_healthcheck_command" {
   type = string
 }
