@@ -4,20 +4,30 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireTrue
 import kotlin.time.Instant
 
-data class AiProvider(
+class AiProvider(
     val id: Long? = null,
     val type: AiProviderType,
     val baseUrl: String,
-    val isActive: Boolean = true,
+    val activeAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
 ) {
+    val isActive: Boolean
+        get() = activeAt != null
+
     fun changeBaseUrl(
         baseUrl: String,
         now: Instant,
     ): AiProvider {
         type.isAllowedBaseUrl(baseUrl).requireTrue(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
-        return copy(baseUrl = baseUrl.trimEnd('/'), updatedAt = now)
+        return AiProvider(
+            id = id,
+            type = type,
+            baseUrl = baseUrl.trimEnd('/'),
+            activeAt = activeAt,
+            createdAt = createdAt,
+            updatedAt = now,
+        )
     }
 
     fun changeActive(
@@ -27,7 +37,14 @@ data class AiProvider(
     ): AiProvider {
         if (this.isActive == isActive) return this
         (!isActive || isExecutable).requireTrue(ErrorCode.AI_PROVIDER_CLIENT_MISSING)
-        return copy(isActive = isActive, updatedAt = now)
+        return AiProvider(
+            id = id,
+            type = type,
+            baseUrl = baseUrl,
+            activeAt = now.takeIf { isActive },
+            createdAt = createdAt,
+            updatedAt = now,
+        )
     }
 
     fun validateActive() {
@@ -40,7 +57,7 @@ data class AiProvider(
             baseUrl: String,
         ): AiProvider {
             type.isAllowedBaseUrl(baseUrl).requireTrue(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
-            return AiProvider(type = type, baseUrl = baseUrl.trimEnd('/'), isActive = false)
+            return AiProvider(type = type, baseUrl = baseUrl.trimEnd('/'))
         }
     }
 }
