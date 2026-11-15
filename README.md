@@ -20,6 +20,10 @@
 
 ALink의 API 서버, 링크 수집 Lambda, AWS 인프라 구성을 관리하는 레포지토리입니다.
 
+## 서버 아키텍처
+
+![ALink 서버 아키텍처](.github/assets/readme/server-architecture.png)
+
 ## Tech Stack
 
 | 분야 | 기술 | 용도 |
