@@ -47,13 +47,16 @@ fun dataModule(
                 )
             }
 
+        val configuredJdbcUrl = resolvedDataSourceConfig.jdbcUrl
+        val separator = if ('?' in configuredJdbcUrl) "&" else "?"
+        val errorDetailOption = PGProperty.LOG_SERVER_ERROR_DETAIL.getName()
+
         HikariConfig().apply {
-            jdbcUrl = resolvedDataSourceConfig.jdbcUrl
+            jdbcUrl = "$configuredJdbcUrl$separator$errorDetailOption=false"
             username = resolvedDataSourceConfig.username
             password = resolvedDataSourceConfig.password
             driverClassName = resolvedDataSourceConfig.driverClassName
             connectionInitSql = "SET TIME ZONE 'UTC'"
-            addDataSourceProperty(PGProperty.LOG_SERVER_ERROR_DETAIL.getName(), false)
         }
     }
 
