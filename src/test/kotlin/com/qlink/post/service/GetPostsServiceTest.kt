@@ -26,6 +26,7 @@ import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -184,17 +185,18 @@ class GetPostsServiceTest :
                     return post.id!!
                 }
 
-                val matchedLater = insertPostAt(createdHours = 2, title = "$keyword 하나")
+                val matchedLater = insertPostAt(createdHours = 2, title = "하나 $keyword")
                 val earliest = insertPostAt(createdHours = 0)
                 val sameAsMatchedLater = insertPostAt(createdHours = 2)
-                val matchedMiddle = insertPostAt(createdHours = 1, title = "$keyword 둘")
-                announcementIds = listOf(matchedLater, earliest, sameAsMatchedLater, matchedMiddle)
-                matchedIds = listOf(matchedLater, matchedMiddle)
+                val matchedMiddle = insertPostAt(createdHours = 1, title = "둘 $keyword")
                 feedbackIds =
                     listOf(
-                        insertPostAt(createdHours = 3, type = PostType.FEEDBACK),
+                        insertPostAt(createdHours = 3, type = PostType.FEEDBACK, title = "피드백 $keyword"),
                         insertPostAt(createdHours = 1, type = PostType.FEEDBACK),
                     )
+                val matchedEarliest = insertPostAt(createdHours = 0, title = "셋 $keyword")
+                announcementIds = listOf(matchedLater, earliest, sameAsMatchedLater, matchedMiddle, matchedEarliest)
+                matchedIds = listOf(matchedLater, matchedMiddle, matchedEarliest)
             }
 
             suspend fun getPosts(
@@ -252,11 +254,12 @@ class GetPostsServiceTest :
                 val get =
                     suspend {
                         val pages = mutableListOf<ScrollResponse<GetPostsContentResponse>>()
+                        val seenCursors = mutableSetOf<String>()
                         var cursor: String? = null
                         do {
                             val page = getPosts(order = "asc", cursor = cursor, size = 3)
                             pages += page
-                            cursor = page.nextCursor
+                            cursor = nextPostCursor(page = page, requestedCursor = cursor, seenCursors = seenCursors)
                         } while (cursor != null)
                         pages
                     }
@@ -268,6 +271,50 @@ class GetPostsServiceTest :
                     pages.flatMap { page -> page.contents.map { it.id } } shouldBe announcementIds.sorted()
                     pages.last().hasNext shouldBe false
                     pages.last().nextCursor shouldBe null
+                }
+            }
+
+            for ((orderKey, order) in listOf("created_at" to "asc", "created_at" to "desc", null to "latest", null to null)) {
+                When("제목 검색 결과를 ${order ?: "기본"} 정렬의 커서로 끝까지 조회하면") {
+                    val pageSize = 2
+                    val getPage =
+                        suspend { cursor: String? ->
+                            getPosts(query = keyword, orderKey = orderKey, order = order, cursor = cursor, size = pageSize)
+                        }
+
+                    Then("일치하는 공지의 ID 순서를 유지하고 각 페이지 끝에서 이어진다") {
+                        val matchingPosts =
+                            (announcementIds + feedbackIds)
+                                .map { postRepository.findById(it).shouldNotBeNull() }
+                                .filter { it.type == PostType.ANNOUNCEMENT && keyword in it.title }
+                        val expected = matchingPosts.map { it.id!! }.sorted()
+                        expected shouldBe matchedIds.sorted()
+                        val expectedIds = if (order == "asc") expected else expected.reversed()
+                        val expectedPages = expectedIds.chunked(pageSize)
+                        val seenCursors = mutableSetOf<String>()
+                        val actualIds = mutableListOf<Long>()
+                        var cursor: String? = null
+                        var pageIndex = 0
+
+                        do {
+                            val page = getPage(cursor)
+                            val ids = page.contents.map { it.id }
+                            val nextCursor = nextPostCursor(page = page, requestedCursor = cursor, seenCursors = seenCursors)
+                            ids shouldBe expectedPages[pageIndex]
+                            page.hasNext shouldBe (pageIndex < expectedPages.lastIndex)
+                            if (page.hasNext) {
+                                val value = Base64CursorCodec.decode<PostSearchCursor>(nextCursor.shouldNotBeNull()).value
+                                value.id shouldBe ids.last()
+                            } else {
+                                nextCursor shouldBe null
+                            }
+                            actualIds += ids
+                            cursor = nextCursor
+                            pageIndex++
+                        } while (cursor != null)
+
+                        actualIds shouldBe expectedIds
+                    }
                 }
             }
 
@@ -425,6 +472,17 @@ class GetPostsServiceTest :
             }
         }
     })
+
+private fun nextPostCursor(
+    page: ScrollResponse<GetPostsContentResponse>,
+    requestedCursor: String?,
+    seenCursors: MutableSet<String>,
+): String? =
+    page.nextCursor?.also {
+        withClue("요청 커서=$requestedCursor, 반복된 커서=$it, 응답 ID=${page.contents.map { post -> post.id }}") {
+            seenCursors.add(it) shouldBe true
+        }
+    }
 
 private fun updateCreatedAt(
     postId: Long,
