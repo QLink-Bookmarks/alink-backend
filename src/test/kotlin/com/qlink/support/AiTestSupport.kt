@@ -93,11 +93,9 @@ fun aiTestModule() =
                 dailyUsageRepository = get(),
                 folderRepository = get(),
                 linkRepository = get(),
-                completeAiSummaryService = get(),
                 aiClientRouter = get(),
                 apiKeyCipher = get(),
-                failAiSummaryService = get(),
-                log = LoggerFactory.getLogger(ProcessAiSummaryService::class.java),
+                log = LoggerFactory.getLogger(AiSummaryWorker::class.java),
             )
         }
 
@@ -105,7 +103,6 @@ fun aiTestModule() =
             RecoverAiSummaryJobsService(
                 tx = get(),
                 aiJobRepository = get(),
-                failAiSummaryService = get(),
             )
         }
 
@@ -121,6 +118,7 @@ fun aiTestModule() =
                 processAiSummaryService = get(),
                 recoverAiSummaryJobsService = get(),
                 countPendingAiSummaryJobsService = get(),
+                completeAiSummaryService = get(),
                 failAiSummaryService = get(),
                 channel = get(),
                 config =

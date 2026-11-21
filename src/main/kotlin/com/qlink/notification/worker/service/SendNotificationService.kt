@@ -8,6 +8,7 @@ import com.qlink.device.repository.DeviceTokenRepository
 import com.qlink.link.repository.LinkRepository
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
+import com.qlink.notification.dto.SendNotificationResult
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.push.client.PushNotificationSendRequest
 import com.qlink.push.client.PushNotificationSenderRouter

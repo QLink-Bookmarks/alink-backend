@@ -62,11 +62,7 @@ class TaskScheduler(
     }
 
     fun scheduleIfToday(notification: Notification) {
-        if (notification.isPending && notification.willFireAt
-                .toJavaInstant()
-                .atZone(UTC)
-                .toLocalDate() == utcToday()
-        ) {
+        if (notification.isPending && notification.willFireAt.isInUtcDate(utcToday())) {
             schedule(notification.requireId())
         }
     }
@@ -98,7 +94,12 @@ class TaskScheduler(
 
     private suspend fun schedulePendingForUtcDate(date: LocalDate) {
         runCatching {
-            val notifications = prepareScheduledNotificationsService.prepare(date)
+            val bounds = date.utcBounds()
+            val notifications =
+                prepareScheduledNotificationsService.prepare(
+                    startInclusive = bounds.first,
+                    endExclusive = bounds.second,
+                )
 
             notifications.forEach { schedule(it.id!!) }
             log.info("[TASK_SCHEDULER] Pending notifications have been scheduled. date=$date, count=${notifications.size}")
@@ -172,4 +173,14 @@ class TaskScheduler(
             .toJavaInstant()
             .atZone(UTC)
             .toLocalDate()
+
+    private fun Instant.isInUtcDate(date: LocalDate): Boolean {
+        val bounds = date.utcBounds()
+        return this >= bounds.first && this < bounds.second
+    }
+
+    private fun LocalDate.utcBounds(): Pair<Instant, Instant> {
+        val start = atStartOfDay(UTC).toInstant().toKotlinInstant()
+        return start to plusDays(1).atStartOfDay(UTC).toInstant().toKotlinInstant()
+    }
 }

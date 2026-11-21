@@ -200,6 +200,30 @@ class Link(
             }
         }
 
+    fun copyAiStatus(
+        status: LinkStatus,
+        workModelId: Long?,
+    ): Link =
+        Link(
+            id = id,
+            ownerId = ownerId,
+            folderId = folderId,
+            url = url,
+            title = title,
+            summary = summary,
+            memo = memo,
+            tags = tags,
+            thumbnailUrl = thumbnailUrl,
+            faviconUrl = faviconUrl,
+            isVideo = isVideo,
+            sourceType = sourceType,
+            status = status,
+            workModelId = workModelId,
+            favoriteAt = favoriteAt,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+        )
+
     private fun resolveFavoriteAt(
         isFavorite: Boolean,
         now: Instant,

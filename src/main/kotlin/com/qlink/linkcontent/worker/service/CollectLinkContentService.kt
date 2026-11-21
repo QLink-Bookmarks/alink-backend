@@ -14,7 +14,6 @@ import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.domain.LinkContent
 import com.qlink.linkcontent.domain.service.LinkContentCollectDomainService
 import com.qlink.linkcontent.dto.CollectResult
-import com.qlink.linkcontent.dto.CollectStart
 import com.qlink.linkcontent.repository.LinkContentRepository
 import java.util.UUID
 import kotlin.time.Instant
@@ -167,4 +166,14 @@ class CollectLinkContentService(
             ?.takeIf { isRateLimited() }
             ?.retryAfterSeconds
             ?.let(LinkContent::clampRetryAfter)
+
+    private sealed interface CollectStart {
+        data class Collect(
+            val content: LinkContent,
+        ) : CollectStart
+
+        data class Done(
+            val result: CollectResult,
+        ) : CollectStart
+    }
 }

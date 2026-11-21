@@ -545,7 +545,6 @@ class CompleteAiSummaryServiceTest :
                 Then("링크 AI 결과와 AI 액션은 저장되고 schedulingFailed가 true다") {
                     val result = complete()
                     result.schedulingFailed shouldBe true
-                    jobRepository.findById(completion.snapshot.jobId)!!.status shouldBe AiJobStatus.C
                     linkRepository.findById(link.id!!)!!.status shouldBe LinkStatus.A
                     aiTodos().map { it.title } shouldBe completion.response.todos.map { it.title }
                     pendingOf(aiTodos().single()) shouldHaveSize 1

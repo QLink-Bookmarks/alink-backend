@@ -38,32 +38,32 @@ A service never reads a domain's fields to make a decision P1 or P2 assigns to t
   - Otherwise a primitive, validated by a private function inside the domain.
 - **M3** A domain refers to another domain by id. It never holds another domain object as a field, never takes one as an argument and never imports another domain's package. Among domain-layer code, only a domain service (P2) imports more than one domain. A domain or VO never uses `dto` types, its own domain's included. Domain services and application services assemble DTOs from domain results.
 - **M4** A domain is immutable; a state change returns a new instance. Domain time values are `kotlin.time.Instant`. A domain never reads the clock, not even as a default argument; the service passes the time in.
-- **M5** Each domain has its own package. A domain with no use case of its own has only `domain` and `repository` packages.
+- **M5** Each domain has its own package. Add a service, worker, route or DTO package when the domain owns the corresponding entry point or permitted transfer.
 - **M6** A domain service is an `object` named `<Noun>DomainService`, such as `ImportPlanDomainService` or `ImportTrackDomainService`, in `<domain>/domain/service`. A class only a domain service uses lives next to it as an `internal` class in its own file and is never named `DomainService`. Application services keep S1 naming, `<Verb><Noun>Service`, in `<domain>/service`.
 
 ## File
 
-- **F1** One top-level type per file, and the file is named after it. Nested types (companion, sealed subtypes declared inside the parent) belong to their outer type. The only exception is a DTO file in `<domain>/dto`, `<Domain>Requests.kt`, `<Domain>Responses.kt`, `<Domain>Queries.kt` or `<Domain>Results.kt`, which holds every DTO of that kind for the domain.
+- **F1** One top-level type per file, and the file is named after it. Nested types (companion, sealed subtypes declared inside the parent) belong to their outer type. DTOs in `<domain>/dto` can share a file by kind, using `<Domain>Requests.kt`, `<Domain>Responses.kt`, `<Domain>Queries.kt` or `<Domain>Results.kt`. Use the type name when a file declares one DTO.
 - **F2** Classify each type in `domain`, `domain/service` and `dto` in order. The first match decides. Infrastructure types (clients, workers and signals, repository query expressions, configuration) are outside F2; F1 still applies to them.
   1. It has its own table row → a domain, or a sub-domain row stored by the parent's repository (M1), in `domain`.
   2. It has a method, a computed property, an `init` check or a factory that enforces a rule → a domain or VO in `domain`, in its own file, even when M2's VO conditions do not hold; or, when only a domain service uses it, an `internal` helper next to it (M6).
   3. It is a closed set of values → an enum in `domain`, in its own file (M2).
   4. A value held or returned by a domain or VO, or taken as its argument, is a VO in `domain` even without behavior (domains never use DTOs, M3).
-  5. Otherwise it only carries fields between steps or layers → a DTO in `dto`: `Requests` and `Responses` for the API (serialized), `Queries` for repository projections and cursors, `Results` for values returned by domain services (never by domains, M3).
+  5. Otherwise it carries fields across a D8 boundary → a DTO in `dto`: `Requests` and `Responses` for the API (serialized), `Queries` for repository projections and cursors, `Results` for worker ↔ worker service and application or worker service ↔ domain service transfers (D8).
 - **F3** A helper is pure mechanism when it uses no domain constant and no `ErrorCode`. A pure-mechanism extension or helper on a Kotlin or JDK type (`String`, `Long`, `Instant`, `URI`, `ByteArray`, collections of them) is never a private function in a `domain`, `domain/service`, `service` or `repository` file. It goes in a `common` util file of its kind (C1, C3). The util holds the mechanism; the domain keeps the policy and passes it in (C2), as `url.toNormalizedUrlOrNull(ignoredQueryKeys = TRACKING_QUERY_KEYS, ignoredQueryKeyPrefixes = TRACKING_QUERY_KEY_PREFIXES)` does. A private function that applies the domain's own constants or `ErrorCode`, such as M2 validators or `comparableUrlOf`, stays in the domain. Extensions on the project's own types stay private in the file that uses them. Extensions on library types (Exposed, Ktor) stay where they are used. A class that is not an extension and serves one domain stays in that domain's package, in its own file (F1).
 
 ## Dependency
 
-A type depends on another when it names, holds, takes, returns or calls it. Only the dependencies listed below are allowed, one line each. Anything not listed is not allowed, and no dependencies form a cycle. A domain service is optional. It exists only for a decision that spans several domains (P2), so a call never has to go through one. Every item may use `common` (C2). M3 still limits which domains a domain-layer type may name.
+A type depends on another when it names, holds, takes, returns or calls it. Business-layer directions are application service or worker service → domain service, repository and domain; repository → domain; domain service → domain. Dependencies are acyclic. A domain service exists only for a decision spanning several domains (P2). M3 still limits which domains a domain-layer type may name. The rules below also describe the allowed edges for entry points, DTOs and infrastructure. Every layer may use `common` within C2.
 
-- **D1** Route → application service, always, the request and response DTOs it maps, and the call's authentication principal (`JwtPrincipal`, plugin helpers such as `jwtPrincipalOrGuest`) to read the user. A route calls nothing else.
-- **D2** Application service → repository; → domain (its behavior); → domain service, only when a decision spans domains (P2); → DTO; → client (P4); → worker, only when a case needs it, such as a wake signal. It may also use its own helper classes (S4) and a shared-step service (S5). It may build, pass and read VOs and enums, but calls their behavior only when no other way exists.
-- **D3** Worker → its worker services and shared application steps (S5), and the values those services return. It may read a domain value passed to a scheduling or signal entry point. Worker service → the dependencies allowed by D2, except workers, and its own worker services for shared steps (S5). A worker service has no route or application service callers.
-- **D4** Repository → its tables (persistence) and its own domain's domains, VOs and enums; → DTOs, always, such as `Queries`.
-- **D5** Domain service → domains, VOs, enums and its own `internal` helpers (M6). It builds DTOs (M3).
+- **D1** Route → application service, the request and response DTOs it maps, and the authentication principal and helpers it uses to read the user.
+- **D2** Application service and worker service → repository, domain (including its VOs and enums) and domain service (P2). Their DTO edges follow D8. They may use their own S4 helpers and infrastructure clients, transactions and signals for P4 side effects. Clients and signals provide I/O and runtime mechanisms.
+- **D3** Worker → its worker services and the DTOs exchanged with them (D8). The worker can read domain values passed into its scheduling or signal entry points or returned by its worker services. Worker services have no route or application service callers.
+- **D4** Repository → its persistence tables, its own domains, VOs and enums, and repository query DTOs (D8).
+- **D5** Domain service → domains, VOs, enums and its private implementation helpers (M6). It may exchange DTOs with application or worker services under D8.
 - **D6** Domain → its own VOs and enums. An aggregate root → its own child rows (sub-domain rows stored by the root's repository, M1), as `BookmarkImport` → `ImportFolder`, `ImportLink`, `ImportFailure`.
 - **D7** VO → the VOs it holds and enums. A constant that limits a VO's own field lives in that VO; a parent reads it from the child, never the other way. Enum → nothing.
-- **D8** DTO → may hold domains, VOs and enums to carry them between layers; it never calls their methods.
+- **D8** DTOs are limited to route ↔ application service (`Requests` and `Responses`), worker ↔ worker service and application or worker service ↔ domain service (`Results`), and repository query transfer (`Queries`, including cursors). A service can forward a repository projection through its allowed worker boundary. DTOs may carry domains, VOs or enums as values and never call their behavior. Values used only within a procedure and infrastructure protocol payloads stay with their owning implementation.
 - **D9** Config (injected singletons) → any layer may use it where needed.
 
 ## Common
@@ -74,7 +74,7 @@ Review targets, by kind:
 
 | Package | Holds |
 |---|---|
-| `common/error` | `PrimitiveExtensions.kt` validation extensions that take an `ErrorCode`; `ErrorCode`, `BusinessException` |
+| `common/error` | `PrimitiveExtensions.kt` validation extensions that take an `ErrorCode`; `ErrorCode`, `BusinessException`, coroutine-aware exception capture |
 | `common/text` | string transforms that never fail, including URL normalization |
 | `common/collection`, `common/number` | collection helpers and numeric conversions |
 | `common/search`, `common/scroll` | query expressions, cursor codecs, scroll request and response |
@@ -98,12 +98,12 @@ Application services are the use-case facades. Worker services run business proc
 
 - **S1** One use case is one class, `<Verb><Noun>Service`, with one public method.
 - **S2** A use case lives in the package of the domain it changes; a read lives in the package of the resource its API path addresses. When it changes several domains, the one its API path addresses.
-- **S3** The public method follows the section 2 procedure in this order: preconditions (P3) → load domains → domain decisions (P1, P2) → persist → side effects (P4) → response. The service converts request DTOs into domains and repository results into response DTOs.
-- **S4** A repository-dependent check used by two or more services becomes a helper class in the service package. Used by one service, it stays private. A helper holds only P3 and P4 logic.
-- **S5** A service calls another service only when that service is a shared step with no route of its own, such as notification scheduling. It never calls a use case that a route calls.
+- **S3** The public method follows the section 2 procedure in this order: preconditions (P3) → load domains → domain decisions (P1, P2) → persist → side effects (P4) → response. Map to the DTO permitted at each boundary by D8.
+- **S4** A repository-dependent check used by two or more services becomes a helper in their own service package. Used by one service, it stays private. The helper holds only P3 and P4 logic and follows D2 and S5.
+- **S5** Application and worker services may call a domain service for P2. Calls between application services, between worker services, or across those two service packages are outside D2. Entry points own the order in which they trigger their service procedures.
 - **S6** The service owns the transaction boundary: every public method calls repositories inside `TransactionRunner.required` or `TransactionRunner.readOnly`. A repository never opens a transaction.
-- **S7** Route use cases and procedures shared between requests and workers live in `<domain>/service`. Procedures started only by a worker live in `<domain>/worker/service` and follow S1, S3 and S6. DI registrations and test references do not count as business callers. Pure decisions follow P1 and P2.
-- **S8** A worker manages lifecycle, signals, scheduling, concurrency and metrics. Its worker services handle repository reads and claims, external calls and state transitions.
+- **S7** Route use cases live in `<domain>/service`. Worker-only procedures live in `<domain>/worker/service` and follow S1, S3 and S6. DI registrations and test references do not count as business callers. Pure decisions follow P1 and P2.
+- **S8** A worker manages lifecycle, signals, scheduling, concurrency, metrics and coordination of its service procedures. Its worker services handle repository reads and claims, infrastructure calls and state transitions.
 
 ## Query
 
@@ -132,6 +132,8 @@ Known now:
 - `Notification` imports `todo.domain.Todo`, and `User` and `UserProvider` import `auth.domain.Role` (M3).
 - `ai/domain/DailyUsage.isOverLimit(model: AvailableModel)` takes another domain as an argument (M3, D6).
 - `image/domain/ImagePurpose.newObjectKey(environment, type: ImageType)` makes an enum depend on another enum (D7). `ImageType` is closer to a value type than a domain; recorded as is.
+- `CompleteAiSummaryService` and several application services call `ScheduleTodoNotificationService` (D2, S5). AI completion’s move changes its existing edge from application → application to worker service → application service. It commits the AI result before scheduling each notification in its own transaction and reports scheduling failures after commit. Resolving the shared scheduling edge requires a scope decision.
+- Application services also share use cases through direct service calls (D2, S5), for example `RefreshNativeAuthTokenService` and `RefreshWebAuthTokenService` → `RefreshAuthTokenService`. Audit existing edges when their procedures change.
 - `image/service/PreviewImageUrlResolver`, a helper in the image service package, is used by other domains’ services, including AI summary completion and failure, import thumbnail fill and link preview creation. D2 and S4 limit helpers to their own service package.
 - Files with more than one top-level type (F1):
   - domain: `user/domain/User.kt` (`UserTheme`, `UserAccent`)

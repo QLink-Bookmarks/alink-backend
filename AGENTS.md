@@ -8,9 +8,10 @@ conventions that are not obvious from reading the code.
 - Prefer Kotlin style logics.
 - Readability, Simpleness, and Maintenance are the priorities.
 - For any change in `domain/**` or `service/**`, follow `references/domain-review.md`.
-- Dependencies follow the allowed list in D1–D9 of `references/domain-review.md`; anything not listed is not allowed.
-- Keep route use cases and shared request/worker steps in `<domain>/service`. Put procedures started only
-  by workers in `<domain>/worker/service` and keep lifecycle, signals, scheduling, concurrency, and metrics in the worker.
+- Apply D1–D9 of `references/domain-review.md`. Application and worker services depend on domain services,
+  repositories, and domains. Repositories and domain services depend on domains. Keep service entry points independent.
+- Put route use cases in `<domain>/service` and worker-only procedures in `<domain>/worker/service`.
+  The worker owns lifecycle, signals, scheduling, concurrency, metrics, and coordination of its service entry points.
 - One top-level type per file, except DTO files. Pure-mechanism extensions on Kotlin or JDK types go in `common`
   util files. See F1–F3 in `references/domain-review.md`.
 - Match the house style in `references/house-style.md`: copy the closest sibling on `main`, extend an existing
@@ -32,7 +33,7 @@ conventions that are not obvious from reading the code.
 - Service tests must extend `BaseServiceTest` and use Koin DI through `support.koinGet<T>()`. This applies to application
   services (`<domain>/service`).
 - Worker services (`<domain>/worker/service`) also use `BaseServiceTest` and Koin DI. Test the business procedure
-  through the service.
+  through the service. Preserve existing worker specs at their worker entry point for behavior-preserving moves.
 - A domain service (`<domain>/domain/service/*DomainService`) is tested like a domain: a pure `BehaviorSpec` with fixtures, no
   `BaseServiceTest`.
 - In service tests, prepare required persisted data in `beforeTest` using fixtures and repositories.
@@ -74,11 +75,12 @@ When("input is invalid") {
 
 ## DTO Rules
 
-- Place DTOs under each domain's `dto` package.
-- Keep DTO files limited to `Requests`, `Responses`, `Queries`, and `Results` (values returned by domain services;
-  not serialized).
-- Declare request, response, query, and result data classes in the matching file.
-- A domain or VO never uses DTO types; domain services and application services assemble them.
+- Place DTOs under the owning domain's `dto` package. Use `Requests` and `Responses` for route ↔ application
+  service, `Results` for worker ↔ worker service and application or worker service ↔ domain service, and
+  `Queries` for repository projections and cursors.
+- Keep values used only inside a procedure private to that procedure. Keep I/O payloads in the infrastructure
+  package that owns the protocol.
+- A domain or VO never uses DTO types. Services assemble DTOs at the boundary where they are transferred.
 - Mark API request/response DTOs with `@Serializable`.
 
 ## API Rules

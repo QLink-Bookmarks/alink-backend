@@ -6,10 +6,7 @@ import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.todo.repository.TodoRepository
-import java.time.LocalDate
-import java.time.ZoneOffset
 import kotlin.time.Instant
-import kotlin.time.toKotlinInstant
 
 class PrepareScheduledNotificationsService(
     private val tx: TransactionRunner,
@@ -17,15 +14,11 @@ class PrepareScheduledNotificationsService(
     private val todoRepository: TodoRepository,
     private val linkRepository: LinkRepository,
 ) {
-    suspend fun prepare(date: LocalDate): List<Notification> {
-        val startInclusive = date.atStartOfDay(ZoneOffset.UTC).toInstant().toKotlinInstant()
-        val endExclusive =
-            date
-                .plusDays(1)
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toKotlinInstant()
-        return tx.required {
+    suspend fun prepare(
+        startInclusive: Instant,
+        endExclusive: Instant,
+    ): List<Notification> =
+        tx.required {
             createMissingTodoNotifications(
                 startInclusive = startInclusive,
                 endExclusive = endExclusive,
@@ -35,7 +28,6 @@ class PrepareScheduledNotificationsService(
                 endExclusive = endExclusive,
             )
         }
-    }
 
     private suspend fun createMissingTodoNotifications(
         startInclusive: Instant,

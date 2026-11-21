@@ -1,9 +1,14 @@
 package com.qlink.ai.worker
 
+import com.qlink.ai.DEFAULT_FAILURE_MESSAGE
+import com.qlink.ai.dto.AiSummaryExecutionResult
+import com.qlink.ai.failureSummary
+import com.qlink.ai.worker.service.CompleteAiSummaryService
 import com.qlink.ai.worker.service.CountPendingAiSummaryJobsService
 import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.ai.worker.service.ProcessAiSummaryService
 import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
+import com.qlink.common.error.catchingFailure
 import com.qlink.common.logging.traceContext
 import com.qlink.config.WorkerConfig
 import io.micrometer.core.instrument.Counter
@@ -28,6 +33,7 @@ class AiSummaryWorker(
     private val processAiSummaryService: ProcessAiSummaryService,
     private val recoverAiSummaryJobsService: RecoverAiSummaryJobsService,
     private val countPendingAiSummaryJobsService: CountPendingAiSummaryJobsService,
+    private val completeAiSummaryService: CompleteAiSummaryService,
     private val failAiSummaryService: FailAiSummaryService,
     private val channel: Channel<Long>,
     private val config: WorkerConfig,
@@ -49,13 +55,12 @@ class AiSummaryWorker(
                     log.info("[WORKER] Job has been detected: $jobId")
                     inFlight.incrementAndGet()
                     try {
-                        catchingFailure {
-                            processAiSummaryService.proceed(jobId) { countResult(it.name.lowercase()) }
-                        }.onFailure { error ->
-                            log.warn("[WORKER] Failed to process AI summary. jobId=$jobId", error)
-                            catchingFailure { fail(jobId = jobId, reason = error.failureSummary()) }
-                                .onFailure { log.warn("[WORKER] Failed to mark AI summary failed. jobId=$jobId", it) }
-                        }
+                        catchingFailure { proceed(jobId) }
+                            .onFailure { error ->
+                                log.warn("[WORKER] Failed to process AI summary. jobId=$jobId", error)
+                                catchingFailure { fail(jobId = jobId, reason = error.failureSummary()) }
+                                    .onFailure { log.warn("[WORKER] Failed to mark AI summary failed. jobId=$jobId", it) }
+                            }
                     } finally {
                         inFlight.decrementAndGet()
                     }
@@ -81,13 +86,45 @@ class AiSummaryWorker(
     }
 
     private suspend fun recover() {
-        val runnableIds =
-            recoverAiSummaryJobsService.recover { jobId ->
-                log.info("[WORKER] Stale job has been failed. jobId=$jobId")
-                countResult(RESULT_EXPIRED)
-            }
-        runnableIds.forEach { channel.send(it) }
+        val jobs = recoverAiSummaryJobsService.recover()
+        jobs.expiredJobs.forEach { job ->
+            failAiSummaryService.fail(jobId = job.id!!, reason = DEFAULT_FAILURE_MESSAGE, now = Clock.System.now())
+            log.info("[WORKER] Stale job has been failed. jobId=${job.id}")
+            countResult(RESULT_EXPIRED)
+        }
+        jobs.runnableJobs.forEach { job -> channel.send(job.id!!) }
         refreshPending()
+    }
+
+    suspend fun proceed(jobId: Long) {
+        when (val result = processAiSummaryService.proceed(jobId)) {
+            AiSummaryExecutionResult.Skipped -> {
+                countResult(RESULT_SKIPPED)
+            }
+
+            AiSummaryExecutionResult.Aborted -> {
+                countResult(RESULT_ABORTED)
+            }
+
+            is AiSummaryExecutionResult.Summarized -> {
+                catchingFailure {
+                    completeAiSummaryService.complete(result.completion.getOrThrow())
+                }.onSuccess { completionResult ->
+                    log.info(
+                        "[WORKER] Job has been successful for job=$jobId, link=${result.linkId}, folderKeptAfterMove=${completionResult.folderKeptAfterMove}",
+                    )
+                    countResult(if (completionResult.schedulingFailed) RESULT_ERROR else RESULT_COMPLETED)
+                }.onFailure {
+                    log.warn("[WORKER] AI summary completion failed. jobId=$jobId", it)
+                    fail(jobId = jobId, reason = it.failureSummary())
+                }
+            }
+
+            is AiSummaryExecutionResult.Failed -> {
+                log.warn("AI summary failed. jobId={}", result.jobId, result.error)
+                fail(jobId = result.jobId!!, reason = result.error.failureSummary())
+            }
+        }
     }
 
     private suspend fun fail(
@@ -115,7 +152,11 @@ class AiSummaryWorker(
         const val IN_FLIGHT_METRIC = "ai_summary_in_flight"
         const val PENDING_METRIC = "ai_summary_pending"
         const val RESULT_METRIC = "ai_summary_results"
+        const val RESULT_COMPLETED = "completed"
         const val RESULT_FAILED = "failed"
         const val RESULT_EXPIRED = "expired"
+        const val RESULT_SKIPPED = "skipped"
+        const val RESULT_ABORTED = "aborted"
+        const val RESULT_ERROR = "error"
     }
 }

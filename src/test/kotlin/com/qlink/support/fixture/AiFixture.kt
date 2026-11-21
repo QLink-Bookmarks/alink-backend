@@ -89,8 +89,6 @@ object AiFixture {
         link: Link,
         userProviderId: Long,
         modelId: Long,
-        requestedAt: Instant? = null,
-        startedAt: Instant? = RandomFixture.randomPastInstant(),
     ): AiJob =
         AiJob(
             linkId = link.id!!,
@@ -98,8 +96,7 @@ object AiFixture {
             requestModelId = modelId,
             requestedUrl = link.url,
             prompt = RandomFixture.randomSentenceWithMax(1000),
-            requestedAt = requestedAt,
-            startedAt = startedAt,
+            startedAt = RandomFixture.randomPastInstant(),
         )
 
     fun createAiSummaryCompletionOf(

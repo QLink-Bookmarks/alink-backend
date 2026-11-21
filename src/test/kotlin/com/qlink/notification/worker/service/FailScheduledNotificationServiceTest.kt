@@ -1,5 +1,6 @@
 package com.qlink.notification.worker.service
 
+import com.qlink.common.error.BusinessException
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.NotificationFixture
@@ -7,7 +8,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.repository.UserRepository
-import io.kotest.assertions.throwables.shouldNotThrowAny
+import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -36,7 +37,7 @@ class FailScheduledNotificationServiceTest :
                 val action = suspend { service.fail(notificationId) }
 
                 Then("알림이 실패 상태로 저장된다") {
-                    shouldNotThrowAny { action() }
+                    shouldNotThrow<BusinessException> { action() }
 
                     val saved = notificationRepository.findById(notificationId)!!
                     saved.isPending shouldBe false
@@ -57,7 +58,7 @@ class FailScheduledNotificationServiceTest :
 
                 Then("기존 처리 결과가 보존된다") {
                     val firedAt = notificationRepository.findById(notificationId)!!.firedAt
-                    shouldNotThrowAny { action() }
+                    shouldNotThrow<BusinessException> { action() }
 
                     val saved = notificationRepository.findById(notificationId)!!
                     saved.firedAt shouldBe firedAt

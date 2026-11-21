@@ -62,7 +62,7 @@ class PrepareScheduledNotificationsServiceTest :
                 }
 
                 Then("UTC 시작을 포함하고 다음 날 시작을 제외한 대기 알림을 조회한다") {
-                    val prepared = service.prepare(date).filter { it.userId == todos.first().ownerId }
+                    val prepared = service.prepare(startInclusive = start, endExclusive = end).filter { it.userId == todos.first().ownerId }
                     val saved = todos.map { notificationsOf(it) }
 
                     saved.map { it.size } shouldBe listOf(0, 1, 1, 0)
@@ -75,11 +75,11 @@ class PrepareScheduledNotificationsServiceTest :
             When("같은 날짜를 다시 준비하면") {
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    service.prepare(date)
+                    service.prepare(startInclusive = start, endExclusive = end)
                 }
 
                 Then("액션과 예약 시각마다 한 건만 저장된다") {
-                    val prepared = service.prepare(date).filter { it.userId == todos.first().ownerId }
+                    val prepared = service.prepare(startInclusive = start, endExclusive = end).filter { it.userId == todos.first().ownerId }
                     val inRange = todos.subList(1, 3)
                     val saved = inRange.map { notificationsOf(it).single() }
 

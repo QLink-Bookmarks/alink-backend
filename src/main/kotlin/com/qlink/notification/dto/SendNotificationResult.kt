@@ -1,4 +1,4 @@
-package com.qlink.notification.worker.service
+package com.qlink.notification.dto
 
 data class SendNotificationResult(
     val notificationId: Long,
