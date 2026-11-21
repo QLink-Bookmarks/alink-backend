@@ -54,14 +54,6 @@ class CompleteAiSummaryService(
                 // Never acquire another folder lock after taking the link lock.
                 val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required null
                 val job = aiJobRepository.findById(snapshot.jobId) ?: return@required null
-                val folderId =
-                    LinkAiFolderDomainService.resolve(
-                        link = link,
-                        startedFolderId = snapshot.folderId,
-                        candidateFolderId = completion.candidateFolderId,
-                        candidate = candidate,
-                        member = member,
-                    )
                 val response = completion.response
                 aiJobRepository.update(
                     job.complete(
@@ -91,6 +83,16 @@ class CompleteAiSummaryService(
                 } else {
                     dailyUsageRepository.update(updatedUsage)
                 }
+                if (aiJobRepository.hasNewerJob(linkId = snapshot.linkId, jobId = snapshot.jobId)) return@required null
+
+                val folderId =
+                    LinkAiFolderDomainService.resolve(
+                        link = link,
+                        startedFolderId = snapshot.folderId,
+                        candidateFolderId = completion.candidateFolderId,
+                        candidate = candidate,
+                        member = member,
+                    )
                 val summarizedLink =
                     link
                         .update(

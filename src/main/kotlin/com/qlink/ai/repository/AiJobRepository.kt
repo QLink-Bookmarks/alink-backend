@@ -12,6 +12,11 @@ interface AiJobRepository {
 
     suspend fun findAllByLinkId(linkId: Long): List<AiJob>
 
+    suspend fun hasNewerJob(
+        linkId: Long,
+        jobId: Long,
+    ): Boolean
+
     suspend fun findAllByStatus(status: AiJobStatus): List<AiJob>
 
     suspend fun update(aiJob: AiJob): AiJob

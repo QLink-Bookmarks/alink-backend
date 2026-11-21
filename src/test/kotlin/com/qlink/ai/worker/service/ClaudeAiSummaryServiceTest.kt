@@ -43,6 +43,7 @@ import com.qlink.di.serviceModule
 import com.qlink.di.workerModule
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
 import com.qlink.notification.service.ScheduleTodoNotificationService
@@ -615,6 +616,60 @@ class ClaudeAiSummaryServiceTest :
                         .toString() shouldBe "${provider.baseUrl.removeSuffix("/v1")}/v1/models?limit=1"
                     recordedUsage(job) shouldBe null
                     todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                }
+            }
+
+            listOf(true, false).forEach { succeeded ->
+                When("같은 링크에 새 Claude 작업이 접수된 뒤 이전 작업이 끝나면 (성공=$succeeded)") {
+                    lateinit var oldJob: AiJob
+                    lateinit var newJob: AiJob
+                    lateinit var newLink: Link
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        oldJob = enqueue()
+                        app.koin.get<UpdateLinkAiSummaryService>().updateLinkAiSummary(
+                            loginId = owner.id!!,
+                            request =
+                                AiSummaryRequest(
+                                    id = oldJob.linkId,
+                                    userProviderId = oldJob.userProviderId,
+                                    modelId = oldJob.requestModelId,
+                                    url = fixture.sourceUrl,
+                                    title = RandomFixture.randomSentenceWithMax(80),
+                                    generateTodo = true,
+                                ),
+                        )
+                        newJob = jobs.findAllByLinkId(oldJob.linkId).last()
+                        newLink = links.findById(oldJob.linkId)!!
+                        if (succeeded) {
+                            http.messagesBody =
+                                fixture.messagesResponse(finalText = fixture.summaryJson(linkId = oldJob.linkId, folderId = null))
+                        } else {
+                            http.messagesStatus = HttpStatusCode.Unauthorized
+                        }
+                    }
+
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(oldJob.id!!) }
+
+                    Then("이전 작업만 종료하고 최신 링크와 액션을 보존한다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        val finished = jobs.findById(oldJob.id!!)!!
+                        finished.status shouldBe if (succeeded) AiJobStatus.C else AiJobStatus.F
+                        if (succeeded) {
+                            finished.response!! shouldContain fixture.summary
+                            recordedUsage(oldJob)!!.requests shouldBe 1
+                        } else {
+                            finished.response shouldBe null
+                            recordedUsage(oldJob) shouldBe null
+                        }
+                        jobs.findById(newJob.id!!)!!.status shouldBe AiJobStatus.P
+                        links.findById(newLink.id!!)!!.let {
+                            it.status shouldBe LinkStatus.G
+                            it.title shouldBe newLink.title
+                            it.summary shouldBe newLink.summary
+                        }
+                        todos.findAllByLinkId(newLink.id!!) shouldBe emptyList()
+                    }
                 }
             }
 

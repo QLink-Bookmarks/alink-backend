@@ -22,6 +22,8 @@ class FailAiSummaryService(
         tx.required {
             val job = aiJobRepository.findById(jobId) ?: return@required
             val link = linkRepository.findByIdForUpdate(job.linkId) ?: return@required
+            aiJobRepository.update(job.fail(now))
+            if (aiJobRepository.hasNewerJob(linkId = job.linkId, jobId = jobId)) return@required
 
             val failedLink =
                 link
@@ -38,7 +40,6 @@ class FailAiSummaryService(
                         previewEnvironment = urlResolver.environment,
                     ).copyAiStatus(status = LinkStatus.F, workModelId = link.workModelId)
 
-            aiJobRepository.update(job.fail(now))
             linkRepository.updateAiFailure(
                 linkId = link.id!!,
                 title = failedLink.title,
