@@ -208,8 +208,8 @@ class AiSdkServiceTest :
                             }
                             server.requests.map { it.method to it.path } shouldBe List(errors.size + 1) { "GET" to "$basePath/models" }
                             val router = koinGet<AiClientRouter>(application.koin)
-                            val summary = summaryRequest(previousKey)
-                            runCatching { router.summarize(summary) }.isFailure shouldBe true
+                            val summarize = suspend { router.summarize(summaryRequest(previousKey)) }
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.AI_EMPTY_RESPONSE.message) { summarize() }
                             server.requests.count { it.method == "POST" } shouldBe 1
                             destination.requests shouldBe emptyList()
                         }

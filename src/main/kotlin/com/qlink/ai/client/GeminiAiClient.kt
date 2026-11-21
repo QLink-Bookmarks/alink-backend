@@ -2,6 +2,7 @@ package com.qlink.ai.client
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.genai.Client
+import com.google.genai.errors.ApiException
 import com.google.genai.types.AutomaticFunctionCallingConfig
 import com.google.genai.types.ClientOptions
 import com.google.genai.types.Content
@@ -57,15 +58,19 @@ class GeminiAiClient :
         val response =
             transport.execute {
                 val raw =
-                    client(baseUrl = request.baseUrl, apiKey = request.apiKey, options = clientOptions)
-                        .models
-                        .generateContent(
-                            request.model,
-                            Content.builder().parts(Part.builder().text(request.prompt)).build(),
-                            config,
-                        ).sdkHttpResponse()
-                        .flatMap { it.body() }
-                        .orElse("")
+                    try {
+                        client(baseUrl = request.baseUrl, apiKey = request.apiKey, options = clientOptions)
+                            .models
+                            .generateContent(
+                                request.model,
+                                Content.builder().parts(Part.builder().text(request.prompt)).build(),
+                                config,
+                            ).sdkHttpResponse()
+                            .flatMap { it.body() }
+                            .orElse("")
+                    } catch (_: ApiException) {
+                        throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                    }
                 json.decodeFromString<GeminiGenerateContentResponse>(raw)
             }
         val text =

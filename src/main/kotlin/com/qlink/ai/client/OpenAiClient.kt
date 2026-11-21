@@ -73,12 +73,16 @@ class OpenAiClient :
                 .build()
         val response =
             transport.execute {
-                client
-                    .withOptions { it.baseUrl(request.baseUrl).apiKey(request.apiKey) }
-                    .responses()
-                    .withRawResponse()
-                    .create(params)
-                    .use { json.decodeFromString<OpenAiResponsesResponse>(it.body().bufferedReader().readText()) }
+                try {
+                    client
+                        .withOptions { it.baseUrl(request.baseUrl).apiKey(request.apiKey) }
+                        .responses()
+                        .withRawResponse()
+                        .create(params)
+                        .use { json.decodeFromString<OpenAiResponsesResponse>(it.body().bufferedReader().readText()) }
+                } catch (_: OpenAIServiceException) {
+                    throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                }
             }
         val text =
             response.output
