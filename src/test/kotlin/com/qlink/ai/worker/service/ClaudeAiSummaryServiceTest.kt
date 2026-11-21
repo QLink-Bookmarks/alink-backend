@@ -30,6 +30,7 @@ import com.qlink.ai.worker.AiSummaryWorker
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.config.AbbreviatedSqlLogger
 import com.qlink.config.MonitoringConfig
@@ -80,6 +81,7 @@ import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 import java.time.LocalDate
 import java.time.ZoneOffset
+import kotlin.time.Duration.Companion.minutes
 
 class ClaudeAiSummaryServiceTest :
     BaseServiceTest({
@@ -421,6 +423,46 @@ class ClaudeAiSummaryServiceTest :
                             it.tokens shouldBe tokens
                         }
                     }
+                }
+            }
+
+            When("Claude 요약 작업이 대기 중 만료되어 복구 대상이 되면") {
+                lateinit var job: AiJob
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    val pending = enqueue()
+                    val expiredAt = jobs.now() - AiJob.STALE_AFTER - 1.minutes
+                    job =
+                        withRedactedSqlLogging {
+                            jobs.update(
+                                AiJob(
+                                    id = pending.id,
+                                    linkId = pending.linkId,
+                                    userProviderId = pending.userProviderId,
+                                    requestModelId = pending.requestModelId,
+                                    requestedUrl = pending.requestedUrl,
+                                    prompt = pending.prompt,
+                                    requestedAt = expiredAt,
+                                ),
+                            )
+                        }
+                }
+                val action = suspend { app.koin.get<AiSummaryWorker>().recover() }
+                Then("원문을 로그에 남기지 않고 작업과 링크를 실패로 저장한다") {
+                    val initialLogCount = appender.list.size
+                    shouldNotThrow<BusinessException> { action() }
+                    appender.list.drop(initialLogCount).any { it.formattedMessage == "SQL operation=UPDATE values redacted" } shouldBe true
+                    jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
+                    links.findById(job.linkId)!!.let {
+                        it.status shouldBe LinkStatus.F
+                        it.summary shouldBe AiJob.DEFAULT_FAILURE_MESSAGE
+                        assertPrivateValuesAbsent(it.summary!!)
+                    }
+                    http.requests
+                        .single()
+                        .url.encodedPath shouldBe "/v1/models"
+                    recordedUsage(job) shouldBe null
+                    todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                 }
             }
 

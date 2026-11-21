@@ -1,6 +1,7 @@
 package com.qlink.ai.worker.service
 
 import com.qlink.ai.repository.AiJobRepository
+import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.LinkStatus
@@ -18,35 +19,36 @@ class FailAiSummaryService(
         jobId: Long,
         reason: String,
         now: Instant,
-    ) {
-        tx.required {
-            val job = aiJobRepository.findById(jobId) ?: return@required
-            val link = linkRepository.findByIdForUpdate(job.linkId) ?: return@required
+    ): Unit =
+        withRedactedSqlLogging {
+            tx.required {
+                val job = aiJobRepository.findById(jobId) ?: return@required
+                val link = linkRepository.findByIdForUpdate(job.linkId) ?: return@required
 
-            val failedLink =
-                link
-                    .update(
-                        folderId = link.folderId,
-                        url = link.url,
-                        title = failedTitle(link.url),
-                        summary = reason,
-                        memo = link.memo,
-                        tags = link.tags,
-                        thumbnailUrl = link.thumbnailUrl,
-                        sourceType = link.sourceType,
-                        previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                        previewEnvironment = urlResolver.environment,
-                    ).copyAiStatus(status = LinkStatus.F, workModelId = link.workModelId)
+                val failedLink =
+                    link
+                        .update(
+                            folderId = link.folderId,
+                            url = link.url,
+                            title = failedTitle(link.url),
+                            summary = reason,
+                            memo = link.memo,
+                            tags = link.tags,
+                            thumbnailUrl = link.thumbnailUrl,
+                            sourceType = link.sourceType,
+                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                            previewEnvironment = urlResolver.environment,
+                        ).copyAiStatus(status = LinkStatus.F, workModelId = link.workModelId)
 
-            aiJobRepository.update(job.fail(now))
-            linkRepository.updateAiFailure(
-                linkId = link.id!!,
-                title = failedLink.title,
-                summary = failedLink.summary,
-                status = failedLink.status,
-            )
+                aiJobRepository.update(job.fail(now))
+                linkRepository.updateAiFailure(
+                    linkId = link.id!!,
+                    title = failedLink.title,
+                    summary = failedLink.summary,
+                    status = failedLink.status,
+                )
+            }
         }
-    }
 
     private fun failedTitle(url: String): String {
         val host = runCatching { URI(url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: url

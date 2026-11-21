@@ -10,8 +10,8 @@ import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
 import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.error.messageOrFallback
 import com.qlink.common.logging.traceContext
+import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.config.WorkerConfig
-import com.qlink.config.withRedactedSqlLogging
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.CoroutineName
@@ -132,7 +132,7 @@ class AiSummaryWorker(
     private suspend fun fail(
         jobId: Long,
         reason: String,
-    ) = withRedactedSqlLogging {
+    ) {
         failAiSummaryService.fail(jobId = jobId, reason = reason, now = Clock.System.now())
         countResult(RESULT_FAILED)
     }

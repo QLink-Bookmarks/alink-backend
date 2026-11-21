@@ -13,8 +13,8 @@ import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.config.withRedactedSqlLogging
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.image.service.PreviewImageUrlResolver
