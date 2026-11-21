@@ -9,10 +9,10 @@ import com.qlink.support.fixture.RandomFixture
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -252,67 +252,84 @@ class AiSdkCompatibilityTest :
                 }
 
                 When("응답 헤더가 늦으면") {
-                    Then("공통 시험 제한 시간으로 종료하고 한 번만 요청한다") {
-                        val timeoutMillis = 700L
-                        compare(provider, timeoutMillis) { client, server, sdk ->
-                            val release = CountDownLatch(1)
-                            val body = summaryEnvelope(provider)
-                            server.reply = {
-                                release.await(5, TimeUnit.SECONDS)
-                                AiCompatibilityServer.Reply(body = body)
-                            }
-                            val mark = TimeSource.Monotonic.markNow()
-                            val result =
-                                try {
-                                    runCatching {
-                                        withTimeout(4_000) {
-                                            client.summarize(summaryRequest(provider = provider, baseUrl = server.baseUrl))
-                                        }
-                                    }
-                                } finally {
-                                    release.countDown()
+                    listOf("POST", "GET").forEach { method ->
+                        Then("$method 요청이 공통 시험 제한 시간으로 종료되고 후속 요청이 없다") {
+                            val timeoutMillis = 700L
+                            val body = probeResponse(provider, method)
+                            compare(provider, timeoutMillis) { client, server, sdk ->
+                                val release = CountDownLatch(1)
+                                val transmitted = CompletableDeferred<Boolean>()
+                                server.reply = {
+                                    release.await(5, TimeUnit.SECONDS)
+                                    AiCompatibilityServer.Reply(body = body)
                                 }
-                            val elapsed = mark.elapsedNow().inWholeMilliseconds
-                            val failure = result.exceptionOrNull()!!
-                            (elapsed in 500..3_999) shouldBe true
-                            (failure is kotlinx.coroutines.CancellationException) shouldBe false
-                            server.requests.size shouldBe 1
-                            println(
-                                "$provider ${label(
-                                    sdk,
-                                )} timeout: ${elapsed}ms, ${failure.javaClass.name}, cause=${failure.cause?.javaClass?.name}, requests=1",
-                            )
+                                server.onResponseWrite = { transmitted.complete(it) }
+                                val request = summaryRequest(provider = provider, baseUrl = server.baseUrl)
+                                val mark = TimeSource.Monotonic.markNow()
+                                val failure =
+                                    try {
+                                        runCatching {
+                                            withTimeout(4_000) { executeProbe(client = client, method = method, request = request) }
+                                        }.exceptionOrNull()!!
+                                    } finally {
+                                        release.countDown()
+                                    }
+                                val elapsed = mark.elapsedNow().inWholeMilliseconds
+                                val observation = withTimeoutOrNull(2_000) { transmitted.await() }?.toString() ?: "pending"
+                                val outcome = "${failure.javaClass.name}, cause=${failure.cause?.javaClass?.name}"
+                                println(
+                                    "$provider ${label(
+                                        sdk,
+                                    )} $method timeout: ${elapsed}ms, $outcome, server write=$observation, requests=1, follow-ups=0",
+                                )
+                                (elapsed in 500..3_999) shouldBe true
+                                (failure is CancellationException) shouldBe false
+                                server.requests.map { it.method } shouldBe listOf(method)
+                            }
                         }
                     }
                 }
 
                 When("요청을 수신한 뒤 응답 전 호출 코루틴을 취소하면") {
-                    Then("호출자 종료와 서버 응답 쓰기 결과를 관찰한다") {
-                        compare(provider) { client, server, sdk ->
-                            val received = CompletableDeferred<Unit>()
-                            val release = CountDownLatch(1)
-                            val transmitted = CompletableDeferred<Boolean>()
-                            val body = summaryEnvelope(provider) + " ".repeat(8 * 1024 * 1024)
-                            server.reply = {
-                                received.complete(Unit)
-                                release.await(5, TimeUnit.SECONDS)
-                                AiCompatibilityServer.Reply(body = body)
-                            }
-                            server.onResponseWrite = { transmitted.complete(it) }
-                            coroutineScope {
-                                val job = launch { client.summarize(summaryRequest(provider = provider, baseUrl = server.baseUrl)) }
-                                try {
-                                    withTimeout(3_000) { received.await() }
-                                    withTimeout(2_000) { job.cancelAndJoin() }
-                                    job.isCancelled shouldBe true
-                                } finally {
-                                    release.countDown()
+                    listOf("POST", "GET").forEach { method ->
+                        Then("$method 호출자 종료와 서버 응답 쓰기 결과를 관찰한다") {
+                            val body = probeResponse(provider, method) + " ".repeat(8 * 1024 * 1024)
+                            compare(provider) { client, server, sdk ->
+                                val received = CompletableDeferred<Unit>()
+                                val release = CountDownLatch(1)
+                                val transmitted = CompletableDeferred<Boolean>()
+                                server.reply = {
+                                    received.complete(Unit)
+                                    release.await(5, TimeUnit.SECONDS)
+                                    AiCompatibilityServer.Reply(body = body)
                                 }
-                                val completedWrite = withTimeoutOrNull(2_000) { transmitted.await() }
-                                val observation = completedWrite?.toString() ?: "pending"
-                                println("$provider ${label(sdk)} cancellation: caller cancelled, server write=$observation, requests=1")
-                                if (!sdk) completedWrite shouldBe false
-                                server.requests.size shouldBe 1
+                                server.onResponseWrite = { transmitted.complete(it) }
+                                val request = summaryRequest(provider = provider, baseUrl = server.baseUrl)
+                                coroutineScope {
+                                    val completion = CompletableDeferred<Throwable?>()
+                                    val job = launch { executeProbe(client = client, method = method, request = request) }
+                                    job.invokeOnCompletion { completion.complete(it) }
+                                    withTimeout(3_000) { received.await() }
+                                    val mark = TimeSource.Monotonic.markNow()
+                                    val endedBeforeRelease =
+                                        try {
+                                            job.cancel()
+                                            withTimeoutOrNull(500) { completion.join() } != null
+                                        } finally {
+                                            release.countDown()
+                                        }
+                                    val cause = withTimeout(3_000) { completion.await() }
+                                    val elapsed = mark.elapsedNow().inWholeMilliseconds
+                                    val completedWrite = withTimeoutOrNull(2_000) { transmitted.await() }
+                                    val observation = completedWrite?.toString() ?: "pending"
+                                    println(
+                                        "$provider ${label(sdk)} $method cancellation: ${elapsed}ms, ${cause?.javaClass?.name}, " +
+                                            "caller ended before release=$endedBeforeRelease, server write=$observation, requests=1, follow-ups=0",
+                                    )
+                                    (cause is CancellationException) shouldBe true
+                                    if (!sdk) completedWrite shouldBe false
+                                    server.requests.map { it.method } shouldBe listOf(method)
+                                }
                             }
                         }
                     }
@@ -429,6 +446,23 @@ private fun summaryRequest(
 
 private fun validationRequest(server: AiCompatibilityServer): AiApiKeyValidationRequest =
     AiApiKeyValidationRequest(baseUrl = server.baseUrl, apiKey = "test-key-${RandomFixture.randomId()}")
+
+private suspend fun executeProbe(
+    client: AiClient,
+    method: String,
+    request: AiSummaryClientRequest,
+) {
+    if (method == "GET") {
+        client.validateApiKey(AiApiKeyValidationRequest(baseUrl = request.baseUrl, apiKey = request.apiKey))
+    } else {
+        client.summarize(request)
+    }
+}
+
+private fun probeResponse(
+    provider: AiProviderType,
+    method: String,
+): String = if (method == "GET") """{"data":[],"models":[]}""" else summaryEnvelope(provider)
 
 private fun summaryEnvelope(
     provider: AiProviderType,

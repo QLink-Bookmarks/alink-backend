@@ -2,8 +2,8 @@
 
 | 공급자 | SDK | 도입 판단 | 보류 근거 |
 |---|---|---|---|
-| OpenAI | `com.openai:openai-java:4.111.0` | **보류** | 실모델의 도구·스키마 동시 사용 미검증, 응답 전 코루틴 취소 시 HTTP 전송 종료를 확인하지 못함 |
-| Gemini | `com.google.genai:google-genai:2.6.0` | **보류** | 실모델의 도구·스키마 동시 사용 미검증, 모델 목록의 깨진 2xx 본문 및 요약 응답의 명시적 null 처리 차이, 코루틴 취소 후에도 응답 전송 완료 |
+| OpenAI | `com.openai:openai-java:4.111.0` | **보류** | 실모델의 도구·스키마 동시 사용 미검증, 요약 POST와 키 검증 GET의 코루틴 취소 시 HTTP 전송 종료를 확인하지 못함 |
+| Gemini | `com.google.genai:google-genai:2.6.0` | **보류** | 실모델의 도구·스키마 동시 사용 미검증, 모델 목록의 깨진 2xx 본문 및 요약 응답의 명시적 null 처리 차이, 취소 후에도 요약·키 검증 응답 전송 완료. 동기 SDK 키 검증은 서버가 응답을 재개한 뒤 호출자가 종료됨 |
 
 ## 요청과 응답
 
@@ -29,13 +29,14 @@ Gemini Developer API 문서는 `x-goog-api-key`와 버전이 포함된 경로를
 | 401·403·503·429·307 | 원래 상태를 등록 서비스까지 전달 | 동일 | 동일. 비동기 페이지를 기다리면 SDK가 첫 페이지의 오류를 `GenAiIOException`으로 감싸므로 상태 보존 실험에 동기 호출 사용 |
 | 307 리디렉션 | 요약과 검증 각각 최초 1회, 목적지 0회. 요약은 `ContentConvertException` | 요청 수 동일. 요약은 `UnexpectedStatusCodeException` | 요청 수 동일. 요약은 `ApiException` |
 | 첫 후보 503 후 다음 후보 성공 | 후보당 POST 1회, 워커의 성공 모델·요약 저장 확인 | 시도 순서와 저장 결과 동일. 실패 원인은 `InternalServerException` | 시도 순서와 저장 결과 동일. 실패 원인은 `ServerException` |
-| 지연 응답 | `HttpRequestTimeoutException` | `OpenAIIoException` | `GenAiIOException` |
-| 요약 응답 헤더 전 코루틴 취소 | 호출자 취소, 서버의 응답 쓰기 실패 | 호출자 취소, 2초 관찰 창 내 서버의 쓰기 결과 미확인 | 호출자 취소, 서버의 응답 쓰기 완료 |
+| 요약 POST와 키 검증 GET의 지연 응답 | `HttpRequestTimeoutException` | `OpenAIIoException` | `GenAiIOException` |
+| 요약 POST 응답 헤더 전 코루틴 취소 | 응답 재개 전 호출자 종료, 서버 쓰기 실패 | 응답 재개 전 호출자 종료, 2초 동안 서버 쓰기 결과 미확인 | 응답 재개 전 호출자 종료, 서버 쓰기 완료 |
+| 키 검증 GET 응답 헤더 전 코루틴 취소 | 응답 재개 전 호출자 종료, 서버 쓰기 실패 | 응답 재개 전 호출자 종료, 2초 동안 서버 쓰기 결과 미확인 | 500ms 관찰 창 뒤 응답을 재개하자 쓰기가 완료되고 호출자 종료 |
 | 시험 키·목적지 교차 및 동시 호출 | 각 요청의 키·목적지 일치. 같은 목적지에 순차 요청 4회의 TCP 연결 4개 | 키·목적지 일치. 순차 요청 4회에 연결 1개 | 키·목적지 일치. 순차 요청 4회에 연결 1개 |
 
 등록 서비스에서 401·403은 `AI_API_KEY_INVALID`, 503은 `AI_VENDOR_TEMPORARY_UNAVAILABLE`, 429·307은 `COMMON_INTERNAL_SERVER_ERROR`가 되어 기존 암호문을 유지했다. 서비스 및 워커 실험은 기존 Koin 테스트 라우터의 외부 호출을 실제 Ktor 또는 SDK 실험으로 위임한다.
 
-Ktor CIO의 연결 제한 5초와 요청 제한 15초를 기준으로 SDK의 연결 및 요청 제한을 구성했다. 지연 응답 실험은 같은 요청 제한 700ms를 적용했고 요청 수는 각 1회였다. OpenAI는 `maxRetries(0)`, Gemini는 `attempts(1)`과 `retryOnConnectionFailure(false)`를 사용한다. 취소 실험에서는 시작된 요청 1회와 후속 요청 0회를 관찰했다.
+Ktor CIO의 연결 제한 5초와 요청 제한 15초를 기준으로 SDK의 연결 및 요청 제한을 구성했다. POST와 GET 지연 응답 실험은 같은 700ms 요청 제한을 적용했고 호출자는 약 700ms에 종료됐다. 이후 작은 시험 응답에 대한 서버 쓰기는 실행별로 완료 또는 실패가 기록됐다. 쓰기 완료는 클라이언트의 응답 수신 여부와 구분한다. OpenAI는 `maxRetries(0)`, Gemini는 `attempts(1)`과 `retryOnConnectionFailure(false)`를 사용한다. 지연 및 취소 실험 모두 각 요청 1회와 후속 요청 0회를 관찰했다. 취소한 호출은 모두 `JobCancellationException`으로 종료됐다.
 
 ## 실모델 실행
 
