@@ -5,6 +5,7 @@ import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryCompletionResult
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.DailyUsageRepository
+import com.qlink.ai.service.copyAiStatus
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository

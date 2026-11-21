@@ -1,6 +1,7 @@
 package com.qlink.ai.worker.service
 
 import com.qlink.ai.repository.AiJobRepository
+import com.qlink.ai.service.copyAiStatus
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.LinkStatus

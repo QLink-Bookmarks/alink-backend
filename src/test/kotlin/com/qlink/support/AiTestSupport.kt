@@ -14,10 +14,13 @@ import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.worker.service.CompleteAiSummaryService
-import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.ai.worker.AiSummaryWorker
+import com.qlink.ai.worker.service.CompleteAiSummaryService
+import com.qlink.ai.worker.service.CountPendingAiSummaryJobsService
+import com.qlink.ai.worker.service.FailAiSummaryService
+import com.qlink.ai.worker.service.ProcessAiSummaryService
+import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
@@ -81,7 +84,7 @@ fun aiTestModule() =
         }
 
         single {
-            AiSummaryWorker(
+            ProcessAiSummaryService(
                 tx = get(),
                 aiJobRepository = get(),
                 userProviderRepository = get(),
@@ -91,9 +94,34 @@ fun aiTestModule() =
                 folderRepository = get(),
                 linkRepository = get(),
                 completeAiSummaryService = get(),
-                failAiSummaryService = get(),
                 aiClientRouter = get(),
                 apiKeyCipher = get(),
+                failAiSummaryService = get(),
+                log = LoggerFactory.getLogger(ProcessAiSummaryService::class.java),
+            )
+        }
+
+        single {
+            RecoverAiSummaryJobsService(
+                tx = get(),
+                aiJobRepository = get(),
+                failAiSummaryService = get(),
+            )
+        }
+
+        single {
+            CountPendingAiSummaryJobsService(
+                tx = get(),
+                aiJobRepository = get(),
+            )
+        }
+
+        single {
+            AiSummaryWorker(
+                processAiSummaryService = get(),
+                recoverAiSummaryJobsService = get(),
+                countPendingAiSummaryJobsService = get(),
+                failAiSummaryService = get(),
                 channel = get(),
                 config =
                     WorkerConfig(
