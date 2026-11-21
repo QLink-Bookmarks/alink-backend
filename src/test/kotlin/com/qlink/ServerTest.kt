@@ -54,6 +54,10 @@ class ServerTest :
                 unauthorized.status shouldBe HttpStatusCode.Unauthorized
                 unauthorized.headers[HttpHeaders.CacheControl] shouldBe "no-store"
 
+                val unauthorizedLink = client.get("/api/links/${RandomFixture.randomId()}")
+                unauthorizedLink.status shouldBe HttpStatusCode.Unauthorized
+                apiErrorCode(unauthorizedLink.bodyAsText()) shouldBe ErrorCode.AUTH_ACCESS_TOKEN_MISSING.code
+
                 val malformedBodies =
                     listOf("{}", """{"name":"공개 폴더","isPublic":1}""", """{"name":"공개 폴더","isPublic":"true"}""")
                 for (body in malformedBodies) {
