@@ -143,16 +143,10 @@ class SendNotificationService(
                     ).any { it.willFireAt == nextNotification.willFireAt }
             }?.let { notificationRepository.insert(it) }
     }
+
+    private data class SendNotificationTarget(
+        val notification: Notification,
+        val allowsReminder: Boolean,
+        val deviceTokens: List<DeviceToken>,
+    )
 }
-
-data class SendNotificationResult(
-    val notificationId: Long,
-    val successCount: Int,
-    val failureCount: Int,
-)
-
-private data class SendNotificationTarget(
-    val notification: Notification,
-    val allowsReminder: Boolean,
-    val deviceTokens: List<DeviceToken>,
-)

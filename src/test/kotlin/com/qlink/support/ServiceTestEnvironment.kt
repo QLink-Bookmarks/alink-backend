@@ -18,6 +18,9 @@ import com.qlink.di.transactionModule
 import com.qlink.link.client.LinkPreviewSyncClient
 import com.qlink.linkcontent.client.LinkContentSyncClient
 import com.qlink.notification.worker.TaskScheduler
+import com.qlink.notification.worker.service.FailScheduledNotificationService
+import com.qlink.notification.worker.service.MarkNotificationScheduledService
+import com.qlink.notification.worker.service.PrepareScheduledNotificationsService
 import com.qlink.push.client.PushNotificationSenderRouter
 import com.qlink.support.fixture.FakeLinkContentSyncClient
 import com.qlink.support.fixture.FakeLinkPreviewSyncClient
@@ -225,11 +228,33 @@ object ServiceTestEnvironment {
             }
 
             single {
-                TaskScheduler(
+                PrepareScheduledNotificationsService(
                     tx = get(),
                     notificationRepository = get(),
                     todoRepository = get(),
                     linkRepository = get(),
+                )
+            }
+
+            single {
+                MarkNotificationScheduledService(
+                    tx = get(),
+                    notificationRepository = get(),
+                )
+            }
+
+            single {
+                FailScheduledNotificationService(
+                    tx = get(),
+                    notificationRepository = get(),
+                )
+            }
+
+            single {
+                TaskScheduler(
+                    prepareScheduledNotificationsService = get(),
+                    markNotificationScheduledService = get(),
+                    failScheduledNotificationService = get(),
                     sendNotificationService = get(),
                     traceIdLength = TRACE_ID_LENGTH,
                     log = LoggerFactory.getLogger(TaskScheduler::class.java),

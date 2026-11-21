@@ -50,13 +50,18 @@ class SendNotificationServiceTest :
         val fcmSender = FakePushNotificationSender(DevicePlatform.WEB)
         val expoSender = FakePushNotificationSender(DevicePlatform.NATIVE)
         val originalService = koinGet<SendNotificationService>()
+        var missingUserId: Long? = null
         val testModule =
             module {
                 factory {
                     SendNotificationService(
                         tx = get(),
                         notificationRepository = get(),
-                        userRepository = get(),
+                        userRepository =
+                            object : UserRepository by userRepository {
+                                override suspend fun findById(userId: Long): User? =
+                                    if (userId == missingUserId) null else userRepository.findById(userId)
+                            },
                         deviceTokenRepository = get(),
                         senderRouter = PushNotificationSenderRouter(listOf(fcmSender, expoSender)),
                         todoRepository = get(),
@@ -74,6 +79,7 @@ class SendNotificationServiceTest :
         beforeTest {
             fcmSender.reset()
             expoSender.reset()
+            missingUserId = null
         }
 
         Given("푸시 알림 발송 테스트") {
@@ -203,6 +209,8 @@ class SendNotificationServiceTest :
                     saved shouldNotBe null
                     saved!!.firedAt shouldBe null
                     saved.failedAt shouldBe null
+                    saved.successCount shouldBe 0
+                    saved.failureCount shouldBe 0
                 }
             }
 
@@ -226,47 +234,53 @@ class SendNotificationServiceTest :
                 }
             }
 
-            When("반복 todo 알림 발송이 성공하면") {
-                lateinit var notificationId: Number
+            suspend fun insertRepeatingTodoNotification(): Pair<Todo, Long> {
+                val link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
+                val repeatTime =
+                    Clock.System
+                        .now()
+                        .toJavaInstant()
+                        .atZone(ZoneOffset.UTC)
+                        .toLocalTime()
+                        .minusMinutes(1)
+                        .withSecond(0)
+                        .withNano(0)
+                val todo =
+                    todoRepository.insert(
+                        TodoFixture.createRandomTodoOf(
+                            linkId = link.id!!,
+                            ownerId = user.id!!,
+                            reminderAt = Clock.System.now().minus(1.seconds),
+                            repeatUntil = Clock.System.now().plus(30.days),
+                            repeatDays = RepeatDay.entries.toList(),
+                            repeatTime = repeatTime,
+                        ),
+                    )
+                deviceTokenRepository.insert(
+                    DeviceTokenFixture.createRandomValidDeviceToken(
+                        userId = user.id!!,
+                        platform = DevicePlatform.WEB,
+                    ),
+                )
+                val notificationId =
+                    notificationRepository
+                        .insert(Notification.todo(todo = todo, linkTitle = link.title, linkUrl = link.url)!!)
+                        .id!!
+                return todo to notificationId
+            }
+
+            When("반복 액션 알림 발송이 성공하면") {
+                var notificationId = 0L
                 lateinit var todo: Todo
 
                 beforeTest {
-                    val link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
-                    val repeatTime =
-                        Clock.System
-                            .now()
-                            .toJavaInstant()
-                            .atZone(ZoneOffset.UTC)
-                            .toLocalTime()
-                            .minusMinutes(1)
-                            .withSecond(0)
-                            .withNano(0)
-                    todo =
-                        todoRepository.insert(
-                            Todo(
-                                linkId = link.id!!,
-                                ownerId = user.id!!,
-                                title = RandomFixture.randomSentenceWithMax(50),
-                                reminderAt = Clock.System.now().minus(1.seconds),
-                                repeatUntil = Clock.System.now().plus(30.days),
-                                repeatDays = RepeatDay.entries.toList(),
-                                repeatTime = repeatTime,
-                            ),
-                        )
-                    deviceTokenRepository.insert(
-                        DeviceTokenFixture.createRandomValidDeviceToken(
-                            userId = user.id!!,
-                            platform = DevicePlatform.WEB,
-                        ),
-                    )
-                    notificationId =
-                        notificationRepository
-                            .insert(Notification.todo(todo = todo, linkTitle = link.title, linkUrl = link.url)!!)
-                            .id!!
+                    val saved = insertRepeatingTodoNotification()
+                    todo = saved.first
+                    notificationId = saved.second
                 }
 
-                Then("다음 반복 알림 notification을 만든다") {
-                    koinGet<SendNotificationService>().send(notificationId.toLong())
+                Then("다음 반복 알림을 만든다") {
+                    koinGet<SendNotificationService>().send(notificationId)
 
                     val notifications =
                         notificationRepository.findPendingByContext(
@@ -278,9 +292,36 @@ class SendNotificationServiceTest :
                     notifications.single().willFireAt shouldNotBe todo.reminderAt
                     val savedTodo = todoRepository.findById(todo.id!!)!!
                     savedTodo.reminderAt shouldBe notifications.single().willFireAt
-                    val savedNotification = notificationRepository.findById(notificationId.toLong())!!
+                    val savedNotification = notificationRepository.findById(notificationId)!!
                     savedNotification.firedAt shouldNotBe null
                     savedNotification.successCount shouldBe 1
+                    savedNotification.failureCount shouldBe 0
+                }
+            }
+
+            When("다음 반복 시각에 대기 알림이 이미 있을 때 현재 알림을 보내면") {
+                var notificationId = 0L
+                lateinit var todo: Todo
+                lateinit var next: Notification
+
+                beforeTest {
+                    val saved = insertRepeatingTodoNotification()
+                    todo = saved.first
+                    notificationId = saved.second
+                    val nextReminderAt = todo.setNextReminder(Clock.System.now()).reminderAt!!
+                    next =
+                        notificationRepository.insert(
+                            NotificationFixture.createTodoNotificationOf(todo = todo, willFireAt = nextReminderAt),
+                        )
+                }
+
+                Then("기존 대기 알림이 유지되고 액션의 다음 예약에 같은 시각이 저장된다") {
+                    koinGet<SendNotificationService>().send(notificationId)
+
+                    val notifications =
+                        notificationRepository.findPendingByContext(context = NotificationContext.TODO, contextId = todo.id!!)
+                    notifications.map { it.id } shouldBe listOf(next.id)
+                    todoRepository.findById(todo.id!!)!!.reminderAt shouldBe next.willFireAt
                 }
             }
 
@@ -420,6 +461,25 @@ class SendNotificationServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.NOTIFICATION_NOT_FOUND.message) {
                         send()
                     }
+                }
+            }
+
+            When("대기 알림의 수신자가 조회되지 않으면") {
+                var notificationId = 0L
+
+                beforeTest {
+                    notificationId = insertOneTimeTodoNotification().toLong()
+                    missingUserId = user.id
+                }
+
+                val send = suspend { koinGet<SendNotificationService>().send(notificationId) }
+
+                Then("USER_NOT_FOUND를 반환하고 외부 발송을 생략한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.USER_NOT_FOUND.message) { send() }
+
+                    fcmSender.requests shouldBe emptyList()
+                    expoSender.requests shouldBe emptyList()
+                    notificationRepository.findPendingById(notificationId)?.id shouldBe notificationId
                 }
             }
         }

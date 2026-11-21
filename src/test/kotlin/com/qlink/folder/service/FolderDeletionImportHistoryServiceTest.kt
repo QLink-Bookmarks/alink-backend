@@ -12,9 +12,9 @@ import com.qlink.bookmarkimport.domain.ThumbnailStatus
 import com.qlink.bookmarkimport.dto.CreateImportReversalRequest
 import com.qlink.bookmarkimport.repository.BookmarkImportRepository
 import com.qlink.bookmarkimport.service.CreateImportReversalService
-import com.qlink.bookmarkimport.worker.service.FillImportThumbnailService
 import com.qlink.bookmarkimport.service.GetImportDetailService
 import com.qlink.bookmarkimport.service.GetImportReversalPreviewService
+import com.qlink.bookmarkimport.worker.service.FillImportThumbnailService
 import com.qlink.common.error.BusinessException
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository

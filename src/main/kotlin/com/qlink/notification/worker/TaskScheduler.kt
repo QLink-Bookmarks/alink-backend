@@ -3,13 +3,11 @@ package com.qlink.notification.worker
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.logging.traceContext
-import com.qlink.common.transaction.TransactionRunner
-import com.qlink.link.repository.LinkRepository
 import com.qlink.notification.domain.Notification
-import com.qlink.notification.domain.NotificationContext
-import com.qlink.notification.repository.NotificationRepository
+import com.qlink.notification.worker.service.FailScheduledNotificationService
+import com.qlink.notification.worker.service.MarkNotificationScheduledService
+import com.qlink.notification.worker.service.PrepareScheduledNotificationsService
 import com.qlink.notification.worker.service.SendNotificationService
-import com.qlink.todo.repository.TodoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,10 +35,9 @@ private val DAILY_BATCH_TIME = LocalTime.of(23, 55)
 private val UTC = ZoneOffset.UTC
 
 class TaskScheduler(
-    private val tx: TransactionRunner,
-    private val notificationRepository: NotificationRepository,
-    private val todoRepository: TodoRepository,
-    private val linkRepository: LinkRepository,
+    private val prepareScheduledNotificationsService: PrepareScheduledNotificationsService,
+    private val markNotificationScheduledService: MarkNotificationScheduledService,
+    private val failScheduledNotificationService: FailScheduledNotificationService,
     private val sendNotificationService: SendNotificationService,
     private val traceIdLength: Int,
     private val log: Logger,
@@ -65,7 +62,11 @@ class TaskScheduler(
     }
 
     fun scheduleIfToday(notification: Notification) {
-        if (notification.isPending && notification.willFireAt.isInUtcDate(utcToday())) {
+        if (notification.isPending && notification.willFireAt
+                .toJavaInstant()
+                .atZone(UTC)
+                .toLocalDate() == utcToday()
+        ) {
             schedule(notification.requireId())
         }
     }
@@ -75,13 +76,7 @@ class TaskScheduler(
 
         notificationJobs[notificationId] =
             scope.launch(traceContext(traceIdLength)) {
-                val notification =
-                    tx.required {
-                        val pending =
-                            notificationRepository.findPendingById(notificationId)
-                                ?: throw BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND)
-                        notificationRepository.update(pending.markScheduled(Clock.System.now()))
-                    }
+                val notification = markNotificationScheduledService.markScheduled(notificationId)
 
                 delay(notification.delayFromNow())
                 fire(notification.requireId())
@@ -103,18 +98,7 @@ class TaskScheduler(
 
     private suspend fun schedulePendingForUtcDate(date: LocalDate) {
         runCatching {
-            val bounds = date.utcBounds()
-            val notifications =
-                tx.required {
-                    createMissingTodoNotifications(
-                        startInclusive = bounds.first,
-                        endExclusive = bounds.second,
-                    )
-                    notificationRepository.findPendingBetween(
-                        startInclusive = bounds.first,
-                        endExclusive = bounds.second,
-                    )
-                }
+            val notifications = prepareScheduledNotificationsService.prepare(date)
 
             notifications.forEach { schedule(it.id!!) }
             log.info("[TASK_SCHEDULER] Pending notifications have been scheduled. date=$date, count=${notifications.size}")
@@ -124,38 +108,12 @@ class TaskScheduler(
         }
     }
 
-    private suspend fun createMissingTodoNotifications(
-        startInclusive: Instant,
-        endExclusive: Instant,
-    ) {
-        todoRepository
-            .findAllWithReminderBetween(
-                startInclusive = startInclusive,
-                endExclusive = endExclusive,
-            ).sortedBy { it.linkId }
-            .forEach { todo ->
-                val todoId = todo.id ?: return@forEach
-                val alreadyExists =
-                    notificationRepository
-                        .findByContext(
-                            context = NotificationContext.TODO,
-                            contextId = todoId,
-                        ).any { it.isFrom(todo) }
-                if (alreadyExists) return@forEach
-
-                val link = linkRepository.findByIdForShare(todo.linkId) ?: return@forEach
-                Notification
-                    .todo(todo = todo, linkTitle = link.title, linkUrl = link.url)
-                    ?.let { notificationRepository.insert(it) }
-            }
-    }
-
     private suspend fun fire(notificationId: Long) {
         runCatching {
             sendNotificationService.send(notificationId)
         }.onFailure { exception ->
             logSendFailure(notificationId, exception)
-            markFailed(notificationId)
+            failScheduledNotificationService.fail(notificationId)
         }
 
         notificationJobs.remove(notificationId)
@@ -180,13 +138,6 @@ class TaskScheduler(
                     exception,
                 )
             }
-        }
-    }
-
-    private suspend fun markFailed(notificationId: Long) {
-        tx.required {
-            val notification = notificationRepository.findPendingById(notificationId) ?: return@required
-            notificationRepository.update(notification.markFailed(Clock.System.now()))
         }
     }
 
@@ -221,14 +172,4 @@ class TaskScheduler(
             .toJavaInstant()
             .atZone(UTC)
             .toLocalDate()
-
-    private fun Instant.isInUtcDate(date: LocalDate): Boolean {
-        val bounds = date.utcBounds()
-        return this >= bounds.first && this < bounds.second
-    }
-
-    private fun LocalDate.utcBounds(): Pair<Instant, Instant> {
-        val start = atStartOfDay(UTC).toInstant().toKotlinInstant()
-        return start to plusDays(1).atStartOfDay(UTC).toInstant().toKotlinInstant()
-    }
 }
