@@ -77,7 +77,7 @@ class CollectLinkContentServiceTest :
                 content = insertDueContentOf(link = link, now = now)
             }
 
-            When("수집하면") {
+            When("5자를 넘는 본문을 수집하면") {
                 val text = LinkContentFixture.randomBodyText()
                 val collect =
                     suspend {
@@ -85,7 +85,7 @@ class CollectLinkContentServiceTest :
                         service.collect(contentId = content.id!!, now = now)
                     }
 
-                Then("행이 COLLECTED이고 발췌가 저장되며 links.updatedAt은 그대로다") {
+                Then("행이 COLLECTED이고 전체 본문과 발췌가 저장되며 links.updatedAt은 그대로다") {
                     val before = linkRepository.findById(link.id!!).shouldNotBeNull()
 
                     val result = collect()
