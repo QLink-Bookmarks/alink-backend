@@ -148,7 +148,7 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
         summary = "링크 상세 조회 API"
         description =
             "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
-            "본문 전체와 수집 상태는 내보내지 않아요."
+            "본문 전체와 수집 상태는 내보내지 않아요. isOwner는 로그인한 사용자가 링크를 소유하면 true예요."
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }

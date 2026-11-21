@@ -26,16 +26,21 @@ class GetLinkDetailService(
                     loginId = loginId,
                 ) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
 
-            validateAccess(link = link, loginId = loginId)
+            val isOwner = link.ownerId == loginId
+            validateAccess(link = link, loginId = loginId, isOwner = isOwner)
 
             val todos = todoRepository.findAllByLinkIdForLinkDetail(link.id)
 
             link.toResponse(
                 todos = todos,
+                isOwner = isOwner,
             )
         }
 
-    private fun LinkDetailQuery.toResponse(todos: List<LinkDetailTodoQuery>): GetLinkDetailResponse =
+    private fun LinkDetailQuery.toResponse(
+        todos: List<LinkDetailTodoQuery>,
+        isOwner: Boolean,
+    ): GetLinkDetailResponse =
         GetLinkDetailResponse(
             id = id,
             url = url,
@@ -56,6 +61,7 @@ class GetLinkDetailService(
             workModel = workModel,
             isFavorite = favoriteAt != null,
             isPublic = isPublic,
+            isOwner = isOwner,
             content =
                 if (hasContent) {
                     LinkContentResponse(excerpt = contentExcerpt, isPending = isContentPending)
@@ -67,8 +73,9 @@ class GetLinkDetailService(
     private fun validateAccess(
         link: LinkDetailQuery,
         loginId: Long,
+        isOwner: Boolean,
     ) {
-        if (link.ownerId == loginId) {
+        if (isOwner) {
             return
         }
 

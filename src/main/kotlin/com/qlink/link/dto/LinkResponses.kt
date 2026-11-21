@@ -41,6 +41,7 @@ data class GetLinkDetailResponse(
     val isFavorite: Boolean,
     val content: LinkContentResponse?,
     val isPublic: Boolean,
+    val isOwner: Boolean,
 )
 
 @Serializable
