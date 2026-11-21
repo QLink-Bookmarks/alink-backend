@@ -30,7 +30,7 @@ Gemini Developer API 문서는 `x-goog-api-key`와 버전이 포함된 경로를
 | 307 리디렉션 | 요약과 검증 각각 최초 1회, 목적지 0회. 요약은 `ContentConvertException` | 요청 수 동일. 요약은 `UnexpectedStatusCodeException` | 요청 수 동일. 요약은 `ApiException` |
 | 첫 후보 503 후 다음 후보 성공 | 후보당 POST 1회, 워커의 성공 모델·요약 저장 확인 | 시도 순서와 저장 결과 동일. 실패 원인은 `InternalServerException` | 시도 순서와 저장 결과 동일. 실패 원인은 `ServerException` |
 | 지연 응답 | `HttpRequestTimeoutException` | `OpenAIIoException` | `GenAiIOException` |
-| 응답 전 코루틴 취소 | 호출자 취소, 서버의 응답 쓰기 실패 | 호출자 취소, 2초 관찰 창 내 서버의 쓰기 결과 미확인 | 호출자 취소, 서버의 응답 쓰기 완료 |
+| 요약 응답 헤더 전 코루틴 취소 | 호출자 취소, 서버의 응답 쓰기 실패 | 호출자 취소, 2초 관찰 창 내 서버의 쓰기 결과 미확인 | 호출자 취소, 서버의 응답 쓰기 완료 |
 | 시험 키·목적지 교차 및 동시 호출 | 각 요청의 키·목적지 일치. 같은 목적지에 순차 요청 4회의 TCP 연결 4개 | 키·목적지 일치. 순차 요청 4회에 연결 1개 | 키·목적지 일치. 순차 요청 4회에 연결 1개 |
 
 등록 서비스에서 401·403은 `AI_API_KEY_INVALID`, 503은 `AI_VENDOR_TEMPORARY_UNAVAILABLE`, 429·307은 `COMMON_INTERNAL_SERVER_ERROR`가 되어 기존 암호문을 유지했다. 서비스 및 워커 실험은 기존 Koin 테스트 라우터의 외부 호출을 실제 Ktor 또는 SDK 실험으로 위임한다.
