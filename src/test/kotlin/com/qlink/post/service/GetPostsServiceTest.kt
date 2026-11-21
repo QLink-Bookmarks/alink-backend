@@ -185,18 +185,17 @@ class GetPostsServiceTest :
                     return post.id!!
                 }
 
-                val matchedLater = insertPostAt(createdHours = 2, title = "하나 $keyword")
+                val matchedLater = insertPostAt(createdHours = 2, title = "$keyword 하나")
                 val earliest = insertPostAt(createdHours = 0)
                 val sameAsMatchedLater = insertPostAt(createdHours = 2)
-                val matchedMiddle = insertPostAt(createdHours = 1, title = "둘 $keyword")
+                val matchedMiddle = insertPostAt(createdHours = 1, title = "$keyword 둘")
+                announcementIds = listOf(matchedLater, earliest, sameAsMatchedLater, matchedMiddle)
+                matchedIds = listOf(matchedLater, matchedMiddle)
                 feedbackIds =
                     listOf(
-                        insertPostAt(createdHours = 3, type = PostType.FEEDBACK, title = "피드백 $keyword"),
+                        insertPostAt(createdHours = 3, type = PostType.FEEDBACK),
                         insertPostAt(createdHours = 1, type = PostType.FEEDBACK),
                     )
-                val matchedEarliest = insertPostAt(createdHours = 0, title = "셋 $keyword")
-                announcementIds = listOf(matchedLater, earliest, sameAsMatchedLater, matchedMiddle, matchedEarliest)
-                matchedIds = listOf(matchedLater, matchedMiddle, matchedEarliest)
             }
 
             suspend fun getPosts(
@@ -271,50 +270,6 @@ class GetPostsServiceTest :
                     pages.flatMap { page -> page.contents.map { it.id } } shouldBe announcementIds.sorted()
                     pages.last().hasNext shouldBe false
                     pages.last().nextCursor shouldBe null
-                }
-            }
-
-            for ((orderKey, order) in listOf("created_at" to "asc", "created_at" to "desc", null to "latest", null to null)) {
-                When("제목 검색 결과를 ${order ?: "기본"} 정렬의 커서로 끝까지 조회하면") {
-                    val pageSize = 2
-                    val getPage =
-                        suspend { cursor: String? ->
-                            getPosts(query = keyword, orderKey = orderKey, order = order, cursor = cursor, size = pageSize)
-                        }
-
-                    Then("일치하는 공지의 ID 순서를 유지하고 각 페이지 끝에서 이어진다") {
-                        val matchingPosts =
-                            (announcementIds + feedbackIds)
-                                .map { postRepository.findById(it).shouldNotBeNull() }
-                                .filter { it.type == PostType.ANNOUNCEMENT && keyword in it.title }
-                        val expected = matchingPosts.map { it.id!! }.sorted()
-                        expected shouldBe matchedIds.sorted()
-                        val expectedIds = if (order == "asc") expected else expected.reversed()
-                        val expectedPages = expectedIds.chunked(pageSize)
-                        val seenCursors = mutableSetOf<String>()
-                        val actualIds = mutableListOf<Long>()
-                        var cursor: String? = null
-                        var pageIndex = 0
-
-                        do {
-                            val page = getPage(cursor)
-                            val ids = page.contents.map { it.id }
-                            val nextCursor = nextPostCursor(page = page, requestedCursor = cursor, seenCursors = seenCursors)
-                            ids shouldBe expectedPages[pageIndex]
-                            page.hasNext shouldBe (pageIndex < expectedPages.lastIndex)
-                            if (page.hasNext) {
-                                val value = Base64CursorCodec.decode<PostSearchCursor>(nextCursor.shouldNotBeNull()).value
-                                value.id shouldBe ids.last()
-                            } else {
-                                nextCursor shouldBe null
-                            }
-                            actualIds += ids
-                            cursor = nextCursor
-                            pageIndex++
-                        } while (cursor != null)
-
-                        actualIds shouldBe expectedIds
-                    }
                 }
             }
 
@@ -445,6 +400,87 @@ class GetPostsServiceTest :
 
                 Then("피드백만 id 오름차순으로 나온다") {
                     get().contents.map { it.id } shouldBe feedbackIds.sorted()
+                }
+            }
+        }
+
+        Given("제목 검색에 일치하는 공지의 생성 시각과 ID 순서가 다를 때") {
+            val keyword = "kw${RandomFixture.randomId()}"
+            lateinit var postIds: List<Long>
+
+            beforeTest {
+                if (it.type != io.kotest.core.test.TestType.Test) return@beforeTest
+                val author = userRepository.insert(UserFixture.createRandomValidUser())
+                val base = RandomFixture.randomPastInstant()
+
+                suspend fun insertPostAt(
+                    createdHours: Int,
+                    title: String,
+                    type: PostType = PostType.ANNOUNCEMENT,
+                ): Long {
+                    val post = postRepository.insert(PostFixture.createRandomPostOf(authorId = author.id!!, type = type, title = title))
+                    val postId = post.id!!
+                    updateCreatedAt(postId = postId, createdAt = base + createdHours.hours)
+                    return postId
+                }
+
+                postIds =
+                    listOf(
+                        insertPostAt(createdHours = 2, title = "$keyword 하나"),
+                        insertPostAt(createdHours = 1, title = RandomFixture.randomSentenceWithMax(50)),
+                        insertPostAt(createdHours = 0, title = "둘 $keyword"),
+                        insertPostAt(createdHours = 3, title = "$keyword 피드백", type = PostType.FEEDBACK),
+                    )
+            }
+
+            for ((orderKey, order) in listOf("created_at" to "asc", "created_at" to "desc", null to "latest", null to null)) {
+                When("제목 검색 결과를 ${order ?: "기본"} 정렬의 커서로 끝까지 조회하면") {
+                    val pageSize = 1
+                    val getPage =
+                        suspend { cursor: String? ->
+                            service.getPosts(
+                                loginId = null,
+                                type = null,
+                                query = keyword,
+                                orderKey = orderKey,
+                                order = order,
+                                scrollRequest = ScrollRequest(cursor = cursor, size = pageSize),
+                            )
+                        }
+
+                    Then("일치하는 공지의 ID 순서를 유지하고 각 페이지 끝에서 이어진다") {
+                        val matchingPosts =
+                            postIds
+                                .map { postRepository.findById(it).shouldNotBeNull() }
+                                .filter { it.type == PostType.ANNOUNCEMENT && keyword in it.title }
+                        val expected = matchingPosts.map { it.id!! }.sorted()
+                        expected shouldHaveSize 2
+                        val expectedIds = if (order == "asc") expected else expected.reversed()
+                        val expectedPages = expectedIds.chunked(pageSize)
+                        val seenCursors = mutableSetOf<String>()
+                        val actualIds = mutableListOf<Long>()
+                        var cursor: String? = null
+                        var pageIndex = 0
+
+                        do {
+                            val page = getPage(cursor)
+                            val ids = page.contents.map { it.id }
+                            val nextCursor = nextPostCursor(page = page, requestedCursor = cursor, seenCursors = seenCursors)
+                            ids shouldBe expectedPages[pageIndex]
+                            page.hasNext shouldBe (pageIndex < expectedPages.lastIndex)
+                            if (page.hasNext) {
+                                val value = Base64CursorCodec.decode<PostSearchCursor>(nextCursor.shouldNotBeNull()).value
+                                value.id shouldBe ids.last()
+                            } else {
+                                nextCursor shouldBe null
+                            }
+                            actualIds += ids
+                            cursor = nextCursor
+                            pageIndex++
+                        } while (cursor != null)
+
+                        actualIds shouldBe expectedIds
+                    }
                 }
             }
         }
