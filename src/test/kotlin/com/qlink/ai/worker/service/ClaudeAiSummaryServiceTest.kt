@@ -351,6 +351,29 @@ class ClaudeAiSummaryServiceTest :
                 }
             }
 
+            listOf(null, "", "   ", "relative-path", "http://claude-source.example/page").forEach { requestedUrl ->
+                When("Claude 요청의 requestedUrl이 '$requestedUrl'이면") {
+                    var request: AiSummaryClientRequest? = null
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        request =
+                            AiSummaryClientRequest(
+                                providerType = AiProviderType.CLAUDE,
+                                baseUrl = baseUrl,
+                                apiKey = apiKey,
+                                model = model.model,
+                                prompt = RandomFixture.randomSentenceWithMax(100),
+                                requestedUrl = requestedUrl,
+                            )
+                    }
+                    val action = suspend { app.koin.get<ClaudeAiClient>().summarize(request!!) }
+                    Then("외부 요청 없이 기존 빈 응답 오류를 반환한다") {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_EMPTY_RESPONSE.message) { action() }
+                        http.requests shouldBe emptyList()
+                    }
+                }
+            }
+
             When("Claude 키 확인 도중 요청이 취소되면") {
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest

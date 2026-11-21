@@ -63,10 +63,11 @@ class ClaudeAiClient(
     }
 
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
-        val sourceUrl = request.requestedUrl.trim()
+        val sourceUrl = request.requestedUrl?.trim()?.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
         val sourceHost =
             try {
-                URI(sourceUrl).host ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                URI(sourceUrl).takeIf { it.scheme == "https" && it.host != null }?.host
+                    ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
             } catch (_: URISyntaxException) {
                 throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
             }
