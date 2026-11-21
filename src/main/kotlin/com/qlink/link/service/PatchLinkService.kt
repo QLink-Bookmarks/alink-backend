@@ -33,88 +33,97 @@ class PatchLinkService(
         linkId: Long,
         request: PatchLinkRequest,
     ): PatchLinkResponse {
-        val result =
-            tx.required {
-                userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
+        var result: PatchLinkResult?
+        do {
+            result =
+                tx.required {
+                    userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+                    val sourceFolderId = linkRepository.findById(linkId)?.folderId
+                    val requestedFolderId = request.folderId?.takeUnless { it == 0L }
+                    val folders =
+                        folderRepository
+                            .findAllByIdsForKeyShare(
+                                listOfNotNull(sourceFolderId, requestedFolderId),
+                            ).associateBy { it.id }
 
-                val link =
-                    linkRepository.findByIdForUpdate(linkId)?.also { it.validateOwner(loginId) }
-                        ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+                    val link =
+                        linkRepository.findByIdForUpdate(linkId)?.also { it.validateOwner(loginId) }
+                            ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+                    if (link.hasFolderChangedSince(sourceFolderId)) return@required null
 
-                val targetFolderId = request.resolveFolderId(link, loginId)
-                val targetMemo = request.resolveMemo(link)
-                val targetTags = request.resolveTags(link)
-                val todoChangeSet = request.resolveTodoChangeSet(linkId, loginId)
-
-                val updatedLink =
-                    link.update(
-                        folderId = targetFolderId,
-                        url = link.url,
-                        title = link.title,
-                        summary = link.summary,
-                        memo = targetMemo,
-                        tags = targetTags,
-                        thumbnailUrl = link.thumbnailUrl,
-                        sourceType = link.sourceType,
-                        previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                        previewEnvironment = urlResolver.environment,
-                    )
-
-                val savedLink =
-                    if (updatedLink.hasSamePatchFieldsAs(link)) {
-                        link
-                    } else {
-                        linkRepository.updatePatchFields(
-                            linkId = linkId,
-                            folderId = updatedLink.folderId,
-                            memo = updatedLink.memo,
-                            tags = updatedLink.tags,
+                    val target =
+                        when {
+                            request.folderId == null -> folders[sourceFolderId]
+                            requestedFolderId == null -> null
+                            else -> folderAccessValidator.validateWritable(folders[requestedFolderId], loginId)
+                        }
+                    val publicationId =
+                        link.resolveUpdatedPublicationId(
+                            sourcePublicId = folders[sourceFolderId]?.publicId,
+                            targetPublicId = target?.publicId,
+                            isPublic = request.isPublic,
                         )
-                    }
+                    val targetMemo = request.resolveMemo(link)
+                    val targetTags = request.resolveTags(link)
+                    val todoChangeSet = request.resolveTodoChangeSet(linkId, loginId)
 
-                val deletedTodoIds =
-                    todoChangeSet
-                        ?.todoIdsToDelete
-                        ?.onEach { todoRepository.deleteById(it) }
-                        .orEmpty()
-                val updatedTodos = todoChangeSet?.todosToUpdate?.map { todoRepository.update(it) }.orEmpty()
-                val createdTodos = todoChangeSet?.todosToCreate?.map { todoRepository.insert(it) }.orEmpty()
+                    val updatedLink =
+                        link.update(
+                            folderId = target?.id,
+                            url = link.url,
+                            title = link.title,
+                            summary = link.summary,
+                            memo = targetMemo,
+                            tags = targetTags,
+                            thumbnailUrl = link.thumbnailUrl,
+                            sourceType = link.sourceType,
+                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                            previewEnvironment = urlResolver.environment,
+                            publicationId = publicationId,
+                        )
 
-                PatchLinkResult(
-                    response =
-                        PatchLinkResponse(
-                            folderId = savedLink.folderId,
-                            memo = savedLink.memo,
-                            tags = savedLink.tags,
-                            todos = todoRepository.findAllByLinkIdForLinkDetail(linkId),
-                        ),
-                    deletedTodoIds = deletedTodoIds,
-                    updatedTodos = updatedTodos,
-                    createdTodos = createdTodos,
-                )
-            }
+                    val savedLink =
+                        if (updatedLink.hasSamePatchFieldsAs(link)) {
+                            link
+                        } else {
+                            linkRepository.updatePatchFields(
+                                linkId = linkId,
+                                folderId = updatedLink.folderId,
+                                memo = updatedLink.memo,
+                                tags = updatedLink.tags,
+                                publicationId = updatedLink.publicationId,
+                            )
+                        }
+
+                    val deletedTodoIds =
+                        todoChangeSet
+                            ?.todoIdsToDelete
+                            ?.onEach { todoRepository.deleteById(it) }
+                            .orEmpty()
+                    val updatedTodos = todoChangeSet?.todosToUpdate?.map { todoRepository.update(it) }.orEmpty()
+                    val createdTodos = todoChangeSet?.todosToCreate?.map { todoRepository.insert(it) }.orEmpty()
+
+                    PatchLinkResult(
+                        response =
+                            PatchLinkResponse(
+                                folderId = savedLink.folderId,
+                                memo = savedLink.memo,
+                                tags = savedLink.tags,
+                                todos = todoRepository.findAllByLinkIdForLinkDetail(linkId),
+                                isPublic = savedLink.isPublicIn(target?.publicId),
+                            ),
+                        deletedTodoIds = deletedTodoIds,
+                        updatedTodos = updatedTodos,
+                        createdTodos = createdTodos,
+                    )
+                }
+        } while (result == null)
 
         result.deletedTodoIds.forEach { scheduleTodoNotificationService.cancelForTodo(it) }
         result.updatedTodos.forEach { scheduleTodoNotificationService.replaceForTodo(it) }
         result.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
 
         return result.response
-    }
-
-    private suspend fun PatchLinkRequest.resolveFolderId(
-        link: Link,
-        loginId: Long,
-    ): Long? {
-        val folderId = folderId ?: return link.folderId
-
-        if (folderId == 0L) {
-            return null
-        }
-
-        folderAccessValidator.validateWritable(folderId, loginId)
-
-        return folderId
     }
 
     private fun PatchLinkRequest.resolveMemo(link: Link): String? =
@@ -201,7 +210,8 @@ class PatchLinkService(
     private fun Link.hasSamePatchFieldsAs(other: Link): Boolean =
         folderId == other.folderId &&
             memo == other.memo &&
-            tags == other.tags
+            tags == other.tags &&
+            publicationId == other.publicationId
 
     private data class TodoChangeSet(
         val todosToUpdate: List<Todo>,

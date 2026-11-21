@@ -20,6 +20,7 @@ import com.qlink.link.dto.PatchLinkResponse
 import com.qlink.link.dto.SetLinkFavoriteRequest
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
+import io.github.smiley4.ktoropenapi.config.ResponsesConfig
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
 
@@ -57,6 +58,7 @@ internal fun createLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
+            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 생성 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -133,9 +135,9 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
                 }
             }
             code(HttpStatusCode.UnprocessableEntity) {
-                description = "요약에 사용할 제공자 또는 모델이 비활성"
+                description = "링크 공개 조건 미충족 또는 요약 제공자·모델 비활성"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE)
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE, ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
                 }
             }
         }
@@ -146,7 +148,7 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
         summary = "링크 상세 조회 API"
         description =
             "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
-            "본문 전체와 수집 상태는 내보내지 않아요."
+            "본문 전체와 수집 상태는 내보내지 않아요. isOwner는 로그인한 사용자가 링크를 소유하면 true예요."
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }
@@ -250,6 +252,7 @@ internal fun updateLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
+            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 수정 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -301,6 +304,7 @@ internal fun patchLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
+            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 부분 수정 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -324,6 +328,15 @@ internal fun patchLinkDocs(): RouteConfig.() -> Unit =
             }
         }
     }
+
+private fun ResponsesConfig.linkPublicationErrorResponse() {
+    code(HttpStatusCode.UnprocessableEntity) {
+        description = "전체 공개 폴더의 링크만 공개 가능"
+        body<ApiResponse<ErrorDetail>> {
+            examples(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
+        }
+    }
+}
 
 internal fun setLinkFavoriteDocs(): RouteConfig.() -> Unit =
     {

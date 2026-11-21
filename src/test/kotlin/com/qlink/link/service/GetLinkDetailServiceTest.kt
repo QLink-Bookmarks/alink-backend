@@ -7,8 +7,10 @@ import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.folder.service.GetPublicFolderLinksService
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
@@ -39,6 +41,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotContain
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.time.LocalTime
 import kotlin.time.Clock
 import kotlin.time.toKotlinInstant
@@ -46,6 +51,7 @@ import kotlin.time.toKotlinInstant
 class GetLinkDetailServiceTest :
     BaseServiceTest({
         val getLinkDetailService = koinGet<GetLinkDetailService>()
+        val getPublicFolderLinksService = koinGet<GetPublicFolderLinksService>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
         val folderRepository = koinGet<FolderRepository>()
@@ -152,6 +158,7 @@ class GetLinkDetailServiceTest :
                     actual.workModel shouldBe model.model
                     actual.todos shouldContainExactly todos.map { it.toExpectedTodo() }
                     actual.isFavorite shouldBe false
+                    Json.encodeToJsonElement(actual).jsonObject["isOwner"] shouldBe JsonPrimitive(true)
                 }
             }
 
@@ -228,13 +235,15 @@ class GetLinkDetailServiceTest :
             lateinit var member: User
             lateinit var outsider: User
             lateinit var sharedLink: Link
+            lateinit var publicId: String
 
             beforeTest {
                 val owner = userRepository.insert(UserFixture.createRandomValidUser())
                 member = userRepository.insert(UserFixture.createRandomValidUser())
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
+                publicId = FolderFixture.createPublicId()
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createFolderWith(ownerId = owner.id!!, sharedAt = Clock.System.now()))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(publicId))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )
@@ -249,6 +258,7 @@ class GetLinkDetailServiceTest :
                             thumbnailUrl = RandomFixture.randomPreviewUrl(),
                             faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
                             isVideo = true,
+                            publicationId = publicId,
                         ),
                     )
             }
@@ -262,6 +272,7 @@ class GetLinkDetailServiceTest :
                     response.thumbnailUrl shouldBe stored.thumbnailUrl
                     response.faviconUrl shouldBe stored.faviconUrl
                     response.isVideo shouldBe stored.isVideo
+                    Json.encodeToJsonElement(response).jsonObject["isOwner"] shouldBe JsonPrimitive(false)
                 }
             }
 
@@ -270,6 +281,18 @@ class GetLinkDetailServiceTest :
 
                 Then("공유 폴더 접근 오류가 난다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED.message) { getDetail() }
+                }
+            }
+
+            When("게스트가 같은 공개 링크를 조회하면") {
+                Then("공개 응답에는 제목과 원문 URL만 들어간다") {
+                    val result = getPublicFolderLinksService.getLinks(publicId, null, null, ScrollRequest())
+                    val stored = linkRepository.findById(sharedLink.id!!).shouldNotBeNull()
+                    val item = result.contents.single()
+
+                    item.title shouldBe stored.title
+                    item.url shouldBe stored.url
+                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe setOf("title", "url")
                 }
             }
         }

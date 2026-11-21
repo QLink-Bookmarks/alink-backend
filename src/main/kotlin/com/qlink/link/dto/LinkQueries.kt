@@ -6,8 +6,31 @@ import com.qlink.common.search.SortCursor
 import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
+import com.qlink.link.repository.table.Links
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.ResultRow
 import kotlin.time.Instant
+import kotlin.time.toKotlinInstant
+
+data class PublicLinkQuery(
+    val id: Long,
+    val createdAt: Instant,
+    val title: String,
+    val url: String,
+)
+
+data class PublicLinkCursor(
+    val id: Long,
+    val createdAt: Instant,
+)
+
+fun ResultRow.toPublicLinkQuery(): PublicLinkQuery =
+    PublicLinkQuery(
+        id = this[Links.id],
+        createdAt = this[Links.createdAt].toKotlinInstant(),
+        title = this[Links.title],
+        url = this[Links.url],
+    )
 
 data class SearchLinksQuery(
     val id: Long,
@@ -75,6 +98,7 @@ data class LinkDetailQuery(
     val hasContent: Boolean,
     val contentExcerpt: String?,
     val isContentPending: Boolean,
+    val isPublic: Boolean,
 )
 
 typealias LinkSearchCursor = SortCursor<LinkOrderKey, LinkSearchCursorValue>

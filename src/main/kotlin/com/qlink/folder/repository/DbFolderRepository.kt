@@ -11,7 +11,9 @@ import com.qlink.folder.domain.FolderOrderKey
 import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
+import com.qlink.folder.dto.PublicFolderQuery
 import com.qlink.folder.dto.SearchFoldersQuery
+import com.qlink.folder.dto.toPublicFolderQuery
 import com.qlink.folder.repository.table.Folders
 import com.qlink.folder.repository.table.fromDomain
 import com.qlink.folder.repository.table.fromDomainForInsert
@@ -60,6 +62,21 @@ class DbFolderRepository : FolderRepository {
             .singleOrNull()
             ?.toFolderDomain()
 
+    override suspend fun findPublicByPublicId(publicId: String): PublicFolderQuery? =
+        Folders
+            .select(Folders.name, Folders.emoji)
+            .where { Folders.publicId eq publicId }
+            .singleOrNull()
+            ?.toPublicFolderQuery()
+
+    override suspend fun findIdByPublicIdForShare(publicId: String): Long? =
+        Folders
+            .select(Folders.id)
+            .where { Folders.publicId eq publicId }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForShare)
+            .singleOrNull()
+            ?.get(Folders.id)
+
     override suspend fun findAllByIds(ids: List<Long>): List<Folder> =
         Folders
             .selectAll()
@@ -88,6 +105,14 @@ class DbFolderRepository : FolderRepository {
             .selectAll()
             .where { Folders.ownerId eq ownerId }
             .orderBy(Folders.id to SortOrder.ASC)
+            .map { it.toFolderDomain() }
+
+    override suspend fun findAllByOwnerIdForKeyShare(ownerId: Long): List<Folder> =
+        Folders
+            .selectAll()
+            .where { Folders.ownerId eq ownerId }
+            .orderBy(Folders.id to SortOrder.ASC)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
             .map { it.toFolderDomain() }
 
     override suspend fun findCreatedAtById(id: Long): Instant? =
@@ -168,6 +193,7 @@ class DbFolderRepository : FolderRepository {
                     Folders.name,
                     Folders.emoji,
                     Folders.sharedAt,
+                    Folders.publicId,
                     Folders.createdAt,
                     score,
                 ).where {
@@ -315,6 +341,7 @@ class DbFolderRepository : FolderRepository {
             name = this[Folders.name],
             emoji = this[Folders.emoji],
             sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
+            isPublic = this[Folders.publicId] != null,
             createdAt = this[Folders.createdAt].toKotlinInstant(),
             shareCounts = 0,
             linkCounts = 0,

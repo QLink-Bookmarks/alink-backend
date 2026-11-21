@@ -236,6 +236,42 @@ class CreateImportServiceTest :
                 }
             }
 
+            When("공개 폴더와 비공개 폴더로 새 링크를 가져오면") {
+                lateinit var publicFolder: Folder
+                lateinit var duplicate: Link
+                lateinit var request: CreateImportRequest
+
+                beforeTest {
+                    publicFolder =
+                        folderRepository.insert(
+                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(FolderFixture.createPublicId()),
+                        )
+                    duplicate = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
+                    val publicTarget = ImportRequestFixture.createFolderRequest(folderId = publicFolder.id)
+                    val privateTarget = ImportRequestFixture.createFolderRequest(folderId = existingFolder.id)
+                    request =
+                        ImportRequestFixture.createImportRequest(
+                            folders = listOf(publicTarget, privateTarget),
+                            links =
+                                listOf(
+                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key),
+                                    ImportRequestFixture.createLinkRequest(folderKey = privateTarget.key),
+                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key, url = duplicate.url),
+                                ),
+                        )
+                }
+
+                Then("공개 폴더의 새 링크만 공개되고 건너뛴 링크는 이전 상태를 유지한다") {
+                    val result = createImportService.createImport(user.id!!, request)
+                    val rows = bookmarkImportRepository.findLinksByImportId(result.id).map { linkRepository.findById(it.linkId)!! }
+
+                    rows.size shouldBe 2
+                    rows.single { it.folderId == publicFolder.id }.publicationId shouldBe publicFolder.publicId
+                    rows.single { it.folderId == existingFolder.id }.publicationId shouldBe null
+                    linkRepository.findById(duplicate.id!!)!!.publicationId shouldBe null
+                }
+            }
+
             When("folderId가 다른 사용자의 폴더면") {
                 lateinit var otherFolder: Folder
                 lateinit var folder: CreateImportFolderRequest

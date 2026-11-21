@@ -11,4 +11,5 @@ data class PatchLinkResponse(
     val memo: String?,
     val tags: List<String>,
     val todos: List<LinkDetailTodoQuery>,
+    val isPublic: Boolean,
 )

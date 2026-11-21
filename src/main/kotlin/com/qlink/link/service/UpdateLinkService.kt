@@ -31,45 +31,65 @@ class UpdateLinkService(
         loginId: Long,
         linkId: Long,
         request: UpdateLinkRequest,
-    ): UpdateLinkResponse =
-        tx
-            .required {
-                userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
+    ): UpdateLinkResponse {
+        var response: UpdateLinkResponse?
+        do {
+            response =
+                tx
+                    .required {
+                        userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+                        val sourceFolderId = linkRepository.findById(linkId)?.folderId
+                        val folders =
+                            folderRepository
+                                .findAllByIdsForKeyShare(
+                                    listOfNotNull(sourceFolderId, request.folderId),
+                                ).associateBy { it.id }
 
-                val link = linkRepository.findByIdForUpdate(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
-                link.validateOwner(loginId)
+                        val link = linkRepository.findByIdForUpdate(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+                        link.validateOwner(loginId)
+                        if (link.hasFolderChangedSince(sourceFolderId)) return@required null
 
-                request.folderId?.let { folderAccessValidator.validateWritable(it, loginId) }
+                        val target = request.folderId?.let { folderAccessValidator.validateWritable(folders[it], loginId) }
+                        val publicationId =
+                            link.resolveUpdatedPublicationId(
+                                sourcePublicId = folders[sourceFolderId]?.publicId,
+                                targetPublicId = target?.publicId,
+                                isPublic = request.isPublic,
+                            )
 
-                val updatedLink =
-                    link.update(
-                        folderId = request.folderId,
-                        url = request.url,
-                        title = request.title,
-                        summary = request.summary,
-                        memo = request.memo,
-                        tags = request.tags,
-                        thumbnailUrl = request.thumbnailUrl,
-                        sourceType = request.sourceType,
-                        faviconUrl = request.faviconUrl,
-                        isVideo = request.isVideo,
-                        previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                        previewEnvironment = urlResolver.environment,
-                    )
+                        val updatedLink =
+                            link.update(
+                                folderId = request.folderId,
+                                url = request.url,
+                                title = request.title,
+                                summary = request.summary,
+                                memo = request.memo,
+                                tags = request.tags,
+                                thumbnailUrl = request.thumbnailUrl,
+                                sourceType = request.sourceType,
+                                faviconUrl = request.faviconUrl,
+                                isVideo = request.isVideo,
+                                previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                                previewEnvironment = urlResolver.environment,
+                                publicationId = publicationId,
+                            )
 
-                val savedLink = linkRepository.update(updatedLink)
-                LinkContentPlanDomainService
-                    .forUrlChange(
-                        current = linkContentRepository.findByLinkId(linkId),
-                        savedLink = savedLink,
-                        now = Clock.System.now(),
-                    )?.let { linkContentRepository.upsertForLink(it) }
+                        val savedLink = linkRepository.update(updatedLink)
+                        LinkContentPlanDomainService
+                            .forUrlChange(
+                                current = linkContentRepository.findByLinkId(linkId),
+                                savedLink = savedLink,
+                                now = Clock.System.now(),
+                            )?.let { linkContentRepository.upsertForLink(it) }
 
-                savedLink.toResponse()
-            }.also { linkContentSignal.wake() }
+                        savedLink.toResponse(isPublic = savedLink.isPublicIn(target?.publicId))
+                    }
+        } while (response == null)
+        linkContentSignal.wake()
+        return response
+    }
 
-    private fun Link.toResponse(): UpdateLinkResponse =
+    private fun Link.toResponse(isPublic: Boolean): UpdateLinkResponse =
         UpdateLinkResponse(
             folderId = folderId,
             url = url,
@@ -79,5 +99,6 @@ class UpdateLinkService(
             tags = tags,
             thumbnailUrl = thumbnailUrl,
             sourceType = sourceType,
+            isPublic = isPublic,
         )
 }

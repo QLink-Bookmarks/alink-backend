@@ -44,8 +44,6 @@ class DeleteFolderService(
                 discoveredSource.validateOwner(loginId)
                 val options = FolderDeletionOptions.from(onDelete = onDelete, targetFolderId = targetFolderId)
 
-                // Discover before locking so move always locks both folders in the same order.
-                // Only these locked rows supply the facts used for the actual mutation.
                 val folders =
                     folderRepository
                         .findAllByIdsForUpdate(
@@ -81,7 +79,27 @@ class DeleteFolderService(
                         ids = todos.map { it.id!! },
                     )
                 val now = Clock.System.now()
-                linkRepository.assignFolderByIds(linkIds = plan.moveLinkIds, folderId = options.targetFolderId, now = now)
+                val targetPublicId = folders[options.targetFolderId]?.publicId
+                val moveLinkIds = plan.moveLinkIds.toSet()
+                links
+                    .filter { it.id in moveLinkIds }
+                    .groupBy(
+                        keySelector = {
+                            it.resolveUpdatedPublicationId(
+                                sourcePublicId = source.publicId,
+                                targetPublicId = targetPublicId,
+                                isPublic = null,
+                            )
+                        },
+                        valueTransform = { it.id!! },
+                    ).forEach { (publicationId, ids) ->
+                        linkRepository.assignFolderByIds(
+                            linkIds = ids,
+                            folderId = options.targetFolderId,
+                            now = now,
+                            publicationId = publicationId,
+                        )
+                    }
                 linkRepository.assignFolderByIds(linkIds = plan.detachLinkIds, folderId = null, now = now)
                 linkRepository.deleteAllByIds(plan.deleteLinkIds)
                 folderRepository.deleteById(folderId)

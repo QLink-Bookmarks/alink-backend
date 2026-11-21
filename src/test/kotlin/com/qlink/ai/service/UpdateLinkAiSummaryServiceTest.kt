@@ -15,6 +15,7 @@ import com.qlink.auth.domain.Role
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
@@ -1108,6 +1109,47 @@ class UpdateLinkAiSummaryServiceTest :
                 val context = insertAiContext(userId = user.id!!)
                 userProvider = context.first
                 model = context.second
+            }
+
+            When("공개 폴더에서 AI 신규 저장과 비공개 링크 재정리를 요청하면") {
+                lateinit var publicFolder: Folder
+                lateinit var privateLink: Link
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    publicFolder =
+                        folderRepository.insert(
+                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(FolderFixture.createPublicId()),
+                        )
+                    privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
+                }
+
+                Then("새 원문 링크만 기본 공개이고 명시한 비공개와 기존 비공개를 유지한다") {
+                    val request =
+                        AiSummaryRequest(
+                            folderId = publicFolder.id,
+                            userProviderId = userProvider.id!!,
+                            modelId = model.id!!,
+                            url = RandomFixture.randomUrl(),
+                        )
+                    val created = service.updateLinkAiSummary(user.id!!, request)
+                    val publicJobId = withTimeout(1_000) { commandChannel.receive() }
+                    val createdPrivate =
+                        service.updateLinkAiSummary(
+                            user.id!!,
+                            request.copy(isPublic = false, url = RandomFixture.randomUrl()),
+                        )
+                    val privateJobId = withTimeout(1_000) { commandChannel.receive() }
+                    val retried = service.updateLinkAiSummary(user.id!!, request.copy(id = privateLink.id, url = privateLink.url))
+                    val retriedJobId = withTimeout(1_000) { commandChannel.receive() }
+
+                    aiJobRepository.findById(publicJobId)?.linkId shouldBe created.id
+                    aiJobRepository.findById(privateJobId)?.linkId shouldBe createdPrivate.id
+                    aiJobRepository.findById(retriedJobId)?.linkId shouldBe retried.id
+                    linkRepository.findById(created.id)!!.publicationId shouldBe publicFolder.publicId
+                    linkRepository.findById(createdPrivate.id)!!.publicationId shouldBe null
+                    linkRepository.findById(retried.id)!!.publicationId shouldBe null
+                }
             }
 
             When("id 없이 썸네일·파비콘 없이 요청하면") {

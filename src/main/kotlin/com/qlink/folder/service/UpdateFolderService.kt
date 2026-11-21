@@ -3,6 +3,7 @@ package com.qlink.folder.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
@@ -10,6 +11,7 @@ import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.FolderMember
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.user.repository.UserRepository
+import java.util.UUID
 import kotlin.time.Clock
 
 class UpdateFolderService(
@@ -29,7 +31,11 @@ class UpdateFolderService(
             val folder =
                 folderRepository.findAllByIdsForUpdate(listOf(folderId)).singleOrNull()
                     ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
-            folder.validateOwner(loginId)
+            if (request.isPublic != null) {
+                folder.isOwnedBy(loginId).requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+            } else {
+                folder.validateOwner(loginId)
+            }
 
             folderRepository
                 .existsByOwnerIdAndNameAndIdNot(
@@ -44,7 +50,11 @@ class UpdateFolderService(
                     emoji = request.emoji,
                     sharedAt = request.sharedAtOrExisting(folder.sharedAt),
                 )
-            val saved = folderRepository.update(updated)
+            val publication =
+                request.isPublic?.let {
+                    updated.setPublic(newPublicId = if (it) UUID.randomUUID().toString() else null)
+                } ?: updated
+            val saved = folderRepository.update(publication)
 
             if (saved.sharedAt != null && folderMemberRepository.existsByFolderId(folderId).not()) {
                 folderMemberRepository.insertIfAbsent(
@@ -57,7 +67,7 @@ class UpdateFolderService(
                 )
             }
 
-            UpdateFolderResponse(id = saved.id!!)
+            UpdateFolderResponse(id = saved.id!!, isPublic = saved.isPublic, publicId = saved.publicId)
         }
 
     private fun UpdateFolderRequest.sharedAtOrExisting(current: kotlin.time.Instant?): kotlin.time.Instant? =

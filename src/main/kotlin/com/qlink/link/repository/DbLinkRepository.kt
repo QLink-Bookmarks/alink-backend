@@ -29,7 +29,10 @@ import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.LinkSnippetQuery
+import com.qlink.link.dto.PublicLinkCursor
+import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
+import com.qlink.link.dto.toPublicLinkQuery
 import com.qlink.link.repository.table.Links
 import com.qlink.link.repository.table.fromDomain
 import com.qlink.link.repository.table.fromDomainForInsert
@@ -68,6 +71,7 @@ import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.core.times
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.Query
+import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
@@ -81,6 +85,31 @@ import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbLinkRepository : LinkRepository {
+    override suspend fun findPublicByFolderId(
+        folderId: Long,
+        publicId: String,
+        direction: SortDirection,
+        cursor: PublicLinkCursor?,
+        limit: Int,
+    ): List<PublicLinkQuery> {
+        val order = direction.sortOrder()
+        val query =
+            Links
+                .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
+                .select(Links.id, Links.createdAt, Links.title, Links.url)
+                .where { (Folders.id eq folderId) and (Folders.publicId eq publicId) and (Links.publicationId eq Folders.publicId) }
+        if (cursor != null) {
+            val position = LinkSearchCursorValue(id = cursor.id, createdAt = cursor.createdAt)
+            val keys = createdAtSortKeys(order)
+            query.andWhere { keysetAfter(keys = keys, cursorValue = position) }
+        }
+
+        return query
+            .orderBy(Links.createdAt to order, Links.id to order)
+            .limit(limit)
+            .map { it.toPublicLinkQuery() }
+    }
+
     override suspend fun insert(link: Link): Link =
         Links
             .insertReturning { it.fromDomainForInsert(link) }
@@ -135,10 +164,12 @@ class DbLinkRepository : LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
+        publicationId: String?,
     ) {
         if (linkIds.isEmpty()) return
         Links.update(where = { Links.id inList linkIds }) {
             it[Links.folderId] = folderId
+            it[Links.publicationId] = publicationId
             it[Links.updatedAt] = now.toJavaInstant()
         }
     }
@@ -213,6 +244,8 @@ class DbLinkRepository : LinkRepository {
                 Links.ownerId,
                 Links.folderId,
                 Folders.sharedAt,
+                Folders.publicId,
+                Links.publicationId,
                 FolderMembers.userId,
                 folderName,
                 folderEmoji,
@@ -309,10 +342,12 @@ class DbLinkRepository : LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
+        publicationId: String?,
     ): Link =
         Links
             .updateReturning(where = { Links.id eq linkId }) {
                 it[Links.folderId] = folderId
+                it[Links.publicationId] = publicationId
                 it[Links.memo] = memo
                 it[Links.tags] = tags
                 it[Links.searchText] =
@@ -335,9 +370,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
+        publicationId: String?,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
+            it[Links.publicationId] = publicationId
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags
@@ -389,6 +426,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolder(folderId: Long) {
         Links.update(where = { Links.folderId eq folderId }) {
             it[Links.folderId] = null
+            it[Links.publicationId] = null
             it.refreshUpdatedAt()
         }
     }
@@ -396,6 +434,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolders(folderIds: List<Long>) {
         Links.update(where = { Links.folderId inList folderIds }) {
             it[Links.folderId] = null
+            it[Links.publicationId] = null
             it.refreshUpdatedAt()
         }
     }
@@ -687,13 +726,7 @@ class DbLinkRepository : LinkRepository {
         val orderKeys =
             when (sort.orderKey) {
                 LinkOrderKey.CREATED_AT -> {
-                    listOf(
-                        SortKey(
-                            Links.createdAt,
-                            sortOrder,
-                        ) { QueryParameter(it.createdAt!!.toJavaInstant(), Links.createdAt.columnType) },
-                        SortKey(Links.id, sortOrder) { longLiteral(it.id!!) },
-                    )
+                    createdAtSortKeys(sortOrder)
                 }
 
                 LinkOrderKey.TITLE -> {
@@ -723,6 +756,12 @@ class DbLinkRepository : LinkRepository {
 
         return if (hasKeyword) listOf(metadataKey) + orderKeys else orderKeys
     }
+
+    private fun createdAtSortKeys(sortOrder: SortOrder): List<SortKey> =
+        listOf(
+            SortKey(Links.createdAt, sortOrder) { QueryParameter(it.createdAt!!.toJavaInstant(), Links.createdAt.columnType) },
+            SortKey(Links.id, sortOrder) { longLiteral(it.id!!) },
+        )
 
     private fun SortDirection.sortOrder(): SortOrder =
         when (this) {
@@ -922,6 +961,7 @@ class DbLinkRepository : LinkRepository {
             hasContent = this[hasContent],
             contentExcerpt = this[contentExcerpt],
             isContentPending = this[isContentPending],
+            isPublic = this[Folders.publicId]?.let { it == this[Links.publicationId] } == true,
         )
 }
 
