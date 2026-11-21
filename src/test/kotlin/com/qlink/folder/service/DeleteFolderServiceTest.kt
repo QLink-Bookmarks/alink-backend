@@ -10,7 +10,9 @@ import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.dto.PublicFolderLinkResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folderinvite.repository.table.FolderInvites
 import com.qlink.foldermember.repository.FolderMemberRepository
@@ -59,6 +61,64 @@ class DeleteFolderServiceTest :
         val models = koinGet<AvailableModelRepository>()
         val userProviders = koinGet<UserProviderRepository>()
         val usages = koinGet<DailyUsageRepository>()
+        val publicLinks = koinGet<GetPublicFolderLinksService>()
+
+        Given("공개 링크와 비공개 링크가 있는 개인 공개 폴더") {
+            lateinit var folder: Folder
+            lateinit var publicLink: Link
+            lateinit var privateLink: Link
+
+            beforeTest {
+                val userId = users.insert(UserFixture.createRandomValidUser()).id!!
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(userId).setPublic(FolderFixture.createPublicId()))
+                publicLink =
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, publicationId = folder.publicId))
+                privateLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id))
+            }
+
+            When("폴더 삭제로 남은 링크를 미분류로 분리하면") {
+                val delete =
+                    suspend {
+                        service.deleteFolder(loginId = folder.ownerId, folderId = folder.id!!, onDelete = null)
+                    }
+
+                Then("링크를 비공개로 분리하고 이전 주소를 닫는다") {
+                    shouldNotThrow<BusinessException> { delete() }
+                    val stored = links.findById(publicLink.id!!)!!
+                    stored.folderId shouldBe null
+                    stored.publicationId shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
+                        publicLinks.getLinks(folder.publicId!!, null, null, ScrollRequest())
+                    }
+                }
+            }
+
+            When("공개 폴더로 옮기며 삭제하면") {
+                lateinit var target: Folder
+                beforeTest {
+                    target =
+                        folders.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId).setPublic(FolderFixture.createPublicId()))
+                }
+                val delete =
+                    suspend {
+                        service.deleteFolder(
+                            loginId = folder.ownerId,
+                            folderId = folder.id!!,
+                            onDelete = "move",
+                            targetFolderId = target.id,
+                        )
+                    }
+
+                Then("두 링크 모두 옮기고 목적지에서 이전에 공개했던 링크만 보여준다") {
+                    shouldNotThrow<BusinessException> { delete() }
+                    links.findById(privateLink.id!!)!!.folderId shouldBe target.id
+                    links.findById(privateLink.id!!)!!.publicationId shouldBe null
+                    links.findById(publicLink.id!!)!!.publicationId shouldBe target.publicId
+                    publicLinks.getLinks(target.publicId!!, null, null, ScrollRequest()).contents shouldBe
+                        listOf(PublicFolderLinkResponse(title = publicLink.title, url = publicLink.url))
+                }
+            }
+        }
 
         suspend fun insertAiJobsAndUsageFor(
             ownerId: Long,

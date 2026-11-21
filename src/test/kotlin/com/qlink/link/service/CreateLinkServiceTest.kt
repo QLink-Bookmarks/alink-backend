@@ -2,9 +2,12 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.folder.service.GetPublicFolderLinksService
+import com.qlink.folder.service.GetPublicFolderTodosService
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.dto.CreateLinkRequest
@@ -57,6 +60,8 @@ class CreateLinkServiceTest :
         val linkContentRepository = koinGet<LinkContentRepository>()
         val previewFillSignal = koinGet<LinkPreviewFillSignal>()
         val tx = koinGet<TransactionRunner>()
+        val publicLinks = koinGet<GetPublicFolderLinksService>()
+        val publicTodos = koinGet<GetPublicFolderTodosService>()
 
         suspend fun <T> withCommittedUser(block: suspend (User) -> T): T =
             CoroutineScope(Dispatchers.IO)
@@ -73,6 +78,70 @@ class CreateLinkServiceTest :
             CoroutineScope(Dispatchers.IO)
                 .async { tx.readOnly { linkRepository.findAllUrlsByOwnerId(ownerId) } }
                 .await()
+
+        Given("개인 비공개 폴더와 쓰기 권한이 있는 공개 공유 폴더") {
+            lateinit var privateFolder: Folder
+            lateinit var publicFolder: Folder
+            var writerId = 0L
+
+            beforeTest {
+                writerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                val folderOwnerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                privateFolder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(writerId))
+                publicFolder =
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(FolderFixture.createPublicId()))
+                folderMemberRepository.insertIfAbsent(
+                    FolderMemberFixture.createMember(folderId = publicFolder.id!!, userId = writerId),
+                )
+            }
+
+            When("공개값 생략으로 원문을 저장하면") {
+                Then("공개 폴더에서만 공개된다") {
+                    for ((folderId, expectedPublicationId) in listOf(
+                        publicFolder.id to publicFolder.publicId,
+                        privateFolder.id to null,
+                        null to null,
+                    )) {
+                        val result = createLinkService.createLink(writerId, LinkFixture.createValidLinkRequest(folderId = folderId))
+
+                        linkRepository.findById(result.id)!!.publicationId shouldBe expectedPublicationId
+                    }
+                }
+            }
+
+            When("공개 폴더에서 비공개를 선택하고 액션과 함께 저장하면") {
+                val create =
+                    suspend {
+                        createLinkService.createLink(
+                            writerId,
+                            LinkFixture.createValidLinkRequest(
+                                folderId = publicFolder.id,
+                                isPublic = false,
+                                todos = listOf(CreateLinkTodoRequest(title = RandomFixture.randomSentenceWithMax(50))),
+                            ),
+                        )
+                    }
+
+                Then("링크와 액션은 저장되고 익명 목록은 비어 있다") {
+                    val result = create()
+                    linkRepository.findById(result.id)!!.publicationId shouldBe null
+                    todoRepository.findAllByLinkId(result.id).size shouldBe 1
+                    publicLinks.getLinks(publicFolder.publicId!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
+                    publicTodos.getTodos(publicFolder.publicId!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
+                }
+            }
+
+            When("비공개 폴더나 미분류에서 공개를 선택하면") {
+                suspend fun create(folderId: Long?) =
+                    createLinkService.createLink(writerId, LinkFixture.createValidLinkRequest(folderId = folderId, isPublic = true))
+
+                Then("공개 조건 오류가 발생한다") {
+                    for (folderId in listOf(privateFolder.id, null)) {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { create(folderId) }
+                    }
+                }
+            }
+        }
 
         Given("링크 생성 서비스 테스트") {
             lateinit var user: User
