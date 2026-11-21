@@ -1,4 +1,4 @@
-package com.qlink.linkcontent.service
+package com.qlink.linkcontent.worker.service
 
 import com.qlink.link.repository.LinkRepository
 import com.qlink.linkcontent.domain.ContentPriority

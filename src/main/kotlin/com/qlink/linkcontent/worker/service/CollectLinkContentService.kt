@@ -1,4 +1,4 @@
-package com.qlink.linkcontent.service
+package com.qlink.linkcontent.worker.service
 
 import com.qlink.common.text.hostOrNull
 import com.qlink.common.transaction.TransactionRunner

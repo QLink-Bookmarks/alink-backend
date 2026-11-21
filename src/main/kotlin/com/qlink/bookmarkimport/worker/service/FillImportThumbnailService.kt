@@ -1,4 +1,4 @@
-package com.qlink.bookmarkimport.service
+package com.qlink.bookmarkimport.worker.service
 
 import com.qlink.bookmarkimport.domain.ImportLink
 import com.qlink.bookmarkimport.domain.ThumbnailStatus

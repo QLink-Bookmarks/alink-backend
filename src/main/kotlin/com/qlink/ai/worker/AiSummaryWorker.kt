@@ -17,8 +17,8 @@ import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.service.CompleteAiSummaryService
-import com.qlink.ai.service.FailAiSummaryService
+import com.qlink.ai.worker.service.CompleteAiSummaryService
+import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException

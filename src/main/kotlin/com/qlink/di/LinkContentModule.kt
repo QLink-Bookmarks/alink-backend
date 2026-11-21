@@ -5,9 +5,9 @@ import com.qlink.config.MonitoringConfig
 import com.qlink.config.WorkerConfig
 import com.qlink.linkcontent.client.LambdaLinkContentSyncClient
 import com.qlink.linkcontent.client.LinkContentSyncClient
-import com.qlink.linkcontent.service.CollectLinkContentService
-import com.qlink.linkcontent.service.GetLinkContentScheduleService
-import com.qlink.linkcontent.service.GetLinkContentTargetsService
+import com.qlink.linkcontent.worker.service.CollectLinkContentService
+import com.qlink.linkcontent.worker.service.GetLinkContentScheduleService
+import com.qlink.linkcontent.worker.service.GetLinkContentTargetsService
 import com.qlink.linkcontent.worker.LinkContentSignal
 import com.qlink.linkcontent.worker.LinkContentWorker
 import io.ktor.server.config.ApplicationConfig

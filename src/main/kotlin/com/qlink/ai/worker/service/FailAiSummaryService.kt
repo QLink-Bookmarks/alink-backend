@@ -1,4 +1,4 @@
-package com.qlink.ai.service
+package com.qlink.ai.worker.service
 
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.common.transaction.TransactionRunner

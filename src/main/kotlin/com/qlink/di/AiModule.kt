@@ -3,8 +3,8 @@ package com.qlink.di
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
-import com.qlink.ai.service.CompleteAiSummaryService
-import com.qlink.ai.service.FailAiSummaryService
+import com.qlink.ai.worker.service.CompleteAiSummaryService
+import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.ai.worker.AiSummaryWorker
 import com.qlink.auth.client.AppleAuthResourceClient

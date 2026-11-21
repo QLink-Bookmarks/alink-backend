@@ -7,9 +7,9 @@ import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.dto.DueKeyset
 import com.qlink.linkcontent.dto.LinkContentScheduleQuery
 import com.qlink.linkcontent.dto.LinkContentTargetQuery
-import com.qlink.linkcontent.service.CollectLinkContentService
-import com.qlink.linkcontent.service.GetLinkContentScheduleService
-import com.qlink.linkcontent.service.GetLinkContentTargetsService
+import com.qlink.linkcontent.worker.service.CollectLinkContentService
+import com.qlink.linkcontent.worker.service.GetLinkContentScheduleService
+import com.qlink.linkcontent.worker.service.GetLinkContentTargetsService
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.CancellationException

@@ -14,8 +14,8 @@ import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.service.CompleteAiSummaryService
-import com.qlink.ai.service.FailAiSummaryService
+import com.qlink.ai.worker.service.CompleteAiSummaryService
+import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.ai.worker.AiSummaryWorker
 import com.qlink.auth.domain.Role

@@ -1,4 +1,4 @@
-package com.qlink.link.service
+package com.qlink.link.worker.service
 
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.client.LinkPreviewCaller

@@ -8,7 +8,7 @@ import com.qlink.link.repository.LinkRepository
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
-import com.qlink.notification.service.SendNotificationService
+import com.qlink.notification.worker.service.SendNotificationService
 import com.qlink.todo.repository.TodoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

@@ -1,4 +1,4 @@
-package com.qlink.link.service
+package com.qlink.link.worker.service
 
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.image.service.PreviewImageUrlResolver

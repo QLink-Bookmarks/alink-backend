@@ -1,4 +1,4 @@
-package com.qlink.notification.service
+package com.qlink.notification.worker.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
