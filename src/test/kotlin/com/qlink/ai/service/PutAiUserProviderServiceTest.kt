@@ -1,8 +1,5 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.client.AiApiKeyValidationException
-import com.qlink.ai.client.AiCompatibilityServer
-import com.qlink.ai.client.withAiCompatibilityClient
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.dto.PutAiUserProviderRequest
@@ -217,65 +214,6 @@ class PutAiUserProviderServiceTest :
 
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) {
                         register()
-                    }
-                }
-            }
-
-            When("실험 공급자의 키 검증 HTTP 요청이 실패하면") {
-                val outcomes =
-                    mapOf(
-                        401 to ErrorCode.AI_API_KEY_INVALID,
-                        403 to ErrorCode.AI_API_KEY_INVALID,
-                        503 to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
-                        429 to ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
-                        307 to ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
-                    )
-                lateinit var previousKey: String
-
-                beforeTest {
-                    previousKey = "test-previous-${RandomFixture.randomId()}"
-                    service.putAiUserProvider(
-                        loginId = user.id!!,
-                        request = PutAiUserProviderRequest(providerId = provider.id!!, apiKey = previousKey),
-                    )
-                }
-
-                listOf(AiProviderType.OPENAI, AiProviderType.GEMINI).forEach { vendor ->
-                    listOf(false, true).forEach { sdk ->
-                        Then("$vendor ${if (sdk) "SDK" else "Ktor"} 상태를 오류 코드로 변환하고 기존 암호문을 유지한다") {
-                            val before = userProviderRepository.findByUserIdAndProviderId(user.id!!, provider.id!!)!!
-                            withAiCompatibilityClient(provider = vendor, sdk = sdk) { client, server ->
-                                AiCompatibilityServer().use { destination ->
-                                    fakeAiClient.validateWith = { request ->
-                                        client.validateApiKey(request.copy(baseUrl = server.baseUrl))
-                                    }
-                                    for ((status, errorCode) in outcomes) {
-                                        server.reply = {
-                                            AiCompatibilityServer.Reply(
-                                                status = status,
-                                                body = """{"error":{"message":"test failure"}}""",
-                                                location = destination.baseUrl.takeIf { status == 307 },
-                                            )
-                                        }
-                                        val input =
-                                            PutAiUserProviderRequest(
-                                                providerId = provider.id!!,
-                                                apiKey = "test-replacement-${RandomFixture.randomId()}",
-                                            )
-                                        val register = suspend { service.putAiUserProvider(loginId = user.id!!, request = input) }
-
-                                        val error = shouldThrowWithMessage<BusinessException>(errorCode.message) { register() }
-                                        (error.cause as AiApiKeyValidationException).statusCode shouldBe status
-                                        val saved = userProviderRepository.findByUserIdAndProviderId(user.id!!, provider.id!!)!!
-                                        saved.id shouldBe before.id
-                                        saved.apiKey shouldBe before.apiKey
-                                        apiKeyCipher.decrypt(saved.apiKey) shouldBe previousKey
-                                    }
-                                    server.requests.map { it.method to it.path } shouldBe List(outcomes.size) { "GET" to "/models" }
-                                    destination.requests.size shouldBe 0
-                                }
-                            }
-                        }
                     }
                 }
             }

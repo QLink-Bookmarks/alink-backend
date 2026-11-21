@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import org.flywaydb.core.Flyway
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.koin.core.Koin
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
@@ -295,7 +296,7 @@ object ServiceTestEnvironment {
     }
 }
 
-inline fun <reified T : Any> koinGet(): T = GlobalContext.get().get()
+inline fun <reified T : Any> koinGet(koin: Koin = GlobalContext.get()): T = koin.get()
 
 suspend fun <T> TransactionRunner.rollback(
     database: Database,

@@ -42,6 +42,7 @@ import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 
 fun externalModule(
@@ -82,16 +83,12 @@ fun externalModule(
     }
 
     single {
-        GeminiAiClient(
-            httpClient = get(),
-        )
-    }
+        GeminiAiClient()
+    } onClose { it?.close() }
 
     single {
-        OpenAiClient(
-            httpClient = get(),
-        )
-    }
+        OpenAiClient()
+    } onClose { it?.close() }
 
     single {
         KakaoAuthResourceClient(

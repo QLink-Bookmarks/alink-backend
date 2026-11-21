@@ -112,6 +112,7 @@ tasks.check {
 }
 
 tasks.withType<ShadowJar> {
+    isZip64 = true
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     mergeServiceFiles()
 }
@@ -136,6 +137,9 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.firebase.admin)
     implementation(libs.expo.server.sdk)
+    implementation(libs.openai.java)
+    implementation(libs.google.genai)
+    implementation(libs.okhttp)
 
     // Storage
     implementation(libs.aws.s3)
@@ -187,6 +191,4 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.localstack)
     testImplementation(libs.datafaker)
-    testImplementation(libs.openai.java)
-    testImplementation(libs.google.genai)
 }

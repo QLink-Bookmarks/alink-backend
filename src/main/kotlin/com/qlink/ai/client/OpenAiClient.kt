@@ -1,149 +1,112 @@
 package com.qlink.ai.client
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.JsonMissing
+import com.openai.core.JsonValue
+import com.openai.errors.OpenAIServiceException
+import com.openai.models.responses.EasyInputMessage
+import com.openai.models.responses.ResponseCreateParams
+import com.openai.models.responses.ResponseFormatTextJsonSchemaConfig
+import com.openai.models.responses.ResponseInputContent
+import com.openai.models.responses.ResponseInputItem
+import com.openai.models.responses.ResponseInputText
+import com.openai.models.responses.ResponseTextConfig
+import com.openai.models.responses.WebSearchTool
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.get
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.Json
 
-class OpenAiClient(
-    private val httpClient: HttpClient,
-) : AiClient {
+class OpenAiClient :
+    AiClient,
+    AutoCloseable {
     override val providerType: AiProviderType = AiProviderType.OPENAI
 
+    private val transport = AiSdkHttpTransport()
+    private val client =
+        OpenAIOkHttpClient
+            .builder()
+            .apiKey("set-per-request")
+            .okHttpClient(transport.client)
+            .maxRetries(0)
+            .build()
+    private val json = Json { ignoreUnknownKeys = true }
+    private val schema =
+        ResponseFormatTextJsonSchemaConfig.Schema
+            .builder()
+            .apply {
+                val mapper = ObjectMapper()
+                AiSummarySpec.openAiJsonSchema.forEach { (key, value) ->
+                    putAdditionalProperty(key, JsonValue.fromJsonNode(mapper.readTree(value.toString())))
+                }
+            }.build()
+    private val textConfig =
+        ResponseTextConfig
+            .builder()
+            .format(
+                ResponseFormatTextJsonSchemaConfig
+                    .builder()
+                    .name(AiSummarySpec.RESPONSE_SCHEMA_NAME)
+                    .strict(true)
+                    .schema(schema)
+                    .build(),
+            ).build()
+
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
+        val input =
+            EasyInputMessage
+                .builder()
+                .role(EasyInputMessage.Role.USER)
+                .type(JsonMissing.of())
+                .contentOfResponseInputMessageContentList(
+                    listOf(ResponseInputContent.ofInputText(ResponseInputText.builder().text(request.prompt).build())),
+                ).build()
+        val params =
+            ResponseCreateParams
+                .builder()
+                .model(request.model)
+                .instructions(AiSummarySpec.systemInstruction)
+                .inputOfResponse(listOf(ResponseInputItem.ofEasyInputMessage(input)))
+                .addTool(WebSearchTool.builder().type(WebSearchTool.Type.WEB_SEARCH).build())
+                .text(textConfig)
+                .build()
         val response =
-            httpClient
-                .post(request.baseUrl.openAiResponsesUrl()) {
-                    bearerAuth(request.apiKey)
-                    contentType(ContentType.Application.Json)
-                    setBody(OpenAiResponsesRequest.from(request.model, request.prompt))
-                }.body<OpenAiResponsesResponse>()
+            transport.execute {
+                client
+                    .withOptions { it.baseUrl(request.baseUrl).apiKey(request.apiKey) }
+                    .responses()
+                    .withRawResponse()
+                    .create(params)
+                    .use { json.decodeFromString<OpenAiResponsesResponse>(it.body().bufferedReader().readText()) }
+            }
         val text =
-            response
-                .output
+            response.output
+                .asSequence()
                 .flatMap { it.content }
                 .firstNotNullOfOrNull { it.text?.trim()?.takeIf(String::isNotBlank) }
                 ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
 
-        return parseSummaryResponse(
-            rawResponse = text,
-            usedTokens = response.usage?.totalTokens ?: text.length,
-        )
+        return parseSummaryResponse(rawResponse = text, usedTokens = response.usage?.totalTokens ?: text.length)
     }
 
     override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
-        val response =
-            httpClient.get(request.baseUrl.openAiModelsUrl()) {
-                bearerAuth(request.apiKey)
+        transport.execute {
+            try {
+                client
+                    .withOptions { it.baseUrl(request.baseUrl).apiKey(request.apiKey) }
+                    .models()
+                    .withRawResponse()
+                    .list()
+                    .close()
+            } catch (exception: OpenAIServiceException) {
+                throw AiApiKeyValidationException(exception.statusCode())
             }
-
-        if (response.status.value !in 200..299) {
-            throw AiApiKeyValidationException(response.status.value)
         }
     }
-}
 
-private fun String.openAiModelsUrl(): String =
-    removeSuffix("/")
-        .let { "$it/models" }
-
-private fun String.openAiResponsesUrl(): String =
-    removeSuffix("/")
-        .let { "$it/responses" }
-
-@Serializable
-private data class OpenAiResponsesRequest(
-    val model: String,
-    val instructions: String,
-    val input: List<OpenAiInput>,
-    val tools: List<OpenAiTool>,
-    val text: OpenAiText,
-) {
-    companion object {
-        fun from(
-            model: String,
-            prompt: String,
-        ): OpenAiResponsesRequest =
-            OpenAiResponsesRequest(
-                model = model,
-                instructions = AiSummarySpec.systemInstruction,
-                input =
-                    listOf(
-                        OpenAiInput(
-                            role = "user",
-                            content = listOf(OpenAiContent(type = "input_text", text = prompt)),
-                        ),
-                    ),
-                tools = listOf(OpenAiTool(type = "web_search")),
-                text = OpenAiText(format = OpenAiFormat()),
-            )
+    override fun close() {
+        client.close()
+        transport.close()
     }
 }
-
-@Serializable
-private data class OpenAiInput(
-    val role: String,
-    val content: List<OpenAiContent>,
-)
-
-@Serializable
-private data class OpenAiContent(
-    val type: String,
-    val text: String,
-)
-
-@Serializable
-private data class OpenAiTool(
-    val type: String,
-)
-
-@Serializable
-private data class OpenAiText(
-    val format: OpenAiFormat,
-)
-
-@Serializable
-private data class OpenAiFormat(
-    val type: String = "json_schema",
-    val name: String = AiSummarySpec.RESPONSE_SCHEMA_NAME,
-    val strict: Boolean = true,
-    val schema: JsonObject = AiSummarySpec.openAiJsonSchema,
-)
-
-@Serializable
-private data class OpenAiResponsesResponse(
-    val output: List<OpenAiOutput> = emptyList(),
-    val usage: OpenAiUsage? = null,
-)
-
-@Serializable
-private data class OpenAiOutput(
-    val content: List<OpenAiOutputContent> = emptyList(),
-)
-
-@Serializable
-private data class OpenAiOutputContent(
-    val type: String? = null,
-    @SerialName("text")
-    val text: String? = null,
-)
-
-@Serializable
-private data class OpenAiUsage(
-    @SerialName("input_tokens")
-    val inputTokens: Int? = null,
-    @SerialName("output_tokens")
-    val outputTokens: Int? = null,
-    @SerialName("total_tokens")
-    val totalTokens: Int = 0,
-)
