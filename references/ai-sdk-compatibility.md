@@ -28,7 +28,7 @@ Gemini Developer API 문서는 `x-goog-api-key`와 버전이 포함된 경로를
 | 페이지와 요청 수 | 검증마다 GET 1회. 후속 GET과 추론 POST 0회 | 동일. SDK의 모델 목록은 페이지 넘김을 지원하지 않는다 | 동일. 실제 첫 페이지에 토큰이 있는 fixture를 사용 |
 | 401·403·503·429·307 | 원래 상태를 등록 서비스까지 전달 | 동일 | 동일. 비동기 페이지를 기다리면 SDK가 첫 페이지의 오류를 `GenAiIOException`으로 감싸므로 상태 보존 실험에 동기 호출 사용 |
 | 307 리디렉션 | 요약과 검증 각각 최초 1회, 목적지 0회. 요약은 `ContentConvertException` | 요청 수 동일. 요약은 `UnexpectedStatusCodeException` | 요청 수 동일. 요약은 `ApiException` |
-| 첫 후보 503 후 다음 후보 성공 | 후보당 POST 1회, 워커의 성공 모델·요약 저장 확인 | 시도 순서와 저장 결과 동일. 실패 원인은 `InternalServerException` | 시도 순서와 저장 결과 동일. 실패 원인은 `ServerException` |
+| 첫 후보 503 후 다음 후보 성공 | 후보당 POST 1회. 첫 후보는 `BusinessException(AI_EMPTY_RESPONSE)`. 워커는 다음 후보의 성공 모델과 요약을 저장 | 시도 순서와 저장 결과 동일. 실패 원인은 `InternalServerException` | 시도 순서와 저장 결과 동일. 실패 원인은 `ServerException` |
 | 요약 POST와 키 검증 GET의 지연 응답 | `HttpRequestTimeoutException` | `OpenAIIoException` | `GenAiIOException` |
 | 요약 POST 응답 헤더 전 코루틴 취소 | 응답 재개 전 호출자 종료, 서버 쓰기 실패 | 응답 재개 전 호출자 종료, 2초 동안 서버 쓰기 결과 미확인 | 응답 재개 전 호출자 종료, 서버 쓰기 완료 |
 | 키 검증 GET 응답 헤더 전 코루틴 취소 | 응답 재개 전 호출자 종료, 서버 쓰기 실패 | 응답 재개 전 호출자 종료, 2초 동안 서버 쓰기 결과 미확인 | 500ms 관찰 창 뒤 응답을 재개하자 쓰기가 완료되고 호출자 종료 |

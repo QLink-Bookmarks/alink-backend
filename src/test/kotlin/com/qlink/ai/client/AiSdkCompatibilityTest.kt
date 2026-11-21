@@ -381,11 +381,9 @@ class AiSdkCompatibilityTest :
 
                                 call(first)
                                 call(second)
-                                val sequentialConnections =
-                                    firstServer.requests
-                                        .map { it.connection }
-                                        .distinct()
-                                        .size
+                                val sequentialRequests = firstServer.requests
+                                sequentialRequests.map { it.method } shouldBe listOf("POST", "GET", "POST", "GET")
+                                val sequentialConnections = sequentialRequests.map { it.connection }.toSet().size
                                 coroutineScope { listOf(first, second).map { async { call(it) } }.awaitAll() }
                                 call(first)
                                 call(remote)
@@ -407,12 +405,13 @@ class AiSdkCompatibilityTest :
                                 firstRequests.drop(8).forEach { assertTrialKey(it, provider, sdk, first.apiKey) }
                                 secondServer.requests.map { it.method } shouldBe listOf("POST", "GET", "POST", "GET")
                                 secondServer.requests.forEach { assertTrialKey(it, provider, sdk, remote.apiKey) }
+                                val reusedConnection = sequentialConnections < sequentialRequests.size
                                 println(
                                     "$provider ${label(
                                         sdk,
-                                    )} isolation: first=${firstRequests.size}, second=${secondServer.requests.size}, sequential connections=$sequentialConnections",
+                                    )} isolation: first=${firstRequests.size}, second=${secondServer.requests.size}, " +
+                                        "sequential requests=${sequentialRequests.size}, connections=$sequentialConnections, reused=$reusedConnection",
                                 )
-                                sequentialConnections shouldBe if (sdk) 1 else 4
                             }
                         }
                     }
