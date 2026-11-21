@@ -5,7 +5,10 @@ import aws.sdk.kotlin.services.lambda.LambdaClient
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
+import com.anthropic.backends.AnthropicBackend
+import com.anthropic.client.okhttp.OkHttpClient
 import com.qlink.ai.client.AiClientRouter
+import com.qlink.ai.client.ClaudeAiClient
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
 import com.qlink.auth.client.AppleAuthResourceClient
@@ -42,7 +45,9 @@ import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
+import com.anthropic.core.http.HttpClient as AnthropicTransport
 
 fun externalModule(
     config: ApplicationConfig,
@@ -133,12 +138,24 @@ fun externalModule(
         )
     }
 
+    single<AnthropicTransport> {
+        OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
+    }
+
+    single {
+        ClaudeAiClient(
+            transport = get(),
+            log = LoggerFactory.getLogger(ClaudeAiClient::class.java),
+        )
+    } onClose { it?.close() }
+
     single {
         AiClientRouter(
             clients =
                 listOf(
                     get<GeminiAiClient>(),
                     get<OpenAiClient>(),
+                    get<ClaudeAiClient>(),
                 ),
         )
     }
