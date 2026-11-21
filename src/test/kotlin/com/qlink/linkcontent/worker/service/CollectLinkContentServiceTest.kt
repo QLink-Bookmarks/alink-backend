@@ -528,6 +528,30 @@ class CollectLinkContentServiceTest :
                     actual.claimCount shouldBe content.claimCount + 2
                 }
             }
+
+            When("같은 URL을 재선점한 행이 PENDING일 때 이전 실행이 성공 결과를 먼저 저장하면") {
+                val collect =
+                    suspend {
+                        client.onInvoke = {
+                            val reclaimedAt = now + LinkContent.STALE_AFTER + RandomFixture.randomInt(1, 60).minutes
+                            linkContentRepository
+                                .claim(contentId = content.id!!, staleAfter = LinkContent.STALE_AFTER, now = reclaimedAt)
+                                .shouldNotBeNull()
+                        }
+                        service.collect(contentId = content.id!!, now = now)
+                    }
+
+                Then("이전 실행의 본문과 COLLECTED 상태가 저장되고 재선점으로 증가한 claimCount가 유지된다") {
+                    val result = collect()
+
+                    result.outcome shouldBe CollectOutcome.COLLECTED
+                    val actual = linkContentRepository.findById(content.id!!).shouldNotBeNull()
+                    actual.status shouldBe ContentStatus.COLLECTED
+                    actual.sourceUrl shouldBe link.url
+                    actual.page?.text shouldBe text
+                    actual.claimCount shouldBe content.claimCount + 2
+                }
+            }
         }
 
         Given("링크 URL과 다른 sourceUrl의 PENDING 행") {
