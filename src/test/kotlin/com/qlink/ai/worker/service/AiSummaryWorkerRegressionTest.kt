@@ -1,7 +1,10 @@
 package com.qlink.ai.worker.service
 
+import com.qlink.ai.client.AiCompatibilityServer
+import com.qlink.ai.client.withAiCompatibilityClient
 import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
+import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.domain.UserProvider
@@ -21,6 +24,7 @@ import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAiClient
+import com.qlink.support.fixture.AiCompatibilityFixture
 import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
@@ -42,6 +46,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -196,6 +202,63 @@ class AiSummaryWorkerRegressionTest :
                     saved.status shouldBe AiJobStatus.C
                     saved.responseModelId shouldBe fallback.id
                     linkRepository.findById(link.id!!)!!.status shouldBe LinkStatus.A
+                }
+            }
+
+            When("첫 후보가 HTTP 503을 받고 실험 공급자의 다음 후보가 성공하면") {
+                lateinit var fallback: AvailableModel
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    enqueue(Role.SUPER_ADMIN)
+                    fallback =
+                        availableModelRepository.insert(AiFixture.createRandomAvailableModelOf(providerId = key.providerId, priority = 2))
+                }
+
+                listOf(AiProviderType.OPENAI, AiProviderType.GEMINI).forEach { vendor ->
+                    listOf(false, true).forEach { sdk ->
+                        Then("$vendor ${if (sdk) "SDK" else "Ktor"} 후보별 HTTP 요청을 한 번만 보낸다") {
+                            withAiCompatibilityClient(provider = vendor, sdk = sdk) { client, server ->
+                                val summary = AiCompatibilityFixture.summary(linkId = link.id!!)
+                                val success =
+                                    AiCompatibilityFixture.envelope(
+                                        provider = vendor,
+                                        groups = listOf(listOf(summary.rawResponse)),
+                                    )
+
+                                fun requestModel(request: AiCompatibilityServer.Request): String =
+                                    if (vendor == AiProviderType.OPENAI) {
+                                        request.body!!
+                                            .jsonObject
+                                            .getValue("model")
+                                            .jsonPrimitive.content
+                                    } else {
+                                        request.path.substringAfterLast("/").substringBefore(":")
+                                    }
+
+                                server.reply = {
+                                    if (requestModel(it) == model.model) {
+                                        AiCompatibilityServer.Reply(status = 503, body = """{"error":{"message":"test unavailable"}}""")
+                                    } else {
+                                        AiCompatibilityServer.Reply(body = success)
+                                    }
+                                }
+                                fakeAiClient.summarizeWith = { request ->
+                                    client.summarize(request.copy(providerType = vendor, baseUrl = server.baseUrl))
+                                }
+
+                                val action = suspend { worker.proceed(jobId) }
+                                shouldNotThrow<BusinessException> { action() }
+
+                                server.requests.map(::requestModel) shouldBe listOf(model.model, fallback.model)
+                                fakeAiClient.requestedModels shouldBe listOf(model.model, fallback.model)
+                                val saved = aiJobRepository.findById(jobId)!!
+                                saved.status shouldBe AiJobStatus.C
+                                saved.responseModelId shouldBe fallback.id
+                                linkRepository.findById(link.id!!)!!.summary shouldBe summary.summary
+                            }
+                        }
+                    }
                 }
             }
 
