@@ -341,9 +341,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
+        publicationId: String?,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
+            it[Links.publicationId] = publicationId
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags

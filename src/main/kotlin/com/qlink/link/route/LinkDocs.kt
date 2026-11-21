@@ -135,9 +135,9 @@ internal fun updateLinkAiSummaryDocs(): RouteConfig.() -> Unit =
                 }
             }
             code(HttpStatusCode.UnprocessableEntity) {
-                description = "요약에 사용할 제공자 또는 모델이 비활성"
+                description = "링크 공개 조건 미충족 또는 요약 제공자·모델 비활성"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE)
+                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_MODEL_INACTIVE, ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
                 }
             }
         }

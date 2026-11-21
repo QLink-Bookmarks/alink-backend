@@ -17,6 +17,8 @@ interface FolderRepository {
 
     suspend fun findAllByOwnerId(ownerId: Long): List<Folder>
 
+    suspend fun findAllByOwnerIdForKeyShare(ownerId: Long): List<Folder>
+
     suspend fun findCreatedAtById(id: Long): Instant?
 
     suspend fun existsByOwnerIdAndName(
