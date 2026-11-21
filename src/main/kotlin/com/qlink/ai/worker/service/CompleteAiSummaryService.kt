@@ -41,23 +41,21 @@ class CompleteAiSummaryService(
             applied =
                 tx.required {
                     val snapshot = completion.snapshot
-                    // Discover the owner only; all decisions use the subsequently locked facts.
-                    val observedLink = linkRepository.findById(snapshot.linkId) ?: return@required null
-                    val folders =
+                    val linkBeforeLock = linkRepository.findById(snapshot.linkId) ?: return@required null
+                    val lockedFolders =
                         folderRepository.findAllByIdsForUpdate(
-                            listOfNotNull(observedLink.folderId, completion.candidateFolderId),
+                            listOfNotNull(linkBeforeLock.folderId, completion.candidateFolderId),
                         )
-                    val candidate = folders.find { it.id == completion.candidateFolderId }
+                    val candidate = lockedFolders.find { it.id == completion.candidateFolderId }
                     val member =
                         candidate?.let {
                             folderMemberRepository.findByFolderIdAndUserIdForUpdate(
                                 folderId = it.id!!,
-                                userId = observedLink.ownerId,
+                                userId = linkBeforeLock.ownerId,
                             )
                         }
-                    // Never acquire another folder lock after taking the link lock.
                     val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required null
-                    if (link.hasFolderChangedSince(observedLink.folderId)) {
+                    if (link.hasFolderChangedSince(linkBeforeLock.folderId)) {
                         retry = true
                         return@required null
                     }
@@ -114,8 +112,8 @@ class CompleteAiSummaryService(
                                 previewEnvironment = urlResolver.environment,
                                 publicationId =
                                     link.resolveUpdatedPublicationId(
-                                        sourcePublicId = folders.find { it.id == link.folderId }?.publicId,
-                                        targetPublicId = folders.find { it.id == folderId }?.publicId,
+                                        sourcePublicId = lockedFolders.find { it.id == link.folderId }?.publicId,
+                                        targetPublicId = lockedFolders.find { it.id == folderId }?.publicId,
                                         isPublic = null,
                                     ),
                             ).copyAiStatus(status = LinkStatus.A, workModelId = completion.responseModelId)
@@ -148,7 +146,6 @@ class CompleteAiSummaryService(
         } while (retry)
         applied ?: return AiSummaryCompletionResult()
 
-        // A scheduling failure after commit must not turn a successful AI result into a failed job.
         return try {
             applied.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
             rescheduleOtherTodos(linkId = completion.snapshot.linkId, createdTodos = applied.createdTodos)

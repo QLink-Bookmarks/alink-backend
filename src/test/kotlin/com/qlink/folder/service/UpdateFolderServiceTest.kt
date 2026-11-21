@@ -30,6 +30,7 @@ import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
+import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,7 @@ import kotlinx.coroutines.async
 class UpdateFolderServiceTest :
     BaseServiceTest({
         val updateFolderService = koinGet<UpdateFolderService>()
+        val transferFolderOwnerService = koinGet<TransferFolderOwnerService>()
         val folderRepository = koinGet<FolderRepository>()
         val folderMemberRepository = koinGet<FolderMemberRepository>()
         val userRepository = koinGet<UserRepository>()
@@ -148,6 +150,7 @@ class UpdateFolderServiceTest :
             lateinit var folder: Folder
 
             beforeTest {
+                if (it.type != TestType.Test) return@beforeTest
                 folder =
                     CoroutineScope(Dispatchers.IO)
                         .async {
@@ -158,7 +161,8 @@ class UpdateFolderServiceTest :
                         }.await()
             }
 
-            afterTest {
+            afterTest { (testCase, _) ->
+                if (testCase.type != TestType.Test) return@afterTest
                 CoroutineScope(Dispatchers.IO).async { tx.required { userRepository.deleteById(folder.ownerId) } }.await()
             }
 
@@ -224,6 +228,77 @@ class UpdateFolderServiceTest :
                             val next = setPublic(folder, true).publicId!!
                             tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).none { it.isPublicIn(next) } } shouldBe true
                             publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                        }.await()
+                }
+            }
+
+            When("최초 공개가 대기 중인 링크 생성보다 먼저 커밋되면") {
+                Then("생략한 공개값은 전체 공개이고 명시한 비공개는 유지한다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            for (visibility in listOf(null, false)) {
+                                val privateFolder =
+                                    if (visibility == null) {
+                                        folder
+                                    } else {
+                                        tx.required {
+                                            folderRepository.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId))
+                                        }
+                                    }
+                                val folderId = privateFolder.id!!
+                                var publicId: String? = null
+                                val request = LinkFixture.createValidLinkRequest(folderId = folderId, isPublic = visibility)
+                                val result =
+                                    runWhileFolderLocked(
+                                        tx = tx,
+                                        holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folderId)) },
+                                        afterWaiting = { publicId = setPublic(privateFolder, true).publicId },
+                                        action = { createLinkService.createLink(folder.ownerId, request) },
+                                    )
+
+                                publicId shouldNotBe null
+                                val stored = tx.readOnly { linkRepository.findById(result.id)!! }
+                                stored.publicationId shouldBe publicId.takeIf { visibility == null }
+                            }
+                        }.await()
+                }
+            }
+
+            When("링크 생성이 대기 중인 공개 철회보다 먼저 커밋되면") {
+                Then("이전 주소가 닫히고 재공개 뒤에도 그 링크와 액션은 조회되지 않는다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            val folderId = folder.id!!
+                            val oldPublicId = setPublic(folder, true).publicId!!
+                            val request =
+                                LinkFixture.createValidLinkRequest(
+                                    folderId = folderId,
+                                    todos = listOf(CreateLinkTodoRequest(title = RandomFixture.randomSentenceWithMax(50))),
+                                )
+                            var createdId: Long? = null
+                            val result =
+                                runWhileFolderLocked(
+                                    tx = tx,
+                                    holdLock = { folderRepository.findAllByIdsForKeyShare(listOf(folderId)) },
+                                    afterWaiting = { createdId = createLinkService.createLink(folder.ownerId, request).id },
+                                    action = { setPublic(folder, false) },
+                                )
+                            val linkId = createdId!!
+                            result.publicId shouldBe null
+                            tx.readOnly {
+                                linkRepository.findById(linkId)!!.publicationId shouldBe oldPublicId
+                                todoRepository.findAllByLinkId(linkId).size shouldBe 1
+                            }
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
+                                publicLinks.getLinks(oldPublicId, null, null, ScrollRequest())
+                            }
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
+                                publicTodos.getTodos(oldPublicId, null, null, ScrollRequest())
+                            }
+                            val next = setPublic(folder, true).publicId!!
+                            tx.readOnly { linkRepository.findById(linkId)!!.isPublicIn(next) } shouldBe false
+                            publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            publicTodos.getTodos(next, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -543,6 +618,38 @@ class UpdateFolderServiceTest :
                     actual shouldNotBe null
                     actual!!.name shouldBe folder.name
                     actual.emoji shouldBe request.emoji
+                }
+            }
+        }
+
+        Given("공개된 공유 폴더를 다른 멤버에게 이전하는 소유자") {
+            lateinit var folder: Folder
+            var recipientId = 0L
+            lateinit var staleRequest: UpdateFolderRequest
+
+            beforeTest {
+                val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                recipientId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                folder = folderRepository.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(FolderFixture.createPublicId()))
+                folderMemberRepository.insertIfAbsent(FolderMemberFixture.createOwnerMember(folderId = folder.id!!, userId = ownerId))
+                folderMemberRepository.insertIfAbsent(FolderMemberFixture.createMember(folderId = folder.id!!, userId = recipientId))
+                staleRequest = UpdateFolderRequest(name = folder.name, emoji = folder.emoji, isPublic = false)
+                transferFolderOwnerService.transferOwner(loginId = ownerId, folderId = folder.id!!, ownerId = recipientId)
+            }
+
+            When("이전 소유자가 이전 전에 준비한 공개 철회 요청을 보내면") {
+                val update =
+                    suspend {
+                        updateFolderService.updateFolder(loginId = folder.ownerId, folderId = folder.id!!, request = staleRequest)
+                    }
+
+                Then("폴더를 찾을 수 없고 새 소유자의 공개 상태와 주소가 그대로다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) { update() }
+                    val stored = folderRepository.findById(folder.id!!)!!
+                    stored.ownerId shouldBe recipientId
+                    stored.isPublic shouldBe true
+                    stored.publicId shouldBe folder.publicId
+                    folderRepository.findPublicByPublicId(folder.publicId!!)?.name shouldBe folder.name
                 }
             }
         }

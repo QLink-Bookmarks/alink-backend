@@ -118,6 +118,31 @@ class DeleteFolderServiceTest :
                         listOf(PublicFolderLinkResponse(title = publicLink.title, url = publicLink.url))
                 }
             }
+
+            When("비공개 폴더로 옮기며 삭제하면") {
+                lateinit var target: Folder
+                beforeTest { target = folders.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId)) }
+                val delete =
+                    suspend {
+                        service.deleteFolder(
+                            loginId = folder.ownerId,
+                            folderId = folder.id!!,
+                            onDelete = "move",
+                            targetFolderId = target.id,
+                        )
+                    }
+
+                Then("공개 링크가 새 폴더에서 비공개가 되고 이전 주소가 닫힌다") {
+                    shouldNotThrow<BusinessException> { delete() }
+                    val stored = links.findById(publicLink.id!!)!!
+                    stored.folderId shouldBe target.id
+                    stored.publicationId shouldBe null
+                    stored.isPublicIn(folders.findById(target.id!!)?.publicId) shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
+                        publicLinks.getLinks(folder.publicId!!, null, null, ScrollRequest())
+                    }
+                }
+            }
         }
 
         suspend fun insertAiJobsAndUsageFor(

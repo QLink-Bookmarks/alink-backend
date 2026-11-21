@@ -39,8 +39,7 @@ interface LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        sourcePublicId: String? = null,
-        targetPublicId: String? = null,
+        publicationId: String? = null,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>

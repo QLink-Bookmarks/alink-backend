@@ -164,19 +164,12 @@ class DbLinkRepository : LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        sourcePublicId: String?,
-        targetPublicId: String?,
+        publicationId: String?,
     ) {
         if (linkIds.isEmpty()) return
-        val nextPublicationId =
-            if (sourcePublicId != null && targetPublicId != null) {
-                Case().When(Links.publicationId eq sourcePublicId, textLiteral(targetPublicId)).Else(Op.nullOp())
-            } else {
-                Op.nullOp()
-            }
         Links.update(where = { Links.id inList linkIds }) {
             it[Links.folderId] = folderId
-            it[Links.publicationId] = nextPublicationId
+            it[Links.publicationId] = publicationId
             it[Links.updatedAt] = now.toJavaInstant()
         }
     }

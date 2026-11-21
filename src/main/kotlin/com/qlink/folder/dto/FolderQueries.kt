@@ -3,6 +3,7 @@
 package com.qlink.folder.dto
 
 import com.qlink.common.search.SortCursor
+import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.FolderOrderKey
 import com.qlink.folder.repository.table.Folders
 import com.qlink.foldermember.repository.table.FolderMembers
@@ -48,6 +49,15 @@ fun ResultRow.toPublicFolderQuery(): PublicFolderQuery =
     )
 
 typealias FolderSearchCursor = SortCursor<FolderOrderKey, FolderSearchCursorValue>
+
+@Serializable
+data class PublicFolderCursor(
+    val publicId: String,
+    val collection: String,
+    val direction: SortDirection,
+    val id: Long? = null,
+    val createdAt: Instant? = null,
+)
 
 @Serializable
 data class FolderSearchCursorValue(
