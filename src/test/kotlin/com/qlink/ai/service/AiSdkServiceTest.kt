@@ -145,6 +145,7 @@ class AiSdkServiceTest :
                         apiKey = apiKey,
                         model = "model-${RandomFixture.randomId()}",
                         prompt = RandomFixture.randomSentenceWithMax(100),
+                        requestedUrl = "https://example.com/${RandomFixture.randomId()}",
                     )
 
                 When("모델 목록 GET이 빈 본문 또는 다음 페이지 토큰을 포함하거나 해석할 수 없는 2xx를 반환하면") {
