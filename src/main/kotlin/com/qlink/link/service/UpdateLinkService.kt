@@ -3,6 +3,7 @@ package com.qlink.link.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
@@ -32,9 +33,8 @@ class UpdateLinkService(
         linkId: Long,
         request: UpdateLinkRequest,
     ): UpdateLinkResponse {
-        var response: UpdateLinkResponse?
-        do {
-            response =
+        val response =
+            retryUntilNotNull {
                 tx
                     .required {
                         userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
@@ -84,7 +84,7 @@ class UpdateLinkService(
 
                         savedLink.toResponse(isPublic = savedLink.isPublicIn(target?.publicId))
                     }
-        } while (response == null)
+            }
         linkContentSignal.wake()
         return response
     }

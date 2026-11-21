@@ -1,6 +1,7 @@
 package com.qlink.common.retry
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 
 private const val DEFAULT_INITIAL_DELAY_MS = 100L
 
@@ -25,4 +26,11 @@ suspend fun <T> retryWithExponentialBackoff(
     }
 
     return block()
+}
+
+suspend fun <T : Any> retryUntilNotNull(block: suspend () -> T?): T {
+    while (true) {
+        block()?.let { return it }
+        yield()
+    }
 }

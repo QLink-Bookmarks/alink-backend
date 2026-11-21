@@ -3,6 +3,7 @@ package com.qlink.link.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
@@ -33,9 +34,8 @@ class PatchLinkService(
         linkId: Long,
         request: PatchLinkRequest,
     ): PatchLinkResponse {
-        var result: PatchLinkResult?
-        do {
-            result =
+        val result =
+            retryUntilNotNull {
                 tx.required {
                     userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
                     val sourceFolderId = linkRepository.findById(linkId)?.folderId
@@ -117,7 +117,7 @@ class PatchLinkService(
                         createdTodos = createdTodos,
                     )
                 }
-        } while (result == null)
+            }
 
         result.deletedTodoIds.forEach { scheduleTodoNotificationService.cancelForTodo(it) }
         result.updatedTodos.forEach { scheduleTodoNotificationService.replaceForTodo(it) }

@@ -35,7 +35,7 @@ class CreateFolderService(
                         name = request.name,
                         emoji = request.emoji,
                         sharedAt = request.sharedAtOrNull(),
-                    ).setPublic(newPublicId = if (request.isPublic == true) UUID.randomUUID().toString() else null)
+                    ).setPublic(newPublicId = if (request.isPublic) UUID.randomUUID().toString() else null)
             val created = folderRepository.insert(folder)
 
             if (created.sharedAt != null) {

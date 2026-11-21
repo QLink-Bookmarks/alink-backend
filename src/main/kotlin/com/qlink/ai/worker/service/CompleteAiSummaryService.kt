@@ -5,6 +5,7 @@ import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryCompletionResult
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.DailyUsageRepository
+import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
@@ -34,14 +35,11 @@ class CompleteAiSummaryService(
     private val log: Logger,
 ) {
     suspend fun complete(completion: AiSummaryCompletion): AiSummaryCompletionResult {
-        var applied: AppliedAiSummary?
-        var retry: Boolean
-        do {
-            retry = false
-            applied =
+        val attempt =
+            retryUntilNotNull {
                 tx.required {
                     val snapshot = completion.snapshot
-                    val linkBeforeLock = linkRepository.findById(snapshot.linkId) ?: return@required null
+                    val linkBeforeLock = linkRepository.findById(snapshot.linkId) ?: return@required CompletionAttempt.Skipped
                     val lockedFolders =
                         folderRepository.findAllByIdsForUpdate(
                             listOfNotNull(linkBeforeLock.folderId, completion.candidateFolderId),
@@ -54,12 +52,9 @@ class CompleteAiSummaryService(
                                 userId = linkBeforeLock.ownerId,
                             )
                         }
-                    val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required null
-                    if (link.hasFolderChangedSince(linkBeforeLock.folderId)) {
-                        retry = true
-                        return@required null
-                    }
-                    val job = aiJobRepository.findById(snapshot.jobId) ?: return@required null
+                    val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required CompletionAttempt.Skipped
+                    if (link.hasFolderChangedSince(linkBeforeLock.folderId)) return@required null
+                    val job = aiJobRepository.findById(snapshot.jobId) ?: return@required CompletionAttempt.Skipped
                     val folderId =
                         LinkAiFolderDomainService.resolve(
                             link = link,
@@ -138,13 +133,13 @@ class CompleteAiSummaryService(
                                 ),
                             )
                         }
-                    AppliedAiSummary(
+                    CompletionAttempt.Applied(
                         createdTodos = todos,
                         folderKeptAfterMove = link.hasFolderChangedSince(snapshot.folderId),
                     )
                 }
-        } while (retry)
-        applied ?: return AiSummaryCompletionResult()
+            }
+        val applied = attempt as? CompletionAttempt.Applied ?: return AiSummaryCompletionResult()
 
         return try {
             applied.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
@@ -170,8 +165,12 @@ class CompleteAiSummaryService(
             .forEach { scheduleTodoNotificationService.replaceForTodo(it) }
     }
 
-    private data class AppliedAiSummary(
-        val createdTodos: List<Todo>,
-        val folderKeptAfterMove: Boolean,
-    )
+    private sealed interface CompletionAttempt {
+        data object Skipped : CompletionAttempt
+
+        data class Applied(
+            val createdTodos: List<Todo>,
+            val folderKeptAfterMove: Boolean,
+        ) : CompletionAttempt
+    }
 }

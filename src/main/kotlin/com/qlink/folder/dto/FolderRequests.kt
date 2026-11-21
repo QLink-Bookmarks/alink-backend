@@ -11,7 +11,7 @@ data class CreateFolderRequest(
     val emoji: String? = null,
     val isShared: Boolean? = null,
     @Serializable(with = StrictBooleanSerializer::class)
-    val isPublic: Boolean? = null,
+    val isPublic: Boolean = false,
 )
 
 @Serializable

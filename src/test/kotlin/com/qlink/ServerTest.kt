@@ -12,6 +12,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -81,6 +82,25 @@ class ServerTest :
                     }
                 validRequest.status shouldBe HttpStatusCode.NotFound
                 apiErrorCode(validRequest.bodyAsText()) shouldBe ErrorCode.FOLDER_OWNER_NOT_FOUND.code
+
+                val createBody = """{"name":"공개 폴더"}"""
+                val createWithDefault =
+                    client.post("/api/folders") {
+                        bearerAuth(token)
+                        contentType(ContentType.Application.Json)
+                        setBody(createBody)
+                    }
+                createWithDefault.status shouldBe HttpStatusCode.NotFound
+                apiErrorCode(createWithDefault.bodyAsText()) shouldBe ErrorCode.FOLDER_OWNER_NOT_FOUND.code
+
+                val createWithNull =
+                    client.post("/api/folders") {
+                        bearerAuth(token)
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"name":"공개 폴더","isPublic":null}""")
+                    }
+                createWithNull.status shouldBe HttpStatusCode.BadRequest
+                apiErrorCode(createWithNull.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
 
                 val publicNotFound = client.get("/api/public-folders/${FolderFixture.createPublicId()}/links?cursor=invalid")
                 publicNotFound.status shouldBe HttpStatusCode.NotFound

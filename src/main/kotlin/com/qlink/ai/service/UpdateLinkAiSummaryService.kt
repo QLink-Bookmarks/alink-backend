@@ -13,6 +13,7 @@ import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -62,9 +63,8 @@ class UpdateLinkAiSummaryService(
         loginId: Long,
         request: AiSummaryRequest,
     ): AiSummaryResponse {
-        var result: UpdateLinkAiSummaryResult?
-        do {
-            result =
+        val result =
+            retryUntilNotNull {
                 tx.required {
                     (request.id != null && (request.memo != null || !request.todos.isNullOrEmpty()))
                         .requireFalse(ErrorCode.LINK_AI_EXISTING_LINK_CONTENT_NOT_ALLOWED)
@@ -172,7 +172,7 @@ class UpdateLinkAiSummaryService(
                         previewFillLinkId = link.id.takeUnless { request.id != null || link.hasPreview },
                     )
                 }
-        } while (result == null)
+            }
 
         linkContentSignal.wake()
         result.previewFillLinkId?.let(linkPreviewFillSignal::wake)
