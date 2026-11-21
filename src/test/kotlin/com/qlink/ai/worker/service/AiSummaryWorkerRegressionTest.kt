@@ -34,6 +34,7 @@ import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
+import io.ktor.serialization.JsonConvertException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -43,6 +44,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
+import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -172,6 +174,28 @@ class AiSummaryWorkerRegressionTest :
                     fakeAiClient.requestedModels shouldBe listOf(model.model)
                     aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
                     linkRepository.findById(link.id!!)!!.summary shouldBe reason
+                }
+            }
+
+            listOf(
+                ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE to { detail: String -> IOException(detail) },
+                ErrorCode.AI_EMPTY_RESPONSE to { detail: String -> JsonConvertException(detail) },
+            ).forEach { (error, failure) ->
+                When("레거시 공급자가 ${error.name}에 해당하는 전송 또는 응답 오류를 반환하면") {
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        enqueue()
+                        fakeAiClient.failuresByModel = mapOf(model.model to failure(RandomFixture.randomSentenceWithMax(100)))
+                    }
+
+                    val action = suspend { worker.proceed(jobId) }
+
+                    Then("일반 사용자의 모델을 한 번 호출하고 정제된 실패를 저장한다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        fakeAiClient.requestedModels shouldBe listOf(model.model)
+                        aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
+                        linkRepository.findById(link.id!!)!!.summary shouldBe error.message
+                    }
                 }
             }
 

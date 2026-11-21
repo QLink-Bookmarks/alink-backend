@@ -3,6 +3,7 @@ package com.qlink.ai.worker.service
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.AiSummaryClientRequest
 import com.qlink.ai.client.AiSummaryClientResponse
+import com.qlink.ai.client.AiVendorException
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
 import com.qlink.ai.domain.AiProvider
@@ -22,14 +23,18 @@ import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.error.messageOrFallback
 import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.repository.LinkRepository
+import io.ktor.client.call.NoTransformationFoundException
+import io.ktor.serialization.JsonConvertException
+import kotlinx.coroutines.delay
 import org.slf4j.Logger
+import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneOffset
+import kotlin.time.Duration
 
 class ProcessAiSummaryService(
     private val tx: TransactionRunner,
@@ -44,7 +49,12 @@ class ProcessAiSummaryService(
     private val apiKeyCipher: ApiKeyCipher,
     private val log: Logger,
 ) {
-    suspend fun proceed(jobId: Long): AiSummaryExecutionResult {
+    suspend fun proceed(jobId: Long): AiSummaryExecutionResult = proceed(jobId = jobId, scheduleRetry = ::delay)
+
+    suspend fun proceed(
+        jobId: Long,
+        scheduleRetry: suspend (Duration) -> Unit,
+    ): AiSummaryExecutionResult {
         val isStarted = tx.required { aiJobRepository.markStarted(aiJobId = jobId, staleAfter = AiJob.STALE_AFTER) }
         if (!isStarted) {
             log.info("[WORKER] Job is not runnable. jobId=$jobId")
@@ -154,7 +164,7 @@ class ProcessAiSummaryService(
             "[WORKER] Job Context has been loaded as jobId=$jobId, userProvider=${context.userProvider.id}, provider=${context.provider.type}",
         )
 
-        return catchingFailure { summarize(context) }
+        return catchingFailure { summarize(context = context, scheduleRetry = scheduleRetry) }
             .fold(
                 onSuccess = { result ->
                     AiSummaryExecutionResult.Summarized(
@@ -205,41 +215,108 @@ class ProcessAiSummaryService(
         return models.filterNot { model -> usages[model.id]?.isOverLimit(model) == true }
     }
 
-    private suspend fun summarize(context: AiSummaryContext): AiSummaryResult {
+    private suspend fun summarize(
+        context: AiSummaryContext,
+        scheduleRetry: suspend (Duration) -> Unit,
+    ): AiSummaryResult {
         val availableModels = context.availableModels.getOrThrow()
         var lastFailure: Throwable? = null
         val cycles = if (context.userProvider.userRole == Role.SUPER_ADMIN) MAX_MODEL_CYCLES else 1
 
+        var rateLimitRetried = false
+        var deferredFailure: AiVendorException? = null
         repeat(cycles) {
             availableModels.forEach { model ->
+                deferredFailure?.let { waitForVendorRetry(job = context.job, failure = it, scheduleRetry = scheduleRetry) }
+                deferredFailure = null
+                val providerId = context.provider.id!!
+                val modelId = model.id!!
+                try {
+                    revalidateAttempt(providerId = providerId, modelId = modelId)
+                } catch (failure: BusinessException) {
+                    if (cycles == 1 || failure.errorCode != ErrorCode.AI_MODEL_INACTIVE) throw failure
+                    lastFailure = failure
+                    return@forEach
+                }
                 log.info("[WORKER] Trial model=${model.model}")
-
-                val summary =
-                    catchingFailure {
-                        revalidateAttempt(providerId = context.provider.id!!, modelId = model.id!!)
-                        aiClientRouter.summarize(
-                            AiSummaryClientRequest(
-                                providerType = context.provider.type,
-                                baseUrl = context.provider.baseUrl,
-                                apiKey = context.apiKey,
-                                model = model.model,
-                                prompt = context.job.prompt,
-                                requestedUrl = context.job.requestedUrl,
-                            ),
-                        )
+                val request =
+                    AiSummaryClientRequest(
+                        providerType = context.provider.type,
+                        baseUrl = context.provider.baseUrl,
+                        apiKey = context.apiKey,
+                        model = model.model,
+                        prompt = context.job.prompt,
+                        requestedUrl = context.job.requestedUrl,
+                    )
+                var attempt = requestSummary(request)
+                val rateLimit =
+                    (attempt.exceptionOrNull() as? AiVendorException)?.takeIf {
+                        it.errorCode == ErrorCode.AI_VENDOR_RATE_LIMITED
                     }
-                val result = summary.getOrNull()
-                if (result == null) {
-                    lastFailure = summary.exceptionOrNull()
+                val retryAfter = rateLimit?.retryAfter
+                if (retryAfter != null && !rateLimitRetried) {
+                    rateLimitRetried = true
+                    waitForVendorRetry(job = context.job, failure = rateLimit, scheduleRetry = scheduleRetry)
+                    revalidateAttempt(providerId = providerId, modelId = modelId)
+                    attempt = requestSummary(request)
+                }
+
+                val failure = attempt.exceptionOrNull()
+                if (failure != null) {
+                    if (failure is AiVendorException) {
+                        if (failure.errorCode != ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE) throw failure
+                        val nextDelay = failure.retryAfter
+                        if (nextDelay != null) {
+                            if (!canWaitForRetry(job = context.job, retryAfter = nextDelay)) throw failure
+                            deferredFailure = failure
+                        }
+                    }
+                    lastFailure = failure
                     return@forEach
                 }
 
+                val result = attempt.getOrThrow()
                 (result.linkId == null || result.linkId == context.job.linkId).requireTrue(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
                 return AiSummaryResult(model = model, response = result)
             }
         }
 
-        throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
+        throw lastFailure ?: IllegalStateException(DEFAULT_FAILURE_MESSAGE)
+    }
+
+    private suspend fun requestSummary(request: AiSummaryClientRequest): Result<AiSummaryClientResponse> =
+        catchingFailure { aiClientRouter.summarize(request) }
+            .fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { failure ->
+                    Result.failure(
+                        when (failure) {
+                            is IOException -> AiVendorException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                            is JsonConvertException, is NoTransformationFoundException -> BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                            else -> failure
+                        },
+                    )
+                },
+            )
+
+    private suspend fun waitForVendorRetry(
+        job: AiJob,
+        failure: AiVendorException,
+        scheduleRetry: suspend (Duration) -> Unit,
+    ) {
+        val retryAfter = failure.retryAfter ?: throw failure
+        if (!canWaitForRetry(job = job, retryAfter = retryAfter)) throw failure
+        scheduleRetry(retryAfter)
+        if (!canWaitForRetry(job = job, retryAfter = Duration.ZERO)) throw failure
+    }
+
+    private suspend fun canWaitForRetry(
+        job: AiJob,
+        retryAfter: Duration,
+    ): Boolean {
+        val startedAt = job.startedAt ?: return false
+        val now = tx.readOnly { aiJobRepository.now() }
+        return retryAfter < AiJob.STALE_AFTER - (now - startedAt)
     }
 
     private suspend fun revalidateAttempt(

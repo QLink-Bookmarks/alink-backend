@@ -5,10 +5,13 @@ import com.anthropic.client.AnthropicClientAsyncImpl
 import com.anthropic.core.ClientOptions
 import com.anthropic.core.LogLevel
 import com.anthropic.core.RequestOptions
+import com.anthropic.core.http.Headers
 import com.anthropic.core.http.HttpClient
 import com.anthropic.core.http.HttpRequest
 import com.anthropic.errors.AnthropicInvalidDataException
+import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.AnthropicServiceException
+import com.anthropic.models.ErrorType
 import com.anthropic.models.messages.CitationsConfigParam
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.Message
@@ -22,7 +25,6 @@ import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.error.requireTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.future.asDeferred
@@ -77,13 +79,25 @@ class ClaudeAiClient(
                 .addAllowedDomain(sourceHost)
                 .citations(CitationsConfigParam.builder().enabled(false).build())
                 .build()
+        val hasSourceSection =
+            request.prompt
+                .lineSequence()
+                .map(String::trim)
+                .zipWithNext()
+                .any { (heading, entry) -> heading == "## URL" && entry == "- $sourceUrl" }
+        val fetchInstruction =
+            if (hasSourceSection) {
+                "Use web_fetch to fetch the URL in the URL section before summarizing."
+            } else {
+                "Use web_fetch to fetch this exact source URL before summarizing: $sourceUrl"
+            }
         val params =
             MessageCreateParams
                 .builder()
                 .model(request.model)
                 .system(AiSummarySpec.systemInstruction)
                 .maxTokens(4096)
-                .addUserMessage("Use web_fetch to fetch this exact source URL before summarizing: $sourceUrl\n\n${request.prompt}")
+                .addUserMessage("$fetchInstruction\n\n${request.prompt}")
                 .addTool(webFetch)
                 .outputConfig(outputConfig)
                 .build()
@@ -94,21 +108,21 @@ class ClaudeAiClient(
 
         val summary =
             try {
-                (message.stopReason().getOrNull() == StopReason.END_TURN).requireTrue(ErrorCode.AI_EMPTY_RESPONSE)
-                val text = message.finalTextAfterFetch(sourceUrl) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                if (message.stopReason().getOrNull() != StopReason.END_TURN) throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
+                val text = message.finalTextAfterFetch(sourceUrl) ?: throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
                 val usage = message.usage()
                 val usedTokens =
                     usage.inputTokens() + usage.outputTokens() +
                         usage.cacheCreationInputTokens().orElse(0) + usage.cacheReadInputTokens().orElse(0)
                 parseSummaryResponse(rawResponse = text, usedTokens = Math.toIntExact(usedTokens))
             } catch (_: AnthropicInvalidDataException) {
-                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
             } catch (_: IllegalArgumentException) {
-                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
             } catch (_: ArithmeticException) {
-                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
             }
-        (summary.linkId != null).requireTrue(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
+        if (summary.linkId == null) throw AiVendorException(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
         return summary
     }
 
@@ -118,7 +132,7 @@ class ClaudeAiClient(
         operation: String,
         call: AnthropicClientAsync.() -> CompletableFuture<T>,
     ): T {
-        providerType.isAllowedBaseUrl(baseUrl).requireTrue(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+        if (!providerType.isAllowedBaseUrl(baseUrl)) throw AiVendorException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
         val started = TimeSource.Monotonic.markNow()
         val lifetime = Job()
         val requestTransport =
@@ -138,7 +152,7 @@ class ClaudeAiClient(
             val result =
                 client
                     .withOptions {
-                        it.baseUrl(baseUrl.trimEnd('/').removeSuffix("/v1"))
+                        it.baseUrl(baseUrl.trimEnd('/').removeSuffix("/v1") + "/")
                         it.httpClient(requestTransport)
                         it.putHeader("x-api-key", apiKey)
                         it.putHeader("anthropic-version", "2023-06-01")
@@ -149,19 +163,35 @@ class ClaudeAiClient(
             result
         } catch (error: AnthropicServiceException) {
             log.info("Claude operation={} status={} elapsedMs={}", operation, error.statusCode(), started.elapsedNow().inWholeMilliseconds)
-            if (operation == "models") throw AiApiKeyValidationException(error.statusCode())
-            throw BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+            val quotaExhausted =
+                error.type().getOrNull() == ErrorType.BILLING_ERROR || error.errorCode().getOrNull() in billingErrorCodes
+            val headers = error.headers()
+            throw AiVendorException.fromStatus(
+                status = error.statusCode(),
+                quotaExhausted = quotaExhausted,
+                retryAfter = headers.singleValue("Retry-After"),
+                retryAfterMillis = headers.singleValue("Retry-After-Ms"),
+            )
         } catch (_: AnthropicInvalidDataException) {
-            throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+            throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
         } catch (error: CancellationException) {
             throw error
-        } catch (_: RuntimeException) {
+        } catch (_: AnthropicIoException) {
             log.warn("Claude operation={} status=transport_failure elapsedMs={}", operation, started.elapsedNow().inWholeMilliseconds)
-            throw BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
+            throw AiVendorException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+        } catch (_: RuntimeException) {
+            log.warn("Claude operation={} status=unexpected_failure elapsedMs={}", operation, started.elapsedNow().inWholeMilliseconds)
+            throw AiVendorException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
         } finally {
             lifetime.cancel()
         }
     }
+
+    private fun Headers.singleValue(name: String): String? =
+        names()
+            .filter { it.equals(name, ignoreCase = true) }
+            .flatMap(::values)
+            .singleOrNull()
 
     private fun Message.finalTextAfterFetch(sourceUrl: String): String? {
         val blocks = content()
@@ -215,6 +245,8 @@ class ClaudeAiClient(
     }
 
     private companion object {
+        val billingErrorCodes =
+            setOf("contract_spend_limit_reached", "linked_organization_billing_unavailable", "linked_organization_spend_limit_reached")
         val requestOptions =
             RequestOptions
                 .builder()

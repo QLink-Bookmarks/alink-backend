@@ -2,6 +2,7 @@ package com.qlink.ai.service
 
 import com.qlink.ai.client.AiApiKeyValidationException
 import com.qlink.ai.client.AiClientRouter
+import com.qlink.ai.client.AiVendorException
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
@@ -14,6 +15,7 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.user.repository.UserRepository
+import java.io.IOException
 
 class PutAiUserProviderService(
     private val tx: TransactionRunner,
@@ -59,16 +61,20 @@ class PutAiUserProviderService(
                 this
             }
 
+            is AiVendorException -> {
+                BusinessException(errorCode)
+            }
+
             is AiApiKeyValidationException -> {
-                when (statusCode) {
-                    401, 403 -> BusinessException(ErrorCode.AI_API_KEY_INVALID, this)
-                    in 500..599 -> BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE, this)
-                    else -> BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR, this)
-                }
+                BusinessException(AiVendorException.fromStatus(statusCode).errorCode)
+            }
+
+            is IOException -> {
+                BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
             }
 
             else -> {
-                BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR, this)
+                BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
             }
         }
 }
