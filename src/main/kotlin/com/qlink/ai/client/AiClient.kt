@@ -16,6 +16,7 @@ data class AiSummaryClientRequest(
     val apiKey: String,
     val model: String,
     val prompt: String,
+    val requestedUrl: String,
 )
 
 data class AiSummaryClientResponse(

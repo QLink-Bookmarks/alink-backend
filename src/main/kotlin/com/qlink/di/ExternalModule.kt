@@ -6,6 +6,7 @@ import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.qlink.ai.client.AiClientRouter
+import com.qlink.ai.client.ClaudeAiClient
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
 import com.qlink.auth.client.AppleAuthResourceClient
@@ -35,13 +36,16 @@ import com.qlink.push.client.FcmPushClient
 import com.qlink.push.client.FirebaseInitializer
 import com.qlink.push.client.PushNotificationSenderRouter
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 
 fun externalModule(
@@ -93,6 +97,17 @@ fun externalModule(
         )
     }
 
+    single(named<ClaudeAiClient>()) {
+        HttpClient(CIO) { configureClaudeHttpClient() }
+    } onClose { it?.close() }
+
+    single {
+        ClaudeAiClient(
+            httpClient = get(named<ClaudeAiClient>()),
+            log = LoggerFactory.getLogger(ClaudeAiClient::class.java),
+        )
+    }
+
     single {
         KakaoAuthResourceClient(
             httpClient = get(),
@@ -139,6 +154,7 @@ fun externalModule(
                 listOf(
                     get<GeminiAiClient>(),
                     get<OpenAiClient>(),
+                    get<ClaudeAiClient>(),
                 ),
         )
     }
@@ -219,6 +235,11 @@ fun externalModule(
     single {
         PreviewImageUrlResolver(config = s3Config)
     }
+}
+
+internal fun HttpClientConfig<*>.configureClaudeHttpClient() {
+    followRedirects = false
+    expectSuccess = false
 }
 
 private fun buildS3Client(config: S3Config): S3Client =
