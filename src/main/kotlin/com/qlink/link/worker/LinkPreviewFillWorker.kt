@@ -1,7 +1,7 @@
 package com.qlink.link.worker
 
 import com.qlink.common.logging.traceContext
-import com.qlink.link.service.FillLinkPreviewService
+import com.qlink.link.worker.service.FillLinkPreviewService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope

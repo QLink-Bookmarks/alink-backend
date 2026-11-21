@@ -73,6 +73,7 @@ class AiJob(
         )
 
     companion object {
+        internal const val DEFAULT_FAILURE_MESSAGE = "AI summary generation failed"
         val STALE_AFTER: Duration = 1.hours
     }
 }

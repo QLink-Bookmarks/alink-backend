@@ -2,9 +2,9 @@ package com.qlink.bookmarkimport.worker
 
 import com.qlink.bookmarkimport.domain.ThumbnailStatus
 import com.qlink.bookmarkimport.dto.ImportThumbnailTargetQuery
-import com.qlink.bookmarkimport.service.CountImportThumbnailTargetsService
-import com.qlink.bookmarkimport.service.FillImportThumbnailService
-import com.qlink.bookmarkimport.service.GetImportThumbnailTargetsService
+import com.qlink.bookmarkimport.worker.service.CountImportThumbnailTargetsService
+import com.qlink.bookmarkimport.worker.service.FillImportThumbnailService
+import com.qlink.bookmarkimport.worker.service.GetImportThumbnailTargetsService
 import com.qlink.common.logging.traceContext
 import com.qlink.common.text.hostOrNull
 import com.qlink.config.WorkerConfig

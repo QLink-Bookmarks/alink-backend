@@ -7,6 +7,7 @@ import com.qlink.ai.repository.table.refreshDailyUsageUpdatedAt
 import com.qlink.ai.repository.table.toDailyUsageDomain
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
@@ -32,6 +33,19 @@ class DbDailyUsageRepository : DailyUsageRepository {
                     (DailyUsages.usageDate eq usageDate)
             }.singleOrNull()
             ?.toDailyUsageDomain()
+
+    override suspend fun findAllByUserProviderAndUsageDate(
+        userProviderId: Long,
+        modelIds: List<Long>,
+        usageDate: LocalDate,
+    ): List<DailyUsage> =
+        DailyUsages
+            .selectAll()
+            .where {
+                (DailyUsages.userProviderId eq userProviderId) and
+                    (DailyUsages.modelId inList modelIds) and
+                    (DailyUsages.usageDate eq usageDate)
+            }.map { it.toDailyUsageDomain() }
 
     override suspend fun update(dailyUsage: DailyUsage): DailyUsage =
         DailyUsages

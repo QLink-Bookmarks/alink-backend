@@ -7,17 +7,15 @@ import com.qlink.config.DataSourceConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.S3Config
 import com.qlink.config.SecurityConfig
-import com.qlink.di.bookmarkImportModule
 import com.qlink.di.dataModule
-import com.qlink.di.linkContentModule
-import com.qlink.di.linkPreviewModule
+import com.qlink.di.externalModule
+import com.qlink.di.pluginModule
 import com.qlink.di.repositoryModule
 import com.qlink.di.serviceModule
-import com.qlink.di.storageModule
 import com.qlink.di.transactionModule
+import com.qlink.di.workerModule
 import com.qlink.link.client.LinkPreviewSyncClient
 import com.qlink.linkcontent.client.LinkContentSyncClient
-import com.qlink.notification.worker.TaskScheduler
 import com.qlink.push.client.PushNotificationSenderRouter
 import com.qlink.support.fixture.FakeLinkContentSyncClient
 import com.qlink.support.fixture.FakeLinkPreviewSyncClient
@@ -137,22 +135,25 @@ object ServiceTestEnvironment {
             stopKoin()
         }
 
+        val config =
+            OverlayApplicationConfig(
+                overrides = testApplicationConfig(),
+                fallback = requireNotNull(YamlConfig("application.yaml")),
+            )
         startKoin {
             modules(
-                dataModule(testApplicationConfig(), testDataSourceConfig()),
+                dataModule(config = config, dataSourceConfig = testDataSourceConfig()),
                 transactionModule(),
+                pluginModule(config),
                 repositoryModule(),
-                linkPreviewModule(testApplicationConfig()),
-                bookmarkImportModule(),
-                linkContentModule(testApplicationConfig()),
+                externalModule(config = config, s3Config = s3Config(environment = "dev")),
+                workerModule(config),
+                serviceModule(),
                 linkContentTestModule(),
                 securityTestModule(),
                 notificationTestModule(),
                 aiTestModule(),
                 authTestModule(),
-                storageModule(s3Config(environment = "dev")),
-                linkPreviewTestModule(),
-                serviceModule(),
                 linkPreviewTestModule(),
             )
         }
@@ -222,18 +223,6 @@ object ServiceTestEnvironment {
         module {
             single {
                 PushNotificationSenderRouter(senders = emptyList())
-            }
-
-            single {
-                TaskScheduler(
-                    tx = get(),
-                    notificationRepository = get(),
-                    todoRepository = get(),
-                    linkRepository = get(),
-                    sendNotificationService = get(),
-                    traceIdLength = TRACE_ID_LENGTH,
-                    log = LoggerFactory.getLogger(TaskScheduler::class.java),
-                )
             }
         }
 

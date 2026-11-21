@@ -12,5 +12,11 @@ interface DailyUsageRepository {
         usageDate: LocalDate,
     ): DailyUsage?
 
+    suspend fun findAllByUserProviderAndUsageDate(
+        userProviderId: Long,
+        modelIds: List<Long>,
+        usageDate: LocalDate,
+    ): List<DailyUsage>
+
     suspend fun update(dailyUsage: DailyUsage): DailyUsage
 }
