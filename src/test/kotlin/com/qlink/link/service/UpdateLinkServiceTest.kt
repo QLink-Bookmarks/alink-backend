@@ -19,10 +19,12 @@ import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
+import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -43,6 +45,58 @@ class UpdateLinkServiceTest :
         val linkContentRepository = koinGet<LinkContentRepository>()
         val tx = koinGet<TransactionRunner>()
         val folderRepository = koinGet<FolderRepository>()
+        val todoRepository = koinGet<TodoRepository>()
+        val linkDetail = koinGet<GetLinkDetailService>()
+
+        Given("비공개 링크와 액션이 있는 공개 폴더") {
+            lateinit var folder: Folder
+            lateinit var link: Link
+            var otherId = 0L
+
+            beforeTest {
+                val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                otherId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                folder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id))
+                todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
+            }
+
+            When("링크 소유자가 공개하고 공개값을 생략해 제목을 저장한 뒤 철회하면") {
+                Then("개별 공개값을 유지하며 익명 링크·액션 조회와 인증 상세에 반영한다") {
+                    val publicId = folder.publicId!!
+                    val linkId = link.id!!
+                    val request = LinkFixture.createUpdateLinkRequestFrom(link)
+
+                    suspend fun update(isPublic: Boolean?) =
+                        updateLinkService.updateLink(link.ownerId, linkId, request.copy(isPublic = isPublic))
+
+                    update(true).isPublic shouldBe true
+                    val title = RandomFixture.randomSentenceWithMax(300)
+                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).isPublic shouldBe true
+                    val stored = linkRepository.findById(linkId)!!
+                    stored.isPublicIn(publicId) shouldBe true
+                    stored.title shouldBe title
+                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+
+                    update(false).isPublic shouldBe false
+                    linkRepository.findById(linkId)!!.publicationId shouldBe null
+                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                }
+            }
+
+            When("다른 사용자가 링크를 공개하면") {
+                val update =
+                    suspend {
+                        val request = LinkFixture.createUpdateLinkRequestFrom(link).copy(isPublic = true)
+                        updateLinkService.updateLink(otherId, link.id!!, request)
+                    }
+
+                Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }
+                    linkRepository.findById(link.id!!)!!.publicationId shouldBe null
+                }
+            }
+        }
 
         Given("링크 수정 서비스 테스트") {
             lateinit var user: User

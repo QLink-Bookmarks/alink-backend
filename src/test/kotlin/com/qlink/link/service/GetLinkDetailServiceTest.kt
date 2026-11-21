@@ -39,6 +39,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotContain
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.time.LocalTime
 import kotlin.time.Clock
 import kotlin.time.toKotlinInstant
@@ -152,6 +155,7 @@ class GetLinkDetailServiceTest :
                     actual.workModel shouldBe model.model
                     actual.todos shouldContainExactly todos.map { it.toExpectedTodo() }
                     actual.isFavorite shouldBe false
+                    Json.encodeToJsonElement(actual).jsonObject["isOwner"] shouldBe JsonPrimitive(true)
                 }
             }
 
@@ -228,13 +232,15 @@ class GetLinkDetailServiceTest :
             lateinit var member: User
             lateinit var outsider: User
             lateinit var sharedLink: Link
+            lateinit var publicId: String
 
             beforeTest {
                 val owner = userRepository.insert(UserFixture.createRandomValidUser())
                 member = userRepository.insert(UserFixture.createRandomValidUser())
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
+                publicId = FolderFixture.createPublicId()
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createFolderWith(ownerId = owner.id!!, sharedAt = Clock.System.now()))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(publicId))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )
@@ -249,6 +255,7 @@ class GetLinkDetailServiceTest :
                             thumbnailUrl = RandomFixture.randomPreviewUrl(),
                             faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
                             isVideo = true,
+                            publicationId = publicId,
                         ),
                     )
             }
@@ -262,6 +269,7 @@ class GetLinkDetailServiceTest :
                     response.thumbnailUrl shouldBe stored.thumbnailUrl
                     response.faviconUrl shouldBe stored.faviconUrl
                     response.isVideo shouldBe stored.isVideo
+                    Json.encodeToJsonElement(response).jsonObject["isOwner"] shouldBe JsonPrimitive(false)
                 }
             }
 

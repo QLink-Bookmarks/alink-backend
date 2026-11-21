@@ -51,6 +51,103 @@ class PatchLinkServiceTest :
         val notificationRepository = koinGet<NotificationRepository>()
         val scheduleTodoNotificationService = koinGet<ScheduleTodoNotificationService>()
 
+        Given("공개 폴더 두 개와 개인 비공개 폴더") {
+            lateinit var source: Folder
+            lateinit var publicTarget: Folder
+            lateinit var privateTarget: Folder
+            lateinit var publicLink: Link
+            lateinit var privateLink: Link
+
+            beforeTest {
+                val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                publicTarget =
+                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                privateTarget = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId))
+                publicLink =
+                    linkRepository.insert(
+                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, publicationId = source.publicId),
+                    )
+                privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id))
+                for (link in listOf(publicLink, privateLink)) {
+                    todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
+                }
+            }
+
+            When("공개값만 변경하면") {
+                Then("링크 소속과 메모는 유지하고 새 공개값을 저장한다") {
+                    val id = privateLink.id!!
+                    val response =
+                        patchLinkService.patchLink(
+                            privateLink.ownerId,
+                            id,
+                            LinkFixture.createPatchLinkRequest().copy(isPublic = true),
+                        )
+                    val stored = linkRepository.findById(id)!!
+
+                    response.isPublic shouldBe true
+                    stored.publicationId shouldBe source.publicId
+                    stored.folderId shouldBe privateLink.folderId
+                    stored.memo shouldBe privateLink.memo
+                }
+            }
+
+            When("명시 공개로 비공개 폴더에 옮기면") {
+                val memo = RandomFixture.randomSentenceWithMax(50)
+                val patch =
+                    suspend {
+                        val request = LinkFixture.createPatchLinkRequest(folderId = privateTarget.id, memo = memo).copy(isPublic = true)
+                        patchLinkService.patchLink(publicLink.ownerId, publicLink.id!!, request)
+                    }
+
+                Then("공개 조건 오류가 발생하고 소속·공개값·메모는 그대로다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { patch() }
+                    val stored = linkRepository.findById(publicLink.id!!)!!
+                    stored.folderId shouldBe publicLink.folderId
+                    stored.publicationId shouldBe publicLink.publicationId
+                    stored.memo shouldBe publicLink.memo
+                }
+            }
+
+            When("비공개 링크를 공개 폴더로 옮기면") {
+                Then("링크와 관련 액션을 익명 조회에서 제외한다") {
+                    val id = privateLink.id!!
+                    val response =
+                        patchLinkService.patchLink(
+                            privateLink.ownerId,
+                            id,
+                            LinkFixture.createPatchLinkRequest(folderId = publicTarget.id),
+                        )
+
+                    response.isPublic shouldBe false
+                    linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
+                    linkRepository.findById(id)!!.publicationId shouldBe null
+                }
+            }
+
+            When("공개 링크를 메모만 수정한 뒤 공개 폴더, 비공개 폴더, 미분류 순으로 옮기면") {
+                Then("공개 대상에서는 공개를 유지하고 나머지 대상에서는 비공개 처리한다") {
+                    val id = publicLink.id!!
+
+                    suspend fun patch(folderId: Long?) =
+                        patchLinkService.patchLink(
+                            publicLink.ownerId,
+                            id,
+                            LinkFixture.createPatchLinkRequest(folderId = folderId, memo = RandomFixture.randomSentenceWithMax(50)),
+                        )
+
+                    patch(null).isPublic shouldBe true
+                    linkRepository.findById(id)!!.publicationId shouldBe source.publicId
+                    patch(publicTarget.id).isPublic shouldBe true
+                    linkRepository.findById(id)!!.publicationId shouldBe publicTarget.publicId
+                    patch(privateTarget.id).isPublic shouldBe false
+                    linkRepository.findById(id)!!.publicationId shouldBe null
+                    patch(0).isPublic shouldBe false
+                    linkRepository.findById(id)!!.folderId shouldBe null
+                }
+            }
+        }
+
         Given("링크 부분 수정 서비스 테스트") {
             lateinit var user: User
             lateinit var otherUser: User

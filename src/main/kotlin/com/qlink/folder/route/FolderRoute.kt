@@ -14,6 +14,7 @@ import com.qlink.folder.service.CreateFolderService
 import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.GetFolderMembersService
+import com.qlink.folder.service.GetFolderPrivacyService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -21,12 +22,22 @@ import io.github.smiley4.ktoropenapi.resources.delete
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
+
+private val FolderNoStore =
+    createRouteScopedPlugin("FolderNoStore") {
+        onCall { call ->
+            call.response.header(HttpHeaders.CacheControl, "no-store")
+        }
+    }
 
 fun Route.folderRoutes() {
     val createFolderService by inject<CreateFolderService>()
@@ -38,6 +49,7 @@ fun Route.folderRoutes() {
     val getFoldersService by inject<GetFoldersService>()
     val updateFolderService by inject<UpdateFolderService>()
     val transferFolderOwnerService by inject<TransferFolderOwnerService>()
+    val getFolderPrivacyService by inject<GetFolderPrivacyService>()
 
     authenticate {
         get<FolderResources>(getFoldersDocs()) { resource ->
@@ -64,7 +76,7 @@ fun Route.folderRoutes() {
             val response = createFolderService.createFolder(principal.userId, request)
 
             call.respondSuccess(HttpStatusCode.Created, response)
-        }
+        }.install(FolderNoStore)
 
         post<FolderResources.ById>(createFolderInvitationDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!
@@ -110,7 +122,14 @@ fun Route.folderRoutes() {
             val response = updateFolderService.updateFolder(principal.userId, resource.id, request)
 
             call.respondSuccess(HttpStatusCode.OK, response)
-        }
+        }.install(FolderNoStore)
+
+        get<FolderResources.ById.Privacy>(getFolderPrivacyDocs()) { resource ->
+            val principal = call.principal<JwtPrincipal>()!!
+            val response = getFolderPrivacyService.getPrivacy(loginId = principal.userId, folderId = resource.parent.id)
+
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }.install(FolderNoStore)
 
         put<FolderResources.ById.Owner>(transferFolderOwnerDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!

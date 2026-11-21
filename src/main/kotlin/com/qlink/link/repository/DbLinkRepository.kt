@@ -135,10 +135,12 @@ class DbLinkRepository : LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
+        publicationId: String?,
     ) {
         if (linkIds.isEmpty()) return
         Links.update(where = { Links.id inList linkIds }) {
             it[Links.folderId] = folderId
+            it[Links.publicationId] = publicationId
             it[Links.updatedAt] = now.toJavaInstant()
         }
     }
@@ -213,6 +215,8 @@ class DbLinkRepository : LinkRepository {
                 Links.ownerId,
                 Links.folderId,
                 Folders.sharedAt,
+                Folders.publicId,
+                Links.publicationId,
                 FolderMembers.userId,
                 folderName,
                 folderEmoji,
@@ -309,10 +313,12 @@ class DbLinkRepository : LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
+        publicationId: String?,
     ): Link =
         Links
             .updateReturning(where = { Links.id eq linkId }) {
                 it[Links.folderId] = folderId
+                it[Links.publicationId] = publicationId
                 it[Links.memo] = memo
                 it[Links.tags] = tags
                 it[Links.searchText] =
@@ -389,6 +395,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolder(folderId: Long) {
         Links.update(where = { Links.folderId eq folderId }) {
             it[Links.folderId] = null
+            it[Links.publicationId] = null
             it.refreshUpdatedAt()
         }
     }
@@ -396,6 +403,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolders(folderIds: List<Long>) {
         Links.update(where = { Links.folderId inList folderIds }) {
             it[Links.folderId] = null
+            it[Links.publicationId] = null
             it.refreshUpdatedAt()
         }
     }
@@ -922,6 +930,7 @@ class DbLinkRepository : LinkRepository {
             hasContent = this[hasContent],
             contentExcerpt = this[contentExcerpt],
             isContentPending = this[isContentPending],
+            isPublic = this[Folders.publicId]?.let { it == this[Links.publicationId] } == true,
         )
 }
 

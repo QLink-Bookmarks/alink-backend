@@ -14,9 +14,13 @@ class FolderAccessValidator(
     suspend fun validateWritable(
         folderId: Long,
         userId: Long,
+    ): Folder = validateWritable(folderRepository.findAllByIdsForKeyShare(listOf(folderId)).singleOrNull(), userId)
+
+    suspend fun validateWritable(
+        folder: Folder?,
+        userId: Long,
     ): Folder =
-        folderRepository
-            .findById(folderId)
+        folder
             ?.also { (it.isOwnedBy(userId) || canMemberWrite(it, userId)).requireTrue(ErrorCode.LINK_FOLDER_ACCESS_DENIED) }
             ?: throw BusinessException(ErrorCode.LINK_FOLDER_NOT_FOUND)
 

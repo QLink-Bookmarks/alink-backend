@@ -13,6 +13,7 @@ import com.qlink.folder.dto.CreateFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderInvitationResponse
 import com.qlink.folder.dto.CreateFolderRequest
 import com.qlink.folder.dto.CreateFolderResponse
+import com.qlink.folder.dto.FolderPrivacyResponse
 import com.qlink.folder.dto.GetFolderMembersResponse
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.dto.TransferFolderOwnerRequest
@@ -20,6 +21,24 @@ import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
+
+internal fun getFolderPrivacyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "폴더 공개 설정 조회 API"
+        request { pathParameter<Long>("id") { description = "폴더 ID" } }
+        response {
+            code(HttpStatusCode.OK) {
+                body<ApiResponse<FolderPrivacyResponse>>()
+            }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            authErrorResponse()
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_NOT_FOUND) }
+            }
+        }
+    }
 
 internal fun getFoldersDocs(): RouteConfig.() -> Unit =
     {
@@ -78,6 +97,7 @@ internal fun createFolderDocs(): RouteConfig.() -> Unit =
                 description = "폴더 생성 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.FOLDER_NAME_BLANK,
                         ErrorCode.FOLDER_NAME_OVER_MAX,
                         ErrorCode.FOLDER_EMOJI_OVER_MAX,
@@ -117,6 +137,7 @@ internal fun updateFolderDocs(): RouteConfig.() -> Unit =
                 description = "폴더 수정 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.FOLDER_NAME_BLANK,
                         ErrorCode.FOLDER_NAME_OVER_MAX,
                         ErrorCode.FOLDER_EMOJI_OVER_MAX,

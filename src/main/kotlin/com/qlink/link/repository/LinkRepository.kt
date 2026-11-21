@@ -28,6 +28,7 @@ interface LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
+        publicationId: String? = null,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>
@@ -65,6 +66,7 @@ interface LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
+        publicationId: String?,
     ): Link
 
     suspend fun updateAiResult(

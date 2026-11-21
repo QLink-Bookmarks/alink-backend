@@ -11,6 +11,7 @@ import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.FolderMember
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.user.repository.UserRepository
+import java.util.UUID
 import kotlin.time.Clock
 
 class CreateFolderService(
@@ -28,12 +29,13 @@ class CreateFolderService(
             folderRepository.existsByOwnerIdAndName(loginId, request.name).requireFalse(ErrorCode.FOLDER_DUPLICATE_NAME)
 
             val folder =
-                Folder.create(
-                    ownerId = loginId,
-                    name = request.name,
-                    emoji = request.emoji,
-                    sharedAt = request.sharedAtOrNull(),
-                )
+                Folder
+                    .create(
+                        ownerId = loginId,
+                        name = request.name,
+                        emoji = request.emoji,
+                        sharedAt = request.sharedAtOrNull(),
+                    ).setPublic(newPublicId = if (request.isPublic) UUID.randomUUID().toString() else null)
             val created = folderRepository.insert(folder)
 
             if (created.sharedAt != null) {
