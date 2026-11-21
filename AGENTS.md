@@ -21,6 +21,7 @@ conventions that are not obvious from reading the code.
 - Use Kotest `BehaviorSpec` as the default test style.
 - Structure tests with `Given` as the shared logical context, and each `When` + `Then` pair as one
   scenario.
+- Preserve existing test scenarios, assertions, and fixture coverage unless a specific requirement calls for changing them. Add a separate scenario for new behavior or regression coverage.
 - Use fixtures and randomized data for all values except the method under test and the specific
   condition being tested.
 - Give fixture functions meaningful names so tests stay reusable and readable.
