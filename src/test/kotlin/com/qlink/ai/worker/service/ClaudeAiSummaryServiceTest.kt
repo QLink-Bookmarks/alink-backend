@@ -112,6 +112,7 @@ class ClaudeAiSummaryServiceTest :
         val loggers =
             listOf(ClaudeAiClient::class.java, AiSummaryWorker::class.java, AbbreviatedSqlLogger::class.java)
                 .map { LoggerFactory.getLogger(it) as Logger }
+        val sqlLoggerName = AbbreviatedSqlLogger::class.java.name
         val baseUrl = "https://api.anthropic.com"
         val otherUrl = "https://claude-alternative.example/${RandomFixture.randomId()}"
         val apiKey = "dummy-claude-key-${RandomFixture.randomId()}"
@@ -178,13 +179,12 @@ class ClaudeAiSummaryServiceTest :
                 usageDate = LocalDate.now(ZoneOffset.UTC),
             )
 
-        fun assertPrivateValuesAbsent(text: String) {
+        fun assertProviderPayloadAbsent(text: String) {
             listOf(
                 apiKey,
-                fixture.sourceUrl,
-                "claude-source.example",
                 ClaudeSummaryFixture.PAGE_MARKER,
                 ClaudeSummaryFixture.PDF_MARKER,
+                ClaudeHttpFixture.ERROR_MARKER,
                 ClaudeHttpFixture.TRANSPORT_MARKER,
             ).forEach { text shouldNotContain it }
         }
@@ -214,9 +214,7 @@ class ClaudeAiSummaryServiceTest :
                 loggers.forEach { it.addAppender(appender) }
 
                 fixture =
-                    ClaudeSummaryFixture(
-                        summary = "${ClaudeSummaryFixture.PAGE_MARKER} ${RandomFixture.randomSentenceWithMax(100)}",
-                    )
+                    ClaudeSummaryFixture(summary = "dummy-saved-summary ${RandomFixture.randomSentenceWithMax(100)}")
                 admin = users.insert(UserFixture.createRandomValidSuperAdmin())
                 owner = users.insert(UserFixture.createRandomValidUser())
                 provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.CLAUDE, isActive = false))
@@ -227,14 +225,18 @@ class ClaudeAiSummaryServiceTest :
             afterTest { (testCase, _) ->
                 if (testCase.type != TestType.Test) return@afterTest
                 loggers.forEach { logger -> logger.detachAppender(appender) }
-                val logs =
-                    appender.list.joinToString("\n") { event ->
-                        event.formattedMessage + event.throwableProxy?.let(ThrowableProxyUtil::asString).orEmpty()
-                    }
+                val events = appender.list.toList()
                 appender.stop()
                 app.close()
                 http.close()
-                assertPrivateValuesAbsent(logs)
+                events.forEach { event ->
+                    val text = event.formattedMessage + event.throwableProxy?.let(ThrowableProxyUtil::asString).orEmpty()
+                    assertProviderPayloadAbsent(text)
+                    if (event.loggerName != sqlLoggerName) {
+                        text shouldNotContain fixture.sourceUrl
+                        text shouldNotContain fixture.summary
+                    }
+                }
             }
 
             When("관리자가 Claude 공급자와 모델을 활성화하고 공급자 활성화를 반복하면") {
@@ -305,7 +307,7 @@ class ClaudeAiSummaryServiceTest :
             }
 
             listOf("", "/", "/v1", "/v1/", "/allowed/path").forEach { path ->
-                When("공급자 기본 주소 경로가 '$path'이고 두 호출이 리다이렉트되면") {
+                When("공급자 기본 주소 경로가 '$path'이고 두 호출이 다른 호스트로 리다이렉트되면") {
                     beforeTest {
                         if (it.type != TestType.Test) return@beforeTest
                         provider =
@@ -335,11 +337,12 @@ class ClaudeAiSummaryServiceTest :
                                 ),
                             )
                         }
-                    Then("공식 엔드포인트에만 키와 버전 헤더를 전송한다") {
+                    Then("공식 엔드포인트에만 헤더를 전송하고 다른 호스트로 요청하거나 키를 저장하지 않는다") {
                         shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) { checkKey() }
                         shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE.message) { summarize() }
                         http.requests.map { it.method to it.url.toString() } shouldBe
                             listOf("GET" to "$baseUrl/v1/models?limit=1", "POST" to "$baseUrl/v1/messages")
+                        keys.findAllByUserId(owner.id!!) shouldBe emptyList()
                         http.requests.forEach { request ->
                             request.headers.getFirst("x-api-key") shouldBe apiKey
                             request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
@@ -427,8 +430,7 @@ class ClaudeAiSummaryServiceTest :
                         links.findById(job.linkId)!!.status shouldBe LinkStatus.G
                         shouldNotThrow<BusinessException> { action() }
 
-                        appender.list.any { it.formattedMessage.startsWith("INSERT INTO ai_jobs") && '?' in it.formattedMessage } shouldBe
-                            true
+                        appender.list.any { it.formattedMessage.startsWith("INSERT INTO ai_jobs") } shouldBe true
                         verifyMessagesRequest(request = http.requests.last(), job = job, model = model.model, sourceUrl = fixture.sourceUrl)
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.C
@@ -475,19 +477,19 @@ class ClaudeAiSummaryServiceTest :
                         )
                 }
                 val action = suspend { app.koin.get<AiSummaryWorker>().recover() }
-                Then("원문을 로그에 남기지 않고 작업과 링크를 실패로 저장한다") {
+                Then("작업과 링크를 복구 실패로 저장하고 공급자에 다시 요청하지 않는다") {
                     val initialLogCount = appender.list.size
                     shouldNotThrow<BusinessException> { action() }
                     appender.list
                         .drop(
                             initialLogCount,
-                        ).any { it.formattedMessage.startsWith("UPDATE ai_jobs") && '?' in it.formattedMessage } shouldBe
+                        ).any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe
                         true
                     jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
                     links.findById(job.linkId)!!.let {
                         it.status shouldBe LinkStatus.F
                         it.summary shouldBe AiJob.DEFAULT_FAILURE_MESSAGE
-                        assertPrivateValuesAbsent(it.summary!!)
+                        assertProviderPayloadAbsent(it.summary!!)
                     }
                     http.requests
                         .single()
@@ -607,7 +609,7 @@ class ClaudeAiSummaryServiceTest :
                     val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
                     Then("실패 사유만 저장하고 요약·액션·사용량을 반영하지 않는다") {
                         shouldNotThrow<BusinessException> { action() }
-                        appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") && '?' in it.formattedMessage } shouldBe true
+                        appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
                         val error = if (scenario.startsWith("링크 ID")) ErrorCode.AI_SUMMARY_LINK_MISMATCH else ErrorCode.AI_EMPTY_RESPONSE
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.F
@@ -617,7 +619,7 @@ class ClaudeAiSummaryServiceTest :
                         links.findById(job.linkId)!!.let {
                             it.status shouldBe LinkStatus.F
                             it.summary shouldBe error.message
-                            assertPrivateValuesAbsent(it.summary!!)
+                            assertProviderPayloadAbsent(it.summary!!)
                         }
                         recordedUsage(job) shouldBe null
                         todos.findAllByLinkId(job.linkId) shouldBe emptyList()

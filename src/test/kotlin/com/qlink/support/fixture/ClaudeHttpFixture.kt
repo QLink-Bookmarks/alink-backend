@@ -6,6 +6,7 @@ import com.anthropic.core.RequestOptions
 import com.anthropic.core.http.HttpClient
 import com.anthropic.core.http.HttpRequest
 import com.anthropic.core.http.HttpResponse
+import com.anthropic.errors.AnthropicIoException
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpServer
 import io.ktor.http.HttpStatusCode
@@ -52,14 +53,14 @@ class ClaudeHttpFixture : AutoCloseable {
                             nextMessageStatus.also { nextMessageStatus = null } ?: messagesStatus
                         }
                     if (status == HttpStatusCode.Found) {
-                        it.responseHeaders.set("Location", "/redirect")
+                        it.responseHeaders.set("Location", "http://localhost:${it.localAddress.port}/redirect")
                     }
                     it.responseHeaders.set("Content-Type", "application/json")
                     val response =
                         when {
+                            status.value !in 200..299 -> """{"error":{"message":"$ERROR_MARKER"}}"""
                             url.path == "/v1/models" -> "{}"
-                            status == HttpStatusCode.OK -> messagesBody
-                            else -> """{"error":{"message":"${ClaudeSummaryFixture.PAGE_MARKER}"}}"""
+                            else -> messagesBody
                         }.toByteArray()
                     if (status == HttpStatusCode.NoContent) {
                         it.sendResponseHeaders(status.value, -1)
@@ -83,17 +84,21 @@ class ClaudeHttpFixture : AutoCloseable {
                     pendingRequest.complete(Unit)
                     return pendingResponse
                 }
-                URI(request.url()).host.let { host ->
-                    if (host != "api.anthropic.com") throw AssertionError("Unexpected Claude origin: $host")
+                val url = URI(request.url())
+                if (url.host != "api.anthropic.com") {
+                    throw AssertionError("Unexpected Claude origin: ${url.host}")
                 }
                 val local = request.toBuilder().baseUrl("http://127.0.0.1:${server.address.port}").build()
-                return client.executeAsync(local, requestOptions)
+                val response = client.executeAsync(local, requestOptions)
+                if (url.path != "/v1/models" || modelsStatus != null) return response
+                return response.exceptionally { throw AnthropicIoException(TRANSPORT_MARKER, it) }
             }
         }
 
     override fun close() = server.stop(0)
 
     companion object {
+        const val ERROR_MARKER = "dummy-private-provider-error"
         const val TRANSPORT_MARKER = "dummy-private-transport-detail"
     }
 }

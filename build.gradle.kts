@@ -112,6 +112,7 @@ tasks.check {
 }
 
 tasks.withType<ShadowJar> {
+    isZip64 = true
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     mergeServiceFiles()
 }
