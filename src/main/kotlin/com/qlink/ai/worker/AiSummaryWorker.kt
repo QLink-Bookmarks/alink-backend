@@ -85,7 +85,7 @@ class AiSummaryWorker(
         scope.cancel()
     }
 
-    private suspend fun recover() {
+    suspend fun recover() {
         val jobs = recoverAiSummaryJobsService.recover()
         jobs.expiredJobs.forEach { job ->
             failAiSummaryService.fail(jobId = job.id!!, reason = DEFAULT_FAILURE_MESSAGE, now = Clock.System.now())
