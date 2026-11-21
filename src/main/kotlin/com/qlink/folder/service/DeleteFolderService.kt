@@ -81,7 +81,13 @@ class DeleteFolderService(
                         ids = todos.map { it.id!! },
                     )
                 val now = Clock.System.now()
-                linkRepository.assignFolderByIds(linkIds = plan.moveLinkIds, folderId = options.targetFolderId, now = now)
+                linkRepository.assignFolderByIds(
+                    linkIds = plan.moveLinkIds,
+                    folderId = options.targetFolderId,
+                    now = now,
+                    sourcePublicId = source.publicId,
+                    targetPublicId = folders[options.targetFolderId]?.publicId,
+                )
                 linkRepository.assignFolderByIds(linkIds = plan.detachLinkIds, folderId = null, now = now)
                 linkRepository.deleteAllByIds(plan.deleteLinkIds)
                 folderRepository.deleteById(folderId)

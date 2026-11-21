@@ -1,11 +1,14 @@
 package com.qlink.link.repository
 
+import com.qlink.common.search.SortDirection
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkSort
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
+import com.qlink.link.dto.PublicLinkCursor
+import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
 import kotlin.time.Instant
 
@@ -22,12 +25,22 @@ interface LinkRepository {
 
     suspend fun findAllByFolderIdForUpdate(folderId: Long): List<Link>
 
+    suspend fun findPublicByFolderId(
+        folderId: Long,
+        publicId: String,
+        direction: SortDirection,
+        cursor: PublicLinkCursor?,
+        limit: Int,
+    ): List<PublicLinkQuery>
+
     suspend fun findAllByIdsForUpdate(linkIds: List<Long>): List<Link>
 
     suspend fun assignFolderByIds(
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
+        sourcePublicId: String? = null,
+        targetPublicId: String? = null,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>
@@ -65,6 +78,7 @@ interface LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
+        publicationId: String?,
     ): Link
 
     suspend fun updateAiResult(
@@ -75,6 +89,7 @@ interface LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
+        publicationId: String? = null,
     )
 
     suspend fun updateAiFailure(

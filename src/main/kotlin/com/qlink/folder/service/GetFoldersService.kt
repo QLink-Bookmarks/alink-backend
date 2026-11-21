@@ -57,6 +57,7 @@ class GetFoldersService(
                             name = folder.name,
                             emoji = folder.emoji,
                             isShared = folder.sharedAt != null,
+                            isPublic = folder.isPublic,
                             shareCounts = folder.shareCounts,
                             linkCounts = folder.linkCounts,
                             myLinkCounts = folder.myLinkCounts,

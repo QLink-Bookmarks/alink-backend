@@ -48,17 +48,13 @@ fun UpdateBuilder<*>.fromDomain(folder: Folder) {
     this[Folders.name] = folder.name
     this[Folders.emoji] = folder.emoji
     this[Folders.sharedAt] = folder.sharedAt?.toJavaInstant()
+    this[Folders.publicId] = folder.publicId
 }
 
 fun UpdateBuilder<*>.fromDomainForInsert(folder: Folder) {
     fromDomain(folder)
-    fromDomainForPrivacy(folder)
     folder.createdAt?.let { this[Folders.createdAt] = it.toJavaInstant() }
     folder.updatedAt?.let { this[Folders.updatedAt] = it.toJavaInstant() }
-}
-
-fun UpdateBuilder<*>.fromDomainForPrivacy(folder: Folder) {
-    this[Folders.publicId] = folder.publicId
 }
 
 fun UpdateBuilder<*>.refreshUpdatedAt() {

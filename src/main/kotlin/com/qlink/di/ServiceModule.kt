@@ -27,6 +27,9 @@ import com.qlink.bookmarkimport.service.CreateImportService
 import com.qlink.bookmarkimport.service.GetImportDetailService
 import com.qlink.bookmarkimport.service.GetImportReversalPreviewService
 import com.qlink.bookmarkimport.service.GetImportsService
+import com.qlink.common.crypto.ApiKeyCipher
+import com.qlink.common.error.ErrorCode
+import com.qlink.config.SecurityConfig
 import com.qlink.device.service.DeleteDeviceService
 import com.qlink.device.service.PutDeviceService
 import com.qlink.folder.service.AcceptFolderInvitationService
@@ -36,7 +39,13 @@ import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
+import com.qlink.folder.service.GetFolderPrivacyService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.GetPublicFolderLinksService
+import com.qlink.folder.service.GetPublicFolderService
+import com.qlink.folder.service.GetPublicFolderTodosService
+import com.qlink.folder.service.PublicFolderAccessValidator
+import com.qlink.folder.service.PublicFolderCursorCodec
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
 import com.qlink.image.service.UploadImageService
@@ -73,6 +82,9 @@ import com.qlink.user.service.UpdateMyProfileService
 import com.qlink.user.service.UpdateMySettingsService
 import org.koin.dsl.module
 import org.slf4j.LoggerFactory
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 fun serviceModule() =
     module {
@@ -315,6 +327,52 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 userRepository = get(),
+            )
+        }
+
+        single {
+            GetFolderPrivacyService(
+                tx = get(),
+                folderRepository = get(),
+            )
+        }
+
+        single {
+            val secret = get<SecurityConfig>().jwtSecret.encodeToByteArray()
+            val key =
+                Mac
+                    .getInstance("HmacSHA256")
+                    .apply { init(SecretKeySpec(secret, "HmacSHA256")) }
+                    .doFinal("qlink.public-folder.cursor.v1".encodeToByteArray())
+            val cipher =
+                ApiKeyCipher(
+                    keyBase64 = Base64.getEncoder().encodeToString(key),
+                    invalidKeyErrorCode = ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
+                )
+            PublicFolderCursorCodec(cipher)
+        }
+
+        single { PublicFolderAccessValidator(folderRepository = get()) }
+
+        single {
+            GetPublicFolderService(tx = get(), folderRepository = get())
+        }
+
+        single {
+            GetPublicFolderLinksService(
+                tx = get(),
+                publicFolderAccessValidator = get(),
+                linkRepository = get(),
+                cursorCodec = get(),
+            )
+        }
+
+        single {
+            GetPublicFolderTodosService(
+                tx = get(),
+                publicFolderAccessValidator = get(),
+                todoRepository = get(),
+                cursorCodec = get(),
             )
         }
 

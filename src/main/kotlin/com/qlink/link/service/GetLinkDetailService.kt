@@ -55,6 +55,7 @@ class GetLinkDetailService(
             todos = todos,
             workModel = workModel,
             isFavorite = favoriteAt != null,
+            isPublic = isPublic,
             content =
                 if (hasContent) {
                     LinkContentResponse(excerpt = contentExcerpt, isPending = isContentPending)

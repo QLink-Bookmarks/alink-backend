@@ -118,6 +118,10 @@ class Folder(
     }
 
     companion object {
+        private val PUBLIC_ID_PATTERN = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+        fun matchesPublicIdFormat(publicId: String): Boolean = PUBLIC_ID_PATTERN.matches(publicId)
+
         fun createGuide(ownerId: Long): Folder = Folder(ownerId = ownerId, name = GUIDE_FOLDER_NAME, emoji = GUIDE_FOLDER_EMOJI)
 
         fun create(

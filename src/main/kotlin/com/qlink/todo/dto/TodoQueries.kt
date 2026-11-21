@@ -61,6 +61,19 @@ data class SearchTodosQuery(
     val linkFaviconUrl: String?,
 )
 
+data class PublicTodoQuery(
+    val id: Long,
+    val title: String,
+    val isCompleted: Boolean,
+)
+
+fun ResultRow.toPublicTodoQuery(completed: Expression<Boolean>): PublicTodoQuery =
+    PublicTodoQuery(
+        id = this[Todos.id],
+        title = this[Todos.title],
+        isCompleted = this[completed],
+    )
+
 fun ResultRow.toLinkDetailTodoQuery(): LinkDetailTodoQuery =
     LinkDetailTodoQuery(
         id = this[Todos.id],

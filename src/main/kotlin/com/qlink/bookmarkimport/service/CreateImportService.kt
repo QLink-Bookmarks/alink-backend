@@ -71,11 +71,12 @@ class CreateImportService(
         request: CreateImportRequest,
     ): ImportSummary {
         val now = Clock.System.now()
+        val existingFolders = folderRepository.findAllByOwnerIdForKeyShare(loginId)
         val plan =
             ImportPlanDomainService.plan(
                 source = request.toSource(),
                 ownerId = loginId,
-                myFolders = folderRepository.findAllByOwnerId(loginId),
+                myFolders = existingFolders,
                 myUrls = linkRepository.findAllUrlsByOwnerId(loginId),
                 now = now,
             )
@@ -93,7 +94,14 @@ class CreateImportService(
             )
         val importId = bookmarkImport.id!!
         val savedFolders = folderRepository.insertAll(ImportPlanDomainService.newFolders(plan))
-        val savedLinks = linkRepository.insertAll(ImportPlanDomainService.links(plan = plan, savedNewFolders = savedFolders))
+        val savedLinks =
+            linkRepository.insertAll(
+                ImportPlanDomainService.links(
+                    plan = plan,
+                    savedNewFolders = savedFolders,
+                    publicIdsByFolder = existingFolders.associate { it.id!! to it.publicId },
+                ),
+            )
         linkContentRepository.insertAll(
             savedLinks.map {
                 LinkContent.create(

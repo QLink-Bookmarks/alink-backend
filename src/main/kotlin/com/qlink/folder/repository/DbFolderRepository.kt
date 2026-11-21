@@ -11,11 +11,12 @@ import com.qlink.folder.domain.FolderOrderKey
 import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
+import com.qlink.folder.dto.PublicFolderQuery
 import com.qlink.folder.dto.SearchFoldersQuery
+import com.qlink.folder.dto.toPublicFolderQuery
 import com.qlink.folder.repository.table.Folders
 import com.qlink.folder.repository.table.fromDomain
 import com.qlink.folder.repository.table.fromDomainForInsert
-import com.qlink.folder.repository.table.fromDomainForPrivacy
 import com.qlink.folder.repository.table.refreshUpdatedAt
 import com.qlink.folder.repository.table.toFolderDomain
 import com.qlink.foldermember.repository.table.FolderMembers
@@ -48,7 +49,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
@@ -61,6 +61,21 @@ class DbFolderRepository : FolderRepository {
             .where { Folders.id eq id }
             .singleOrNull()
             ?.toFolderDomain()
+
+    override suspend fun findPublicByPublicId(publicId: String): PublicFolderQuery? =
+        Folders
+            .select(Folders.name, Folders.emoji)
+            .where { Folders.publicId eq publicId }
+            .singleOrNull()
+            ?.toPublicFolderQuery()
+
+    override suspend fun findIdByPublicIdForShare(publicId: String): Long? =
+        Folders
+            .select(Folders.id)
+            .where { Folders.publicId eq publicId }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForShare)
+            .singleOrNull()
+            ?.get(Folders.id)
 
     override suspend fun findAllByIds(ids: List<Long>): List<Folder> =
         Folders
@@ -90,6 +105,14 @@ class DbFolderRepository : FolderRepository {
             .selectAll()
             .where { Folders.ownerId eq ownerId }
             .orderBy(Folders.id to SortOrder.ASC)
+            .map { it.toFolderDomain() }
+
+    override suspend fun findAllByOwnerIdForKeyShare(ownerId: Long): List<Folder> =
+        Folders
+            .selectAll()
+            .where { Folders.ownerId eq ownerId }
+            .orderBy(Folders.id to SortOrder.ASC)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
             .map { it.toFolderDomain() }
 
     override suspend fun findCreatedAtById(id: Long): Instant? =
@@ -170,6 +193,7 @@ class DbFolderRepository : FolderRepository {
                     Folders.name,
                     Folders.emoji,
                     Folders.sharedAt,
+                    Folders.publicId,
                     Folders.createdAt,
                     score,
                 ).where {
@@ -238,12 +262,6 @@ class DbFolderRepository : FolderRepository {
                 it.refreshUpdatedAt()
             }.single()
             .toFolderDomain()
-
-    override suspend fun updatePrivacy(folder: Folder) {
-        Folders.update(where = { Folders.id eq folder.id!! }) {
-            it.fromDomainForPrivacy(folder)
-        }
-    }
 
     override suspend fun deleteById(folderId: Long) {
         Folders.deleteWhere { id eq folderId }
@@ -323,6 +341,7 @@ class DbFolderRepository : FolderRepository {
             name = this[Folders.name],
             emoji = this[Folders.emoji],
             sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
+            isPublic = this[Folders.publicId] != null,
             createdAt = this[Folders.createdAt].toKotlinInstant(),
             shareCounts = 0,
             linkCounts = 0,

@@ -40,6 +40,7 @@ data class GetLinkDetailResponse(
     val workModel: String?,
     val isFavorite: Boolean,
     val content: LinkContentResponse?,
+    val isPublic: Boolean,
 )
 
 @Serializable
@@ -100,4 +101,5 @@ data class UpdateLinkResponse(
     val tags: List<String>,
     val thumbnailUrl: String?,
     val sourceType: SourceType,
+    val isPublic: Boolean,
 )
