@@ -45,7 +45,6 @@ class ClaudeAiClient(
             ClientOptions
                 .builder()
                 .httpClient(transport)
-                .baseUrl("https://api.anthropic.com")
                 .maxRetries(0)
                 .logLevel(LogLevel.OFF)
                 .build(),
@@ -139,6 +138,7 @@ class ClaudeAiClient(
             val result =
                 client
                     .withOptions {
+                        it.baseUrl(baseUrl.trimEnd('/').removeSuffix("/v1"))
                         it.httpClient(requestTransport)
                         it.putHeader("x-api-key", apiKey)
                         it.putHeader("anthropic-version", "2023-06-01")

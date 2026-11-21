@@ -17,6 +17,7 @@ import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
+import com.qlink.ai.dto.UpdateAiProviderRequest
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
@@ -25,6 +26,7 @@ import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
+import com.qlink.ai.service.UpdateAiProviderService
 import com.qlink.ai.service.UpdateAvailableModelActiveService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.ai.worker.AiSummaryWorker
@@ -80,6 +82,7 @@ import org.koin.core.KoinApplication
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
 import org.slf4j.LoggerFactory
+import java.net.URI
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.time.Duration.Companion.minutes
@@ -340,13 +343,52 @@ class ClaudeAiSummaryServiceTest :
                     Then("공식 엔드포인트에만 헤더를 전송하고 다른 호스트로 요청하거나 키를 저장하지 않는다") {
                         shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) { checkKey() }
                         shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE.message) { summarize() }
+                        val prefix = if (path == "/allowed/path") path else ""
                         http.requests.map { it.method to it.url.toString() } shouldBe
-                            listOf("GET" to "$baseUrl/v1/models?limit=1", "POST" to "$baseUrl/v1/messages")
+                            listOf("GET" to "$baseUrl$prefix/v1/models?limit=1", "POST" to "$baseUrl$prefix/v1/messages")
                         keys.findAllByUserId(owner.id!!) shouldBe emptyList()
                         http.requests.forEach { request ->
                             request.headers.getFirst("x-api-key") shouldBe apiKey
                             request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
                         }
+                    }
+                }
+            }
+
+            val prefix = "/gateway-${RandomFixture.randomId()}/claude"
+            listOf(
+                "" to "",
+                "/v1" to "",
+                "$prefix/" to prefix,
+                ":443$prefix/v1/" to ":443$prefix",
+            ).forEach { (configured, expected) ->
+                When("관리자가 Claude 기본 주소를 '$baseUrl$configured'로 저장하면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        app.koin.get<UpdateAiProviderService>().updateAiProvider(
+                            loginId = admin.id!!,
+                            id = provider.id!!,
+                            request = UpdateAiProviderRequest(baseUrl = baseUrl + configured),
+                        )
+                        job = enqueue()
+                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
+                    }
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                    Then("저장된 주소에서 키를 검증하고 같은 주소에서 받은 요약을 저장한다") {
+                        providers.findById(provider.id!!)!!.baseUrl shouldBe (baseUrl + configured).trimEnd('/')
+                        shouldNotThrow<BusinessException> { action() }
+                        val modelsUrl = URI("$baseUrl$expected/v1/models?limit=1")
+                        val messagesUrl = URI("$baseUrl$expected/v1/messages")
+                        http.sdkRequestUrls shouldBe listOf(modelsUrl, messagesUrl)
+                        http.requests.map { it.method to it.url.rawPath } shouldBe
+                            listOf("GET" to modelsUrl.rawPath, "POST" to messagesUrl.rawPath)
+                        http.requests.forEach { request ->
+                            request.headers.getFirst("x-api-key") shouldBe apiKey
+                            request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
+                        }
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                        links.findById(job.linkId)!!.summary shouldBe fixture.summary
                     }
                 }
             }
@@ -516,7 +558,8 @@ class ClaudeAiSummaryServiceTest :
                     }
                     http.requests
                         .single()
-                        .url.path shouldBe "/v1/models"
+                        .url
+                        .toString() shouldBe "${provider.baseUrl.removeSuffix("/v1")}/v1/models?limit=1"
                     recordedUsage(job) shouldBe null
                     todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                 }
@@ -548,7 +591,7 @@ class ClaudeAiSummaryServiceTest :
                 Then("SDK 재시도 없이 다음 모델을 호출하고 성공 모델의 사용량을 저장한다") {
                     shouldNotThrow<BusinessException> { action() }
                     val attemptedModels =
-                        http.requests.filter { it.url.path == "/v1/messages" }.map {
+                        http.requests.filter { it.method == "POST" }.map {
                             Json
                                 .parseToJsonElement(it.body)
                                 .jsonObject

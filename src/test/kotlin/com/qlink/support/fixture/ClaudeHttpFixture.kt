@@ -25,6 +25,7 @@ class ClaudeHttpFixture : AutoCloseable {
     )
 
     val requests = CopyOnWriteArrayList<Request>()
+    val sdkRequestUrls = CopyOnWriteArrayList<URI>()
 
     @Volatile var modelsStatus: HttpStatusCode? = HttpStatusCode.OK
 
@@ -46,8 +47,9 @@ class ClaudeHttpFixture : AutoCloseable {
                     val url = URI("https://api.anthropic.com${it.requestURI}")
                     val body = it.requestBody.bufferedReader().use { reader -> reader.readText() }
                     requests.add(Request(method = it.requestMethod, url = url, headers = it.requestHeaders, body = body))
+                    val isModelsRequest = it.requestMethod == "GET"
                     val status =
-                        if (url.path == "/v1/models") {
+                        if (isModelsRequest) {
                             modelsStatus ?: return@createContext
                         } else {
                             nextMessageStatus.also { nextMessageStatus = null } ?: messagesStatus
@@ -59,7 +61,7 @@ class ClaudeHttpFixture : AutoCloseable {
                     val response =
                         when {
                             status.value !in 200..299 -> """{"error":{"message":"$ERROR_MARKER"}}"""
-                            url.path == "/v1/models" -> "{}"
+                            isModelsRequest -> "{}"
                             else -> messagesBody
                         }.toByteArray()
                     if (status == HttpStatusCode.NoContent) {
@@ -88,9 +90,11 @@ class ClaudeHttpFixture : AutoCloseable {
                 if (url.host != "api.anthropic.com") {
                     throw AssertionError("Unexpected Claude origin: ${url.host}")
                 }
-                val local = request.toBuilder().baseUrl("http://127.0.0.1:${server.address.port}").build()
+                sdkRequestUrls.add(url)
+                val basePath = URI(request.baseUrl).rawPath
+                val local = request.toBuilder().baseUrl("http://127.0.0.1:${server.address.port}$basePath").build()
                 val response = client.executeAsync(local, requestOptions)
-                if (url.path != "/v1/models" || modelsStatus != null) return response
+                if (request.method.name != "GET" || modelsStatus != null) return response
                 return response.exceptionally { throw AnthropicIoException(TRANSPORT_MARKER, it) }
             }
         }
