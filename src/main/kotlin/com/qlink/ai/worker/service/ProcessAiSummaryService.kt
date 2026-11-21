@@ -4,25 +4,25 @@ import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.AiSummaryClientRequest
 import com.qlink.ai.client.AiSummaryClientResponse
 import com.qlink.ai.domain.AiJob
+import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AvailableModel
-import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryExecutionResult
 import com.qlink.ai.dto.AiSummarySnapshot
-import com.qlink.ai.failureSummary
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.auth.domain.Role
+import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.error.catchingFailure
+import com.qlink.common.error.messageOrFallback
 import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
@@ -73,9 +73,14 @@ class ProcessAiSummaryService(
                             log.warn("[WORKER] User provider load failed. jobId=$jobId, userProviderId=${job.userProviderId}")
                             return@readOnly null
                         }
+                val providerModels =
+                    if (userProvider.userRole == Role.SUPER_ADMIN) {
+                        availableModelRepository.findAllByProviderId(userProvider.providerId)
+                    } else {
+                        emptyList()
+                    }
                 val requestModel =
-                    availableModelRepository
-                        .findById(job.requestModelId)
+                    (providerModels.find { it.id == job.requestModelId } ?: availableModelRepository.findById(job.requestModelId))
                         ?.also {
                             log.info(
                                 "[WORKER] Request model has been loaded. jobId=$jobId, requestModelId=${job.requestModelId}",
@@ -118,13 +123,23 @@ class ProcessAiSummaryService(
                             return@readOnly null
                         }
 
+                val selectableFolderIds = folderRepository.findAllByOwnerId(link.ownerId).mapNotNull { it.id }.toSet()
+                val availableModels =
+                    catchingFailure {
+                        selectAvailableModels(
+                            userProvider = userProvider,
+                            provider = provider,
+                            requestModel = requestModel,
+                            providerModels = providerModels,
+                        )
+                    }
                 AiSummaryContext(
                     job = job,
                     userProvider = userProvider,
                     provider = provider,
                     apiKey = apiKey,
-                    requestModel = requestModel,
-                    selectableFolderIds = folderRepository.findAllByOwnerId(link.ownerId).mapNotNull { it.id }.toSet(),
+                    availableModels = availableModels,
+                    selectableFolderIds = selectableFolderIds,
                     fixedFolderId = job.extractFixedFolderId(),
                     snapshot =
                         AiSummarySnapshot(
@@ -136,7 +151,7 @@ class ProcessAiSummaryService(
             } ?: return AiSummaryExecutionResult.Aborted
 
         log.info(
-            "[WORKER] Job Context has been loaded as jobId=$jobId, userProvider=${context.userProvider.id}, provider=${context.provider.type}, requestModel=${context.requestModel.model}",
+            "[WORKER] Job Context has been loaded as jobId=$jobId, userProvider=${context.userProvider.id}, provider=${context.provider.type}",
         )
 
         return catchingFailure { summarize(context) }
@@ -161,50 +176,47 @@ class ProcessAiSummaryService(
             )
     }
 
-    private suspend fun summarize(context: AiSummaryContext): AiSummaryResult {
-        val currentProvider =
-            tx.readOnly { aiProviderRepository.findById(context.provider.id!!) }
-                ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
-        currentProvider.validateActive()
+    private suspend fun selectAvailableModels(
+        userProvider: UserProvider,
+        provider: AiProvider,
+        requestModel: AvailableModel,
+        providerModels: List<AvailableModel>,
+    ): List<AvailableModel> {
         val models =
-            if (context.userProvider.userRole == Role.SUPER_ADMIN) {
+            if (userProvider.userRole == Role.SUPER_ADMIN) {
+                provider.validateActive()
                 AiModelAvailabilityDomainService.selectableModels(
-                    provider = currentProvider,
-                    models =
-                        tx.readOnly {
-                            availableModelRepository.findAllByProviderId(currentProvider.id!!)
-                        },
+                    provider = provider,
+                    models = providerModels,
                 )
             } else {
-                val model =
-                    tx.readOnly { availableModelRepository.findById(context.requestModel.id!!) }
-                        ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
-                AiModelAvailabilityDomainService.validateUsable(provider = currentProvider, model = model)
-                listOf(model)
+                AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
+                listOf(requestModel)
             }
-        var lastFailure: Throwable? = null
-        val availableModels =
-            tx.readOnly {
-                models.filterNot { model ->
-                    todayUsage(context.userProvider.id!!, model.id!!)?.isOverLimit(model) == true
-                }
-            }
+        if (models.isEmpty()) return emptyList()
 
-        repeat(MAX_MODEL_CYCLES) { cycle ->
+        val usages =
+            dailyUsageRepository
+                .findAllByUserProviderAndUsageDate(
+                    userProviderId = userProvider.id!!,
+                    modelIds = models.map { it.id!! },
+                    usageDate = LocalDate.now(ZoneOffset.UTC),
+                ).associateBy { it.modelId }
+        return models.filterNot { model -> usages[model.id]?.isOverLimit(model) == true }
+    }
+
+    private suspend fun summarize(context: AiSummaryContext): AiSummaryResult {
+        val availableModels = context.availableModels.getOrThrow()
+        var lastFailure: Throwable? = null
+        val cycles = if (context.userProvider.userRole == Role.SUPER_ADMIN) MAX_MODEL_CYCLES else 1
+
+        repeat(cycles) {
             availableModels.forEach { model ->
                 log.info("[WORKER] Trial model=${model.model}")
 
                 val summary =
                     catchingFailure {
-                        tx.readOnly {
-                            val provider =
-                                aiProviderRepository.findById(currentProvider.id!!)
-                                    ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
-                            val freshModel =
-                                availableModelRepository.findById(model.id!!)
-                                    ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
-                            AiModelAvailabilityDomainService.validateUsable(provider = provider, model = freshModel)
-                        }
+                        revalidateAttempt(providerId = context.provider.id!!, modelId = model.id!!)
                         aiClientRouter.summarize(
                             AiSummaryClientRequest(
                                 providerType = context.provider.type,
@@ -224,24 +236,21 @@ class ProcessAiSummaryService(
                 (result.linkId == null || result.linkId == context.job.linkId).requireTrue(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
                 return AiSummaryResult(model = model, response = result)
             }
-
-            if (context.userProvider.userRole != Role.SUPER_ADMIN || cycle == MAX_MODEL_CYCLES - 1) {
-                throw IllegalStateException(lastFailure.failureSummary(), lastFailure)
-            }
         }
 
-        throw IllegalStateException(lastFailure.failureSummary(), lastFailure)
+        throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
     }
 
-    private suspend fun todayUsage(
-        userProviderId: Long,
+    private suspend fun revalidateAttempt(
+        providerId: Long,
         modelId: Long,
-    ): DailyUsage? =
-        dailyUsageRepository.findByUserIdAndProviderIdAndUsageDate(
-            userProviderId = userProviderId,
-            modelId = modelId,
-            usageDate = LocalDate.now(ZoneOffset.UTC),
-        )
+    ) {
+        tx.readOnly {
+            val provider = aiProviderRepository.findById(providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+            val model = availableModelRepository.findById(modelId) ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+            AiModelAvailabilityDomainService.validateUsable(provider = provider, model = model)
+        }
+    }
 
     private fun AiJob.extractFixedFolderId(): Long? =
         prompt
@@ -258,7 +267,7 @@ class ProcessAiSummaryService(
         val userProvider: UserProvider,
         val provider: AiProvider,
         val apiKey: String,
-        val requestModel: AvailableModel,
+        val availableModels: Result<List<AvailableModel>>,
         val selectableFolderIds: Set<Long>,
         val fixedFolderId: Long?,
         val snapshot: AiSummarySnapshot,

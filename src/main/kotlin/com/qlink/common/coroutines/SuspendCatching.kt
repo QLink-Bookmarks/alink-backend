@@ -1,4 +1,4 @@
-package com.qlink.common.error
+package com.qlink.common.coroutines
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext

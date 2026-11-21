@@ -14,23 +14,11 @@ import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.worker.AiSummaryDispatcher
-import com.qlink.ai.worker.AiSummaryWorker
-import com.qlink.ai.worker.service.CompleteAiSummaryService
-import com.qlink.ai.worker.service.CountPendingAiSummaryJobsService
-import com.qlink.ai.worker.service.FailAiSummaryService
-import com.qlink.ai.worker.service.ProcessAiSummaryService
-import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.WorkerConfig
 import com.qlink.support.fixture.RandomFixture
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry
-import kotlinx.coroutines.channels.Channel
 import org.koin.dsl.module
-import org.slf4j.LoggerFactory
-import kotlin.time.Duration.Companion.minutes
 
 fun aiTestModule() =
     module {
@@ -48,90 +36,6 @@ fun aiTestModule() =
         single<AiClientRouter> {
             AiClientRouter(
                 clients = listOf(get<FakeAiClient>()),
-            )
-        }
-
-        single {
-            Channel<Long>(capacity = Channel.BUFFERED)
-        }
-
-        single {
-            AiSummaryDispatcher(channel = get())
-        }
-
-        single {
-            CompleteAiSummaryService(
-                tx = get(),
-                aiJobRepository = get(),
-                dailyUsageRepository = get(),
-                folderRepository = get(),
-                folderMemberRepository = get(),
-                linkRepository = get(),
-                todoRepository = get(),
-                scheduleTodoNotificationService = get(),
-                urlResolver = get(),
-                log = LoggerFactory.getLogger(CompleteAiSummaryService::class.java),
-            )
-        }
-
-        single {
-            FailAiSummaryService(
-                tx = get(),
-                aiJobRepository = get(),
-                linkRepository = get(),
-                urlResolver = get(),
-            )
-        }
-
-        single {
-            ProcessAiSummaryService(
-                tx = get(),
-                aiJobRepository = get(),
-                userProviderRepository = get(),
-                availableModelRepository = get(),
-                aiProviderRepository = get(),
-                dailyUsageRepository = get(),
-                folderRepository = get(),
-                linkRepository = get(),
-                aiClientRouter = get(),
-                apiKeyCipher = get(),
-                log = LoggerFactory.getLogger(AiSummaryWorker::class.java),
-            )
-        }
-
-        single {
-            RecoverAiSummaryJobsService(
-                tx = get(),
-                aiJobRepository = get(),
-            )
-        }
-
-        single {
-            CountPendingAiSummaryJobsService(
-                tx = get(),
-                aiJobRepository = get(),
-            )
-        }
-
-        single {
-            AiSummaryWorker(
-                processAiSummaryService = get(),
-                recoverAiSummaryJobsService = get(),
-                countPendingAiSummaryJobsService = get(),
-                completeAiSummaryService = get(),
-                failAiSummaryService = get(),
-                channel = get(),
-                config =
-                    WorkerConfig(
-                        pollInterval = 10.minutes,
-                        importThumbnailConcurrency = 3,
-                        importThumbnailParallelism = 2,
-                        importThumbnailBatchSize = 100,
-                        aiSummaryParallelism = 1,
-                    ),
-                meterRegistry = SimpleMeterRegistry(),
-                traceIdLength = ServiceTestEnvironment.TRACE_ID_LENGTH,
-                log = LoggerFactory.getLogger(AiSummaryWorker::class.java),
             )
         }
     }

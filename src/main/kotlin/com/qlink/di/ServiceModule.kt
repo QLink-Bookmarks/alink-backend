@@ -54,7 +54,6 @@ import com.qlink.notification.service.GetUnreadNotificationCountService
 import com.qlink.notification.service.ReadNotificationService
 import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.notification.service.SendAnnouncementService
-import com.qlink.notification.worker.service.SendNotificationService
 import com.qlink.post.service.CreatePostService
 import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
@@ -623,19 +622,6 @@ fun serviceModule() =
                 notificationRepository = get(),
                 linkRepository = get(),
                 taskScheduler = get(),
-            )
-        }
-
-        single {
-            SendNotificationService(
-                tx = get(),
-                notificationRepository = get(),
-                userRepository = get(),
-                deviceTokenRepository = get(),
-                senderRouter = get(),
-                todoRepository = get(),
-                linkRepository = get(),
-                log = LoggerFactory.getLogger(SendNotificationService::class.java),
             )
         }
 

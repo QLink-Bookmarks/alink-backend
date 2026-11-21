@@ -1,14 +1,14 @@
 package com.qlink.ai.worker
 
-import com.qlink.ai.DEFAULT_FAILURE_MESSAGE
+import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
 import com.qlink.ai.dto.AiSummaryExecutionResult
-import com.qlink.ai.failureSummary
 import com.qlink.ai.worker.service.CompleteAiSummaryService
 import com.qlink.ai.worker.service.CountPendingAiSummaryJobsService
 import com.qlink.ai.worker.service.FailAiSummaryService
 import com.qlink.ai.worker.service.ProcessAiSummaryService
 import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
-import com.qlink.common.error.catchingFailure
+import com.qlink.common.coroutines.catchingFailure
+import com.qlink.common.error.messageOrFallback
 import com.qlink.common.logging.traceContext
 import com.qlink.config.WorkerConfig
 import io.micrometer.core.instrument.Counter
@@ -58,7 +58,7 @@ class AiSummaryWorker(
                         catchingFailure { proceed(jobId) }
                             .onFailure { error ->
                                 log.warn("[WORKER] Failed to process AI summary. jobId=$jobId", error)
-                                catchingFailure { fail(jobId = jobId, reason = error.failureSummary()) }
+                                catchingFailure { fail(jobId = jobId, reason = error.messageOrFallback(DEFAULT_FAILURE_MESSAGE)) }
                                     .onFailure { log.warn("[WORKER] Failed to mark AI summary failed. jobId=$jobId", it) }
                             }
                     } finally {
@@ -116,13 +116,13 @@ class AiSummaryWorker(
                     countResult(if (completionResult.schedulingFailed) RESULT_ERROR else RESULT_COMPLETED)
                 }.onFailure {
                     log.warn("[WORKER] AI summary completion failed. jobId=$jobId", it)
-                    fail(jobId = jobId, reason = it.failureSummary())
+                    fail(jobId = jobId, reason = it.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
                 }
             }
 
             is AiSummaryExecutionResult.Failed -> {
                 log.warn("AI summary failed. jobId={}", result.jobId, result.error)
-                fail(jobId = result.jobId!!, reason = result.error.failureSummary())
+                fail(jobId = result.jobId!!, reason = result.error.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
             }
         }
     }

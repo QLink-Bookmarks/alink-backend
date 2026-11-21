@@ -301,7 +301,89 @@ class AiSummaryWorkerRegressionTest :
                 }
             }
 
+            fun workerWithRepositories(
+                availableModels: AvailableModelRepository = availableModelRepository,
+                aiProviders: AiProviderRepository = aiProviderRepository,
+                afterUsageLoaded: () -> Unit = {},
+            ): AiSummaryWorker =
+                createAiSummaryWorker(
+                    process =
+                        ProcessAiSummaryService(
+                            tx = koinGet(),
+                            aiJobRepository = aiJobRepository,
+                            userProviderRepository = userProviderRepository,
+                            availableModelRepository = availableModels,
+                            aiProviderRepository = aiProviders,
+                            dailyUsageRepository =
+                                object : DailyUsageRepository by dailyUsageRepository {
+                                    override suspend fun findAllByUserProviderAndUsageDate(
+                                        userProviderId: Long,
+                                        modelIds: List<Long>,
+                                        usageDate: LocalDate,
+                                    ): List<DailyUsage> =
+                                        dailyUsageRepository
+                                            .findAllByUserProviderAndUsageDate(
+                                                userProviderId = userProviderId,
+                                                modelIds = modelIds,
+                                                usageDate = usageDate,
+                                            ).also { afterUsageLoaded() }
+                                },
+                            folderRepository = koinGet(),
+                            linkRepository = linkRepository,
+                            aiClientRouter = koinGet(),
+                            apiKeyCipher = koinGet(),
+                            log = LoggerFactory.getLogger(ProcessAiSummaryService::class.java),
+                        ),
+                )
+
+            fun workerWithMissingContextRow(
+                errorCode: ErrorCode,
+                afterUsageLoaded: () -> Unit = {},
+                isMissing: () -> Boolean,
+            ): AiSummaryWorker =
+                workerWithRepositories(
+                    availableModels =
+                        object : AvailableModelRepository by availableModelRepository {
+                            override suspend fun findById(modelId: Long): AvailableModel? =
+                                if (isMissing() && errorCode == ErrorCode.AI_MODEL_NOT_FOUND) {
+                                    null
+                                } else {
+                                    availableModelRepository.findById(modelId)
+                                }
+                        },
+                    aiProviders =
+                        object : AiProviderRepository by aiProviderRepository {
+                            override suspend fun findById(providerId: Long): AiProvider? =
+                                if (isMissing() && errorCode == ErrorCode.AI_PROVIDER_NOT_FOUND) {
+                                    null
+                                } else {
+                                    aiProviderRepository.findById(providerId)
+                                }
+                        },
+                    afterUsageLoaded = afterUsageLoaded,
+                )
+
             listOf(ErrorCode.AI_PROVIDER_NOT_FOUND, ErrorCode.AI_MODEL_NOT_FOUND).forEach { errorCode ->
+                When("최초 조회에서 ${errorCode.name} 상황이 발생하면") {
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        enqueue()
+                    }
+
+                    val action = suspend { workerWithMissingContextRow(errorCode) { true }.proceed(jobId) }
+
+                    Then("선점 기록만 남고 외부 요약은 호출하지 않는다") {
+                        shouldNotThrow<BusinessException> { action() }
+
+                        fakeAiClient.requestedModels shouldBe emptyList()
+                        val saved = aiJobRepository.findById(jobId)!!
+                        (saved.startedAt != null) shouldBe true
+                        saved.completedAt shouldBe null
+                        saved.status shouldBe AiJobStatus.P
+                        linkRepository.findById(link.id!!)!!.status shouldBe LinkStatus.G
+                    }
+                }
+
                 When("시도 직전 ${errorCode.name} 상황이 발생하면") {
                     beforeTest {
                         if (it.type != TestType.Test) return@beforeTest
@@ -310,39 +392,10 @@ class AiSummaryWorkerRegressionTest :
 
                     val action =
                         suspend {
-                            var providerReads = 0
-                            var modelReads = 0
-                            val process =
-                                ProcessAiSummaryService(
-                                    tx = koinGet(),
-                                    aiJobRepository = aiJobRepository,
-                                    userProviderRepository = userProviderRepository,
-                                    availableModelRepository =
-                                        object : AvailableModelRepository by availableModelRepository {
-                                            override suspend fun findById(modelId: Long): AvailableModel? =
-                                                if (++modelReads == 3 && errorCode == ErrorCode.AI_MODEL_NOT_FOUND) {
-                                                    null
-                                                } else {
-                                                    availableModelRepository.findById(modelId)
-                                                }
-                                        },
-                                    aiProviderRepository =
-                                        object : AiProviderRepository by aiProviderRepository {
-                                            override suspend fun findById(providerId: Long): AiProvider? =
-                                                if (++providerReads == 3 && errorCode == ErrorCode.AI_PROVIDER_NOT_FOUND) {
-                                                    null
-                                                } else {
-                                                    aiProviderRepository.findById(providerId)
-                                                }
-                                        },
-                                    dailyUsageRepository = dailyUsageRepository,
-                                    folderRepository = koinGet(),
-                                    linkRepository = linkRepository,
-                                    aiClientRouter = koinGet(),
-                                    apiKeyCipher = koinGet(),
-                                    log = LoggerFactory.getLogger(ProcessAiSummaryService::class.java),
-                                )
-                            createAiSummaryWorker(process = process).proceed(jobId)
+                            var usageLoaded = false
+                            workerWithMissingContextRow(errorCode = errorCode, afterUsageLoaded = { usageLoaded = true }) {
+                                usageLoaded
+                            }.proceed(jobId)
                         }
 
                     Then("외부 호출 없이 해당 실패 사유를 저장한다") {
@@ -352,6 +405,69 @@ class AiSummaryWorkerRegressionTest :
                         aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
                         linkRepository.findById(link.id!!)!!.summary shouldBe errorCode.message
                     }
+                }
+
+                When("첫 호출 실패 후 재시도 직전 ${errorCode.name} 상황이 발생하면") {
+                    var firstCallStarted = false
+
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        enqueue(Role.SUPER_ADMIN)
+                        firstCallStarted = false
+                        fakeAiClient.failuresByModel =
+                            mapOf(model.model to IllegalStateException(RandomFixture.randomSentenceWithMax(100)))
+                        fakeAiClient.beforeSummary = { firstCallStarted = true }
+                    }
+
+                    val action = suspend { workerWithMissingContextRow(errorCode) { firstCallStarted }.proceed(jobId) }
+
+                    Then("추가 외부 호출 없이 해당 실패 사유를 저장한다") {
+                        shouldNotThrow<BusinessException> { action() }
+
+                        fakeAiClient.requestedModels shouldBe listOf(model.model)
+                        aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
+                        linkRepository.findById(link.id!!)!!.summary shouldBe errorCode.message
+                    }
+                }
+            }
+
+            When("사용량 확인 뒤 첫 후보가 비활성화되면") {
+                lateinit var fallback: AvailableModel
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    enqueue(Role.SUPER_ADMIN)
+                    fallback =
+                        availableModelRepository.insert(AiFixture.createRandomAvailableModelOf(providerId = key.providerId, priority = 2))
+                }
+
+                val action =
+                    suspend {
+                        var usageLoaded = false
+                        workerWithRepositories(
+                            availableModels =
+                                object : AvailableModelRepository by availableModelRepository {
+                                    override suspend fun findById(modelId: Long): AvailableModel? {
+                                        val found = availableModelRepository.findById(modelId)
+                                        return if (usageLoaded && modelId == model.id) {
+                                            found?.copyForTestActive(isActive = false)
+                                        } else {
+                                            found
+                                        }
+                                    }
+                                },
+                            afterUsageLoaded = { usageLoaded = true },
+                        ).proceed(jobId)
+                    }
+
+                Then("비활성 후보를 건너뛰고 다음 모델로 완료한다") {
+                    shouldNotThrow<BusinessException> { action() }
+
+                    fakeAiClient.requestedModels shouldBe listOf(fallback.model)
+                    val saved = aiJobRepository.findById(jobId)!!
+                    saved.status shouldBe AiJobStatus.C
+                    saved.responseModelId shouldBe fallback.id
+                    linkRepository.findById(link.id!!)!!.status shouldBe LinkStatus.A
                 }
             }
 
