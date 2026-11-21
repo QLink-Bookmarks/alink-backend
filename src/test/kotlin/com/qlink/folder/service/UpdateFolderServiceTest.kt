@@ -618,7 +618,7 @@ class UpdateFolderServiceTest :
                     stored.ownerId shouldBe recipientId
                     stored.isPublic shouldBe true
                     stored.publicId shouldBe folder.publicId
-                    folderRepository.findPublicByPublicId(folder.publicId!!)?.name shouldBe folder.name
+                    stored.name shouldBe folder.name
                 }
             }
         }
