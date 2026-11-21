@@ -58,7 +58,7 @@ A type depends on another when it names, holds, takes, returns or calls it. Only
 
 - **D1** Route → application service, always, the request and response DTOs it maps, and the call's authentication principal (`JwtPrincipal`, plugin helpers such as `jwtPrincipalOrGuest`) to read the user. A route calls nothing else.
 - **D2** Application service → repository; → domain (its behavior); → domain service, only when a decision spans domains (P2); → DTO; → client (P4); → worker, only when a case needs it, such as a wake signal. It may also use its own helper classes (S4) and a shared-step service (S5). It may build, pass and read VOs and enums, but calls their behavior only when no other way exists.
-- **D3** Worker → usually nothing; it runs alone. When it has a structure, the worker is only the trigger: worker → application service, and the DTOs and enums those services return; the service then goes → repository and domain (D2).
+- **D3** Worker → its worker services and shared application steps (S5), and the values those services return. It may read a domain value passed to a scheduling or signal entry point. Worker service → the dependencies allowed by D2, except workers, and its own worker services for shared steps (S5). A worker service has no route or application service callers.
 - **D4** Repository → its tables (persistence) and its own domain's domains, VOs and enums; → DTOs, always, such as `Queries`.
 - **D5** Domain service → domains, VOs, enums and its own `internal` helpers (M6). It builds DTOs (M3).
 - **D6** Domain → its own VOs and enums. An aggregate root → its own child rows (sub-domain rows stored by the root's repository, M1), as `BookmarkImport` → `ImportFolder`, `ImportLink`, `ImportFailure`.
@@ -94,7 +94,7 @@ Review targets, by kind:
 
 ## Service
 
-The application service is the use-case facade.
+Application services are the use-case facades. Worker services run business procedures initiated only by workers.
 
 - **S1** One use case is one class, `<Verb><Noun>Service`, with one public method.
 - **S2** A use case lives in the package of the domain it changes; a read lives in the package of the resource its API path addresses. When it changes several domains, the one its API path addresses.
@@ -102,6 +102,8 @@ The application service is the use-case facade.
 - **S4** A repository-dependent check used by two or more services becomes a helper class in the service package. Used by one service, it stays private. A helper holds only P3 and P4 logic.
 - **S5** A service calls another service only when that service is a shared step with no route of its own, such as notification scheduling. It never calls a use case that a route calls.
 - **S6** The service owns the transaction boundary: every public method calls repositories inside `TransactionRunner.required` or `TransactionRunner.readOnly`. A repository never opens a transaction.
+- **S7** Route use cases and procedures shared between requests and workers live in `<domain>/service`. Procedures started only by a worker live in `<domain>/worker/service` and follow S1, S3 and S6. DI registrations and test references do not count as business callers. Pure decisions follow P1 and P2.
+- **S8** A worker manages lifecycle, signals, scheduling, concurrency and metrics. Its worker services handle repository reads and claims, external calls and state transitions.
 
 ## Query
 
@@ -130,10 +132,10 @@ Known now:
 - `Notification` imports `todo.domain.Todo`, and `User` and `UserProvider` import `auth.domain.Role` (M3).
 - `ai/domain/DailyUsage.isOverLimit(model: AvailableModel)` takes another domain as an argument (M3, D6).
 - `image/domain/ImagePurpose.newObjectKey(environment, type: ImageType)` makes an enum depend on another enum (D7). `ImageType` is closer to a value type than a domain; recorded as is.
-- `image/service/PreviewImageUrlResolver`, a helper in the image service package, is used by other domains' services and workers (`CreateLinkPreviewService`, `FillImportThumbnailService`, `AiSummaryWorker`), which D2 does not list (S4 helpers serve their own service package); left as is.
+- `image/service/PreviewImageUrlResolver`, a helper in the image service package, is used by other domains’ services, including AI summary completion and failure, import thumbnail fill and link preview creation. D2 and S4 limit helpers to their own service package.
 - Files with more than one top-level type (F1):
   - domain: `user/domain/User.kt` (`UserTheme`, `UserAccent`)
-  - service: `ai/service/UpdateLinkAiSummaryService.kt`, `notification/service/SendNotificationService.kt`, `auth/service/AuthTokenService.kt`, `auth/service/RandomUserNameGenerator.kt`, `auth/service/RefreshAuthTokenService.kt` (top-level `RefreshResult`)
+  - service: `ai/service/UpdateLinkAiSummaryService.kt`, `auth/service/AuthTokenService.kt`, `auth/service/RandomUserNameGenerator.kt`, `auth/service/RefreshAuthTokenService.kt` (top-level `RefreshResult`)
   - client: `ai/client/AiClient.kt`, `ai/client/GeminiAiClient.kt`, `ai/client/OpenAiClient.kt`, `auth/client/AuthResourceClient.kt`, `auth/client/GoogleAuthResourceClient.kt`, `auth/client/KakaoAuthResourceClient.kt`, `auth/client/NaverAuthResourceClient.kt`, `auth/client/OidcIdTokenVerifier.kt`, `push/client/ExpoPushClient.kt`, `push/client/FirebaseInitializer.kt`, `push/client/PushNotificationSender.kt`
   - config and common: `config/HttpPluginConfig.kt`, `config/MonitoringConfig.kt`, `common/search/SearchCursor.kt`, `common/response/ApiResponse.kt`
 - Pure-mechanism private extensions on Kotlin or JDK types (F3): `image/domain/ImageType.kt` `ByteArray.startsWith` and `ByteArray.isWebp`, `auth/service/RandomUserNameGenerator.kt` `List<T>.random`.

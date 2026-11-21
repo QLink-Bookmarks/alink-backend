@@ -9,6 +9,8 @@ conventions that are not obvious from reading the code.
 - Readability, Simpleness, and Maintenance are the priorities.
 - For any change in `domain/**` or `service/**`, follow `references/domain-review.md`.
 - Dependencies follow the allowed list in D1–D9 of `references/domain-review.md`; anything not listed is not allowed.
+- Keep route use cases and shared request/worker steps in `<domain>/service`. Put procedures started only
+  by workers in `<domain>/worker/service` and keep lifecycle, signals, scheduling, concurrency, and metrics in the worker.
 - One top-level type per file, except DTO files. Pure-mechanism extensions on Kotlin or JDK types go in `common`
   util files. See F1–F3 in `references/domain-review.md`.
 - Match the house style in `references/house-style.md`: copy the closest sibling on `main`, extend an existing
@@ -29,6 +31,8 @@ conventions that are not obvious from reading the code.
 - For domain method tests that are not testing object creation, create the domain object through a fixture. The fixture should expose parameters for values relevant to the method under test, while randomizing unrelated valid values.
 - Service tests must extend `BaseServiceTest` and use Koin DI through `support.koinGet<T>()`. This applies to application
   services (`<domain>/service`).
+- Worker services (`<domain>/worker/service`) also use `BaseServiceTest` and Koin DI. Test the business procedure
+  through the service.
 - A domain service (`<domain>/domain/service/*DomainService`) is tested like a domain: a pure `BehaviorSpec` with fixtures, no
   `BaseServiceTest`.
 - In service tests, prepare required persisted data in `beforeTest` using fixtures and repositories.
