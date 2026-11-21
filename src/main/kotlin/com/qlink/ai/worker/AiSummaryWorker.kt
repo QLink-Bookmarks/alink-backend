@@ -10,7 +10,6 @@ import com.qlink.ai.worker.service.RecoverAiSummaryJobsService
 import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.error.messageOrFallback
 import com.qlink.common.logging.traceContext
-import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.config.WorkerConfig
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
@@ -97,37 +96,36 @@ class AiSummaryWorker(
         refreshPending()
     }
 
-    suspend fun proceed(jobId: Long): Unit =
-        withRedactedSqlLogging {
-            when (val result = processAiSummaryService.proceed(jobId)) {
-                AiSummaryExecutionResult.Skipped -> {
-                    countResult(RESULT_SKIPPED)
-                }
+    suspend fun proceed(jobId: Long) {
+        when (val result = processAiSummaryService.proceed(jobId)) {
+            AiSummaryExecutionResult.Skipped -> {
+                countResult(RESULT_SKIPPED)
+            }
 
-                AiSummaryExecutionResult.Aborted -> {
-                    countResult(RESULT_ABORTED)
-                }
+            AiSummaryExecutionResult.Aborted -> {
+                countResult(RESULT_ABORTED)
+            }
 
-                is AiSummaryExecutionResult.Summarized -> {
-                    catchingFailure {
-                        completeAiSummaryService.complete(result.completion.getOrThrow())
-                    }.onSuccess { completionResult ->
-                        log.info(
-                            "[WORKER] Job has been successful for job=$jobId, link=${result.linkId}, folderKeptAfterMove=${completionResult.folderKeptAfterMove}",
-                        )
-                        countResult(if (completionResult.schedulingFailed) RESULT_ERROR else RESULT_COMPLETED)
-                    }.onFailure {
-                        log.warn("[WORKER] AI summary completion failed. jobId=$jobId", it)
-                        fail(jobId = jobId, reason = it.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
-                    }
-                }
-
-                is AiSummaryExecutionResult.Failed -> {
-                    log.warn("AI summary failed. jobId={}", result.jobId, result.error)
-                    fail(jobId = result.jobId!!, reason = result.error.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
+            is AiSummaryExecutionResult.Summarized -> {
+                catchingFailure {
+                    completeAiSummaryService.complete(result.completion.getOrThrow())
+                }.onSuccess { completionResult ->
+                    log.info(
+                        "[WORKER] Job has been successful for job=$jobId, link=${result.linkId}, folderKeptAfterMove=${completionResult.folderKeptAfterMove}",
+                    )
+                    countResult(if (completionResult.schedulingFailed) RESULT_ERROR else RESULT_COMPLETED)
+                }.onFailure {
+                    log.warn("[WORKER] AI summary completion failed. jobId=$jobId", it)
+                    fail(jobId = jobId, reason = it.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
                 }
             }
+
+            is AiSummaryExecutionResult.Failed -> {
+                log.warn("AI summary failed. jobId={}", result.jobId, result.error)
+                fail(jobId = result.jobId!!, reason = result.error.messageOrFallback(DEFAULT_FAILURE_MESSAGE))
+            }
         }
+    }
 
     private suspend fun fail(
         jobId: Long,

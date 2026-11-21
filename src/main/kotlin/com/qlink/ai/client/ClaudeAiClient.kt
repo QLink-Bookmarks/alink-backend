@@ -1,54 +1,64 @@
 package com.qlink.ai.client
 
+import com.anthropic.client.AnthropicClientAsync
+import com.anthropic.client.AnthropicClientAsyncImpl
+import com.anthropic.core.ClientOptions
+import com.anthropic.core.LogLevel
+import com.anthropic.core.RequestOptions
+import com.anthropic.core.http.HttpClient
+import com.anthropic.core.http.HttpRequest
+import com.anthropic.errors.AnthropicInvalidDataException
+import com.anthropic.errors.AnthropicServiceException
+import com.anthropic.models.messages.CitationsConfigParam
+import com.anthropic.models.messages.JsonOutputFormat
+import com.anthropic.models.messages.Message
+import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.OutputConfig
+import com.anthropic.models.messages.ServerToolUseBlock
+import com.anthropic.models.messages.StopReason
+import com.anthropic.models.messages.WebFetchTool20250910
+import com.anthropic.models.models.ModelListParams
+import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.domain.AiProviderType
-import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireTrue
-import io.ktor.client.HttpClient
-import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.client.request.header
-import io.ktor.client.request.parameter
-import io.ktor.client.request.request
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpMethod
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.future.asDeferred
 import org.slf4j.Logger
 import java.net.URI
 import java.net.URISyntaxException
+import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import kotlin.jvm.optionals.getOrNull
 import kotlin.time.TimeSource
 
 class ClaudeAiClient(
-    private val httpClient: HttpClient,
+    private val transport: HttpClient,
     private val log: Logger,
 ) : AiClient {
     override val providerType: AiProviderType = AiProviderType.CLAUDE
 
+    private val client =
+        AnthropicClientAsyncImpl(
+            ClientOptions
+                .builder()
+                .httpClient(transport)
+                .baseUrl("https://api.anthropic.com")
+                .maxRetries(0)
+                .logLevel(LogLevel.OFF)
+                .build(),
+        )
+
+    internal fun close() = client.close()
+
     override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
-        val response =
-            exchange(
-                baseUrl = request.baseUrl,
-                apiKey = request.apiKey,
-                operation = "models",
-                httpMethod = HttpMethod.Get,
-            ) {
-                parameter("limit", 1)
-            }
-        if (!response.status.isSuccess()) {
-            throw AiApiKeyValidationException(response.status.value)
+        exchange(baseUrl = request.baseUrl, apiKey = request.apiKey, operation = "models") {
+            models()
+                .withRawResponse()
+                .list(ModelListParams.builder().limit(1).build(), requestOptions)
+                .thenApply { it.use { response -> response.statusCode() } }
         }
     }
 
@@ -60,145 +70,166 @@ class ClaudeAiClient(
             } catch (_: URISyntaxException) {
                 throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
             }
-        val response =
-            exchange(
-                baseUrl = request.baseUrl,
-                apiKey = request.apiKey,
-                operation = "messages",
-                httpMethod = HttpMethod.Post,
-            ) {
-                contentType(ContentType.Application.Json)
-                setBody(messagesBody(request = request, sourceUrl = sourceUrl, sourceHost = sourceHost).toString())
-            }
-        response.status.isSuccess().requireTrue(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
-
+        val webFetch =
+            WebFetchTool20250910
+                .builder()
+                .maxUses(1)
+                .addAllowedDomain(sourceHost)
+                .citations(CitationsConfigParam.builder().enabled(false).build())
+                .build()
+        val params =
+            MessageCreateParams
+                .builder()
+                .model(request.model)
+                .system(AiSummarySpec.systemInstruction)
+                .maxTokens(4096)
+                .addUserMessage("Use web_fetch to fetch this exact source URL before summarizing: $sourceUrl\n\n${request.prompt}")
+                .addTool(webFetch)
+                .outputConfig(outputConfig)
+                .build()
         val message =
-            catchingFailure { json.decodeFromString<MessagesResponse>(response.bodyAsText()) }
-                .getOrElse { throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE) }
-        (message.stopReason == "end_turn").requireTrue(ErrorCode.AI_EMPTY_RESPONSE)
-        val text = message.finalTextAfterFetch(sourceUrl) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+            exchange(baseUrl = request.baseUrl, apiKey = request.apiKey, operation = "messages") {
+                messages().create(params, requestOptions)
+            }
+
         val summary =
             try {
-                parseSummaryResponse(rawResponse = text, usedTokens = message.usage.totalTokens())
+                (message.stopReason().getOrNull() == StopReason.END_TURN).requireTrue(ErrorCode.AI_EMPTY_RESPONSE)
+                val text = message.finalTextAfterFetch(sourceUrl) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                val usage = message.usage()
+                val usedTokens =
+                    usage.inputTokens() + usage.outputTokens() +
+                        usage.cacheCreationInputTokens().orElse(0) + usage.cacheReadInputTokens().orElse(0)
+                parseSummaryResponse(rawResponse = text, usedTokens = Math.toIntExact(usedTokens))
+            } catch (_: AnthropicInvalidDataException) {
+                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
             } catch (_: IllegalArgumentException) {
+                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+            } catch (_: ArithmeticException) {
                 throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
             }
         (summary.linkId != null).requireTrue(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
         return summary
     }
 
-    private suspend fun exchange(
+    private suspend fun <T> exchange(
         baseUrl: String,
         apiKey: String,
         operation: String,
-        httpMethod: HttpMethod,
-        configure: HttpRequestBuilder.() -> Unit,
-    ): HttpResponse {
+        call: AnthropicClientAsync.() -> CompletableFuture<T>,
+    ): T {
         providerType.isAllowedBaseUrl(baseUrl).requireTrue(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
         val started = TimeSource.Monotonic.markNow()
-        val response =
-            catchingFailure {
-                httpClient.request("https://api.anthropic.com/v1/$operation") {
-                    method = httpMethod
-                    header("x-api-key", apiKey)
-                    header("anthropic-version", "2023-06-01")
-                    configure()
+        val lifetime = Job()
+        val requestTransport =
+            object : HttpClient by transport {
+                override fun executeAsync(
+                    request: HttpRequest,
+                    requestOptions: RequestOptions,
+                ) = transport.executeAsync(request, requestOptions).also { pending ->
+                    lifetime.invokeOnCompletion {
+                        if (!pending.cancel(false)) pending.thenAccept { it.close() }
+                    }
                 }
-            }.getOrElse {
-                log.warn("Claude operation={} status=transport_failure elapsedMs={}", operation, started.elapsedNow().inWholeMilliseconds)
-                throw BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
-            }
-        log.info("Claude operation={} status={} elapsedMs={}", operation, response.status.value, started.elapsedNow().inWholeMilliseconds)
-        return response
-    }
 
-    private fun messagesBody(
-        request: AiSummaryClientRequest,
-        sourceUrl: String,
-        sourceHost: String,
-    ) = buildJsonObject {
-        put("model", request.model)
-        put("system", AiSummarySpec.systemInstruction)
-        put("max_tokens", 4096)
-        putJsonArray("messages") {
-            addJsonObject {
-                put("role", "user")
-                put("content", "Use web_fetch to fetch this exact source URL before summarizing: $sourceUrl\n\n${request.prompt}")
+                override fun close() = Unit
             }
-        }
-        putJsonArray("tools") {
-            addJsonObject {
-                put("type", "web_fetch_20250910")
-                put("name", "web_fetch")
-                put("max_uses", 1)
-                putJsonArray("allowed_domains") { add(sourceHost) }
-                putJsonObject("citations") { put("enabled", false) }
-            }
-        }
-        putJsonObject("output_config") {
-            putJsonObject("format") {
-                put("type", "json_schema")
-                put("schema", AiSummarySpec.claudeJsonSchema)
-            }
+        return try {
+            val result =
+                client
+                    .withOptions {
+                        it.httpClient(requestTransport)
+                        it.putHeader("x-api-key", apiKey)
+                        it.putHeader("anthropic-version", "2023-06-01")
+                    }.call()
+                    .asDeferred()
+                    .await()
+            log.info("Claude operation={} status=success elapsedMs={}", operation, started.elapsedNow().inWholeMilliseconds)
+            result
+        } catch (error: AnthropicServiceException) {
+            log.info("Claude operation={} status={} elapsedMs={}", operation, error.statusCode(), started.elapsedNow().inWholeMilliseconds)
+            if (operation == "models") throw AiApiKeyValidationException(error.statusCode())
+            throw BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+        } catch (_: AnthropicInvalidDataException) {
+            throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: RuntimeException) {
+            log.warn("Claude operation={} status=transport_failure elapsedMs={}", operation, started.elapsedNow().inWholeMilliseconds)
+            throw BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
+        } finally {
+            lifetime.cancel()
         }
     }
 
-    @Serializable
-    private data class MessagesResponse(
-        @SerialName("stop_reason") val stopReason: String,
-        val content: List<ContentBlock>,
-        val usage: Usage,
-    ) {
-        fun finalTextAfterFetch(sourceUrl: String): String? {
-            val fetchIndex =
-                content.indexOfFirst { it.type == "server_tool_use" && it.name == "web_fetch" && it.input?.url == sourceUrl }
-            val fetchId = content.getOrNull(fetchIndex)?.id?.takeIf(String::isNotBlank) ?: return null
-            val blocksAfterFetch = content.drop(fetchIndex + 1)
-            val resultIndex =
-                blocksAfterFetch.indexOfFirst { it.type == "web_fetch_tool_result" && it.toolUseId == fetchId }
-            val result = blocksAfterFetch.getOrNull(resultIndex)?.content ?: return null
-            if (result.type != "web_fetch_result" || result.url != sourceUrl) return null
+    private fun Message.finalTextAfterFetch(sourceUrl: String): String? {
+        val blocks = content()
+        val fetchIndex =
+            blocks.indexOfFirst { block ->
+                val fetch = block.serverToolUse().getOrNull() ?: return@indexOfFirst false
+                fetch._type().asString().getOrNull() == "server_tool_use" &&
+                    fetch.name() == ServerToolUseBlock.Name.WEB_FETCH &&
+                    fetch
+                        ._input()
+                        .asObject()
+                        .getOrNull()
+                        ?.get("url")
+                        ?.asString()
+                        ?.getOrNull() == sourceUrl
+            }
+        val fetchId =
+            blocks
+                .getOrNull(fetchIndex)
+                ?.asServerToolUse()
+                ?.id()
+                ?.takeIf(String::isNotBlank) ?: return null
+        val blocksAfterFetch = blocks.drop(fetchIndex + 1)
+        val resultIndex =
+            blocksAfterFetch.indexOfFirst { block ->
+                val result = block.webFetchToolResult().getOrNull() ?: return@indexOfFirst false
+                result._type().asString().getOrNull() == "web_fetch_tool_result" && result.toolUseId() == fetchId
+            }
+        val fetchedUrl =
+            blocksAfterFetch
+                .getOrNull(resultIndex)
+                ?.asWebFetchToolResult()
+                ?.content()
+                ?.webFetchBlock()
+                ?.getOrNull()
+                ?.takeIf { it._type().asString().getOrNull() == "web_fetch_result" }
+                ?.url()
+        if (fetchedUrl != sourceUrl) return null
 
-            return blocksAfterFetch
-                .drop(resultIndex + 1)
-                .lastOrNull { it.type == "text" && !it.text.isNullOrBlank() }
-                ?.text
-        }
-    }
-
-    @Serializable
-    private data class ContentBlock(
-        val type: String,
-        val name: String? = null,
-        val id: String? = null,
-        val input: FetchInput? = null,
-        @SerialName("tool_use_id") val toolUseId: String? = null,
-        val content: FetchResult? = null,
-        val text: String? = null,
-    )
-
-    @Serializable
-    private data class FetchInput(
-        val url: String? = null,
-    )
-
-    @Serializable
-    private data class FetchResult(
-        val type: String,
-        val url: String? = null,
-    )
-
-    @Serializable
-    private data class Usage(
-        @SerialName("input_tokens") val inputTokens: Int,
-        @SerialName("output_tokens") val outputTokens: Int,
-        @SerialName("cache_creation_input_tokens") val cacheCreationInputTokens: Int? = null,
-        @SerialName("cache_read_input_tokens") val cacheReadInputTokens: Int? = null,
-    ) {
-        fun totalTokens(): Int = inputTokens + outputTokens + (cacheCreationInputTokens ?: 0) + (cacheReadInputTokens ?: 0)
+        return blocksAfterFetch
+            .drop(resultIndex + 1)
+            .asReversed()
+            .firstNotNullOfOrNull {
+                it
+                    .text()
+                    .getOrNull()
+                    ?.takeIf { it._type().asString().getOrNull() == "text" }
+                    ?.text()
+                    ?.takeIf(String::isNotBlank)
+            }
     }
 
     private companion object {
-        val json = Json { ignoreUnknownKeys = true }
+        val requestOptions =
+            RequestOptions
+                .builder()
+                .followRedirects(false)
+                .timeout(Duration.ofSeconds(15))
+                .build()
+        val outputConfig =
+            OutputConfig
+                .builder()
+                .format(
+                    JsonOutputFormat.of(
+                        JsonMapper.builder().build().readValue(
+                            AiSummarySpec.claudeJsonSchema.toString(),
+                            JsonOutputFormat.Schema::class.java,
+                        ),
+                    ),
+                ).build()
     }
 }

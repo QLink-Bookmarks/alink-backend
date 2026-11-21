@@ -13,6 +13,7 @@ import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
+import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
@@ -27,10 +28,10 @@ import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAvailableModelActiveService
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.ai.worker.AiSummaryWorker
+import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.config.AbbreviatedSqlLogger
 import com.qlink.config.MonitoringConfig
@@ -61,11 +62,13 @@ import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
-import io.ktor.client.request.HttpRequestData
-import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.OutgoingContent
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.contentOrNull
@@ -74,14 +77,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.koin.core.KoinApplication
-import org.koin.core.qualifier.named
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
-import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.time.Duration.Companion.minutes
+import com.anthropic.core.http.HttpClient as AnthropicTransport
 
 class ClaudeAiSummaryServiceTest :
     BaseServiceTest({
@@ -136,6 +138,24 @@ class ClaudeAiSummaryServiceTest :
                     request = PutAiUserProviderRequest(providerId = provider.id!!, apiKey = key),
                 ).id
 
+        suspend fun submitSummary(
+            userProviderId: Long,
+            modelId: Long,
+        ): AiJob {
+            val response =
+                app.koin.get<UpdateLinkAiSummaryService>().updateLinkAiSummary(
+                    loginId = owner.id!!,
+                    request =
+                        AiSummaryRequest(
+                            userProviderId = userProviderId,
+                            modelId = modelId,
+                            url = fixture.sourceUrl,
+                            generateTodo = true,
+                        ),
+                )
+            return jobs.findAllByLinkId(response.id).single()
+        }
+
         suspend fun enqueue(): AiJob {
             activateProvider()
             activateModel()
@@ -148,18 +168,7 @@ class ClaudeAiSummaryServiceTest :
                     .models
                     .single()
             selected.userProviderId shouldBe registeredId
-            val response =
-                app.koin.get<UpdateLinkAiSummaryService>().updateLinkAiSummary(
-                    loginId = owner.id!!,
-                    request =
-                        AiSummaryRequest(
-                            userProviderId = registeredId,
-                            modelId = selected.id,
-                            url = fixture.sourceUrl,
-                            generateTodo = true,
-                        ),
-                )
-            return jobs.findAllByLinkId(response.id).single()
+            return submitSummary(userProviderId = registeredId, modelId = selected.id)
         }
 
         suspend fun recordedUsage(job: AiJob) =
@@ -192,7 +201,7 @@ class ClaudeAiSummaryServiceTest :
                             serviceModule(),
                             workerModule(config),
                             module {
-                                single(named<ClaudeAiClient>()) { http.client } onClose { it?.close() }
+                                single<AnthropicTransport> { http.transport }
                                 single { koinGet<TransactionRunner>() }
                                 single { cipher }
                                 single { koinGet<MonitoringConfig>() }
@@ -223,8 +232,8 @@ class ClaudeAiSummaryServiceTest :
                         event.formattedMessage + event.throwableProxy?.let(ThrowableProxyUtil::asString).orEmpty()
                     }
                 appender.stop()
-                http.client.close()
                 app.close()
+                http.close()
                 assertPrivateValuesAbsent(logs)
             }
 
@@ -330,12 +339,31 @@ class ClaudeAiSummaryServiceTest :
                         shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) { checkKey() }
                         shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE.message) { summarize() }
                         http.requests.map { it.method to it.url.toString() } shouldBe
-                            listOf(HttpMethod.Get to "$baseUrl/v1/models?limit=1", HttpMethod.Post to "$baseUrl/v1/messages")
+                            listOf("GET" to "$baseUrl/v1/models?limit=1", "POST" to "$baseUrl/v1/messages")
                         http.requests.forEach { request ->
-                            request.headers["x-api-key"] shouldBe apiKey
-                            request.headers["anthropic-version"] shouldBe "2023-06-01"
+                            request.headers.getFirst("x-api-key") shouldBe apiKey
+                            request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
                         }
                     }
+                }
+            }
+
+            When("Claude 키 확인 도중 요청이 취소되면") {
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    activateProvider()
+                    http.holdResponse = true
+                }
+                Then("등록의 취소가 전파되고 공급자 키가 저장되지 않는다") {
+                    coroutineScope {
+                        val failure = CompletableDeferred<Throwable?>()
+                        val registration = launch { failure.complete(runCatching { register() }.exceptionOrNull()) }
+                        http.pendingRequest.await()
+                        registration.cancelAndJoin()
+                        (failure.await() is CancellationException) shouldBe true
+                    }
+                    http.pendingResponse.isCancelled shouldBe true
+                    keys.findAllByUserId(owner.id!!) shouldBe emptyList()
                 }
             }
 
@@ -399,7 +427,8 @@ class ClaudeAiSummaryServiceTest :
                         links.findById(job.linkId)!!.status shouldBe LinkStatus.G
                         shouldNotThrow<BusinessException> { action() }
 
-                        appender.list.any { it.formattedMessage == "SQL operation=INSERT values redacted" } shouldBe true
+                        appender.list.any { it.formattedMessage.startsWith("INSERT INTO ai_jobs") && '?' in it.formattedMessage } shouldBe
+                            true
                         verifyMessagesRequest(request = http.requests.last(), job = job, model = model.model, sourceUrl = fixture.sourceUrl)
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.C
@@ -433,25 +462,27 @@ class ClaudeAiSummaryServiceTest :
                     val pending = enqueue()
                     val expiredAt = jobs.now() - AiJob.STALE_AFTER - 1.minutes
                     job =
-                        withRedactedSqlLogging {
-                            jobs.update(
-                                AiJob(
-                                    id = pending.id,
-                                    linkId = pending.linkId,
-                                    userProviderId = pending.userProviderId,
-                                    requestModelId = pending.requestModelId,
-                                    requestedUrl = pending.requestedUrl,
-                                    prompt = pending.prompt,
-                                    requestedAt = expiredAt,
-                                ),
-                            )
-                        }
+                        jobs.update(
+                            AiJob(
+                                id = pending.id,
+                                linkId = pending.linkId,
+                                userProviderId = pending.userProviderId,
+                                requestModelId = pending.requestModelId,
+                                requestedUrl = pending.requestedUrl,
+                                prompt = pending.prompt,
+                                requestedAt = expiredAt,
+                            ),
+                        )
                 }
                 val action = suspend { app.koin.get<AiSummaryWorker>().recover() }
                 Then("원문을 로그에 남기지 않고 작업과 링크를 실패로 저장한다") {
                     val initialLogCount = appender.list.size
                     shouldNotThrow<BusinessException> { action() }
-                    appender.list.drop(initialLogCount).any { it.formattedMessage == "SQL operation=UPDATE values redacted" } shouldBe true
+                    appender.list
+                        .drop(
+                            initialLogCount,
+                        ).any { it.formattedMessage.startsWith("UPDATE ai_jobs") && '?' in it.formattedMessage } shouldBe
+                        true
                     jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
                     links.findById(job.linkId)!!.let {
                         it.status shouldBe LinkStatus.F
@@ -460,7 +491,82 @@ class ClaudeAiSummaryServiceTest :
                     }
                     http.requests
                         .single()
-                        .url.encodedPath shouldBe "/v1/models"
+                        .url.path shouldBe "/v1/models"
+                    recordedUsage(job) shouldBe null
+                    todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                }
+            }
+
+            When("기본 Claude 공급자의 첫 모델이 503을 반환하면") {
+                lateinit var job: AiJob
+                lateinit var fallback: AvailableModel
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    activateProvider()
+                    activateModel()
+                    val defaultProvider =
+                        keys.insert(
+                            UserProvider(
+                                userId = admin.id!!,
+                                providerId = provider.id!!,
+                                userRole = Role.SUPER_ADMIN,
+                                apiKey = cipher.encrypt(apiKey),
+                            ),
+                        )
+                    job = submitSummary(userProviderId = defaultProvider.id!!, modelId = model.id!!)
+                    fallback =
+                        models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1))
+                    http.nextMessageStatus = HttpStatusCode.ServiceUnavailable
+                    http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
+                }
+                val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                Then("SDK 재시도 없이 다음 모델을 호출하고 성공 모델의 사용량을 저장한다") {
+                    shouldNotThrow<BusinessException> { action() }
+                    val attemptedModels =
+                        http.requests.filter { it.url.path == "/v1/messages" }.map {
+                            Json
+                                .parseToJsonElement(it.body)
+                                .jsonObject
+                                .getValue("model")
+                                .jsonPrimitive.content
+                        }
+                    attemptedModels shouldBe listOf(model.model, fallback.model)
+                    jobs.findById(job.id!!)!!.let {
+                        it.status shouldBe AiJobStatus.C
+                        it.requestModelId shouldBe model.id
+                        it.responseModelId shouldBe fallback.id
+                    }
+                    links.findById(job.linkId)!!.workModelId shouldBe fallback.id
+                    recordedUsage(job) shouldBe null
+                    usage
+                        .findByUserIdAndProviderIdAndUsageDate(
+                            userProviderId = job.userProviderId,
+                            modelId = fallback.id!!,
+                            usageDate = LocalDate.now(ZoneOffset.UTC),
+                        )!!
+                        .requests shouldBe 1
+                }
+            }
+
+            When("Claude 요약 도중 워커가 취소되면") {
+                lateinit var job: AiJob
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    job = enqueue()
+                    http.holdResponse = true
+                }
+                Then("공급자 호출을 취소하고 완료나 실패를 저장하지 않는다") {
+                    coroutineScope {
+                        val worker = launch { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        http.pendingRequest.await()
+                        worker.cancelAndJoin()
+                    }
+                    http.pendingResponse.isCancelled shouldBe true
+                    jobs.findById(job.id!!)!!.let {
+                        it.status shouldBe AiJobStatus.P
+                        (it.startedAt != null) shouldBe true
+                    }
+                    links.findById(job.linkId)!!.status shouldBe LinkStatus.G
                     recordedUsage(job) shouldBe null
                     todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                 }
@@ -501,7 +607,7 @@ class ClaudeAiSummaryServiceTest :
                     val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
                     Then("실패 사유만 저장하고 요약·액션·사용량을 반영하지 않는다") {
                         shouldNotThrow<BusinessException> { action() }
-                        appender.list.any { it.formattedMessage == "SQL operation=UPDATE values redacted" } shouldBe true
+                        appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") && '?' in it.formattedMessage } shouldBe true
                         val error = if (scenario.startsWith("링크 ID")) ErrorCode.AI_SUMMARY_LINK_MISMATCH else ErrorCode.AI_EMPTY_RESPONSE
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.F
@@ -522,12 +628,12 @@ class ClaudeAiSummaryServiceTest :
     })
 
 private fun verifyMessagesRequest(
-    request: HttpRequestData,
+    request: ClaudeHttpFixture.Request,
     job: AiJob,
     model: String,
     sourceUrl: String,
 ) {
-    val body = Json.parseToJsonElement((request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString()).jsonObject
+    val body = Json.parseToJsonElement(request.body).jsonObject
     body.getValue("system").jsonPrimitive.content shouldBe AiSummarySpec.systemInstruction
     body.getValue("model").jsonPrimitive.content shouldBe model
     body.getValue("max_tokens").jsonPrimitive.int shouldBe 4096

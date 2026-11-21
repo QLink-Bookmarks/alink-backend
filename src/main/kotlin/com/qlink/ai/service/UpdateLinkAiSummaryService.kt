@@ -13,7 +13,6 @@ import com.qlink.ai.worker.AiSummaryDispatcher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
-import com.qlink.common.logging.withRedactedSqlLogging
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
@@ -61,109 +60,108 @@ class UpdateLinkAiSummaryService(
     suspend fun updateLinkAiSummary(
         loginId: Long,
         request: AiSummaryRequest,
-    ): AiSummaryResponse =
-        withRedactedSqlLogging {
-            val result =
-                tx.required {
-                    (request.id != null && (request.memo != null || !request.todos.isNullOrEmpty()))
-                        .requireFalse(ErrorCode.LINK_AI_EXISTING_LINK_CONTENT_NOT_ALLOWED)
-                    userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+    ): AiSummaryResponse {
+        val result =
+            tx.required {
+                (request.id != null && (request.memo != null || !request.todos.isNullOrEmpty()))
+                    .requireFalse(ErrorCode.LINK_AI_EXISTING_LINK_CONTENT_NOT_ALLOWED)
+                userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
 
-                    val userProvider =
-                        userProviderRepository
-                            .findById(request.userProviderId)
-                            ?.also { it.validateAccessibleBy(loginId) }
-                            ?: throw BusinessException(ErrorCode.AI_USER_PROVIDER_NOT_FOUND)
-                    val requestModel =
-                        availableModelRepository
-                            .findById(request.modelId)
-                            ?.takeIf { it.providerId == userProvider.providerId }
-                            ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
-                    val provider =
-                        aiProviderRepository.findById(userProvider.providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
-                    AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
-                    request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
-                    val fixedFolder = request.folderId?.let { findWritableFolder(loginId, it) }
-                    val now = Clock.System.now()
-                    val link =
-                        request.id
-                            ?.let { linkId ->
-                                linkRepository
-                                    .findByIdForUpdate(linkId)
-                                    ?.also { it.validateOwner(loginId) }
-                                    ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
-                            }?.let {
-                                linkRepository
-                                    .update(
-                                        it
-                                            .update(
-                                                folderId = fixedFolder?.id ?: it.folderId,
-                                                url = request.url,
-                                                title = request.title ?: it.title,
-                                                summary = it.summary,
-                                                memo = it.memo,
-                                                tags = it.tags,
-                                                thumbnailUrl = request.thumbnailUrl,
-                                                sourceType = it.sourceType,
-                                                faviconUrl = request.faviconUrl,
-                                                isVideo = request.isVideo,
-                                                previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                                                previewEnvironment = urlResolver.environment,
-                                            ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
-                                    ).also { resetContentForUrlChange(savedLink = it, now = now) }
-                            } ?: createAiPendingLink(loginId, request).also { createContent(link = it, now = now) }
-                    val createdTodos =
-                        request.todos.orEmpty().map { todoRequest ->
-                            todoRepository.insert(
-                                todoRequest.toTodo(
-                                    linkId = link.id!!,
-                                    ownerId = loginId,
-                                    now = now,
-                                ),
-                            )
-                        }
-                    val titlePrompt =
-                        request.title
-                            ?.let { FixedTitlePrompt(it) }
-                            ?: AutoTitlePrompt
-                    val folderPrompt =
-                        fixedFolder
-                            ?.let { FixedFolderPrompt(it.id!!) }
-                            ?: AutoFolderPrompt(findPromptFoldersJson(loginId))
-                    val todoPrompt = if (request.generateTodo) GenerateTodoPrompt else SkipTodoPrompt
-
-                    val createdJob =
-                        aiJobRepository.insert(
-                            AiJob(
+                val userProvider =
+                    userProviderRepository
+                        .findById(request.userProviderId)
+                        ?.also { it.validateAccessibleBy(loginId) }
+                        ?: throw BusinessException(ErrorCode.AI_USER_PROVIDER_NOT_FOUND)
+                val requestModel =
+                    availableModelRepository
+                        .findById(request.modelId)
+                        ?.takeIf { it.providerId == userProvider.providerId }
+                        ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+                val provider =
+                    aiProviderRepository.findById(userProvider.providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+                AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
+                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
+                val fixedFolder = request.folderId?.let { findWritableFolder(loginId, it) }
+                val now = Clock.System.now()
+                val link =
+                    request.id
+                        ?.let { linkId ->
+                            linkRepository
+                                .findByIdForUpdate(linkId)
+                                ?.also { it.validateOwner(loginId) }
+                                ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+                        }?.let {
+                            linkRepository
+                                .update(
+                                    it
+                                        .update(
+                                            folderId = fixedFolder?.id ?: it.folderId,
+                                            url = request.url,
+                                            title = request.title ?: it.title,
+                                            summary = it.summary,
+                                            memo = it.memo,
+                                            tags = it.tags,
+                                            thumbnailUrl = request.thumbnailUrl,
+                                            sourceType = it.sourceType,
+                                            faviconUrl = request.faviconUrl,
+                                            isVideo = request.isVideo,
+                                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                                            previewEnvironment = urlResolver.environment,
+                                        ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
+                                ).also { resetContentForUrlChange(savedLink = it, now = now) }
+                        } ?: createAiPendingLink(loginId, request).also { createContent(link = it, now = now) }
+                val createdTodos =
+                    request.todos.orEmpty().map { todoRequest ->
+                        todoRepository.insert(
+                            todoRequest.toTodo(
                                 linkId = link.id!!,
-                                userProviderId = userProvider.id!!,
-                                requestModelId = requestModel.id!!,
-                                requestedUrl = request.url,
-                                prompt =
-                                    createPrompt(
-                                        linkId = link.id,
-                                        requestedUrl = request.url,
-                                        titlePrompt = titlePrompt,
-                                        folderPrompt = folderPrompt,
-                                        todoPrompt = todoPrompt,
-                                    ),
+                                ownerId = loginId,
+                                now = now,
                             ),
                         )
+                    }
+                val titlePrompt =
+                    request.title
+                        ?.let { FixedTitlePrompt(it) }
+                        ?: AutoTitlePrompt
+                val folderPrompt =
+                    fixedFolder
+                        ?.let { FixedFolderPrompt(it.id!!) }
+                        ?: AutoFolderPrompt(findPromptFoldersJson(loginId))
+                val todoPrompt = if (request.generateTodo) GenerateTodoPrompt else SkipTodoPrompt
 
-                    UpdateLinkAiSummaryResult(
-                        job = createdJob,
-                        createdTodos = createdTodos,
-                        previewFillLinkId = link.id.takeUnless { request.id != null || link.hasPreview },
+                val createdJob =
+                    aiJobRepository.insert(
+                        AiJob(
+                            linkId = link.id!!,
+                            userProviderId = userProvider.id!!,
+                            requestModelId = requestModel.id!!,
+                            requestedUrl = request.url,
+                            prompt =
+                                createPrompt(
+                                    linkId = link.id,
+                                    requestedUrl = request.url,
+                                    titlePrompt = titlePrompt,
+                                    folderPrompt = folderPrompt,
+                                    todoPrompt = todoPrompt,
+                                ),
+                        ),
                     )
-                }
 
-            linkContentSignal.wake()
-            result.previewFillLinkId?.let(linkPreviewFillSignal::wake)
-            dispatcher.dispatch(result.job.id!!)
-            result.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
+                UpdateLinkAiSummaryResult(
+                    job = createdJob,
+                    createdTodos = createdTodos,
+                    previewFillLinkId = link.id.takeUnless { request.id != null || link.hasPreview },
+                )
+            }
 
-            AiSummaryResponse(id = result.job.linkId)
-        }
+        linkContentSignal.wake()
+        result.previewFillLinkId?.let(linkPreviewFillSignal::wake)
+        dispatcher.dispatch(result.job.id!!)
+        result.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
+
+        return AiSummaryResponse(id = result.job.linkId)
+    }
 
     private data class UpdateLinkAiSummaryResult(
         val job: AiJob,
