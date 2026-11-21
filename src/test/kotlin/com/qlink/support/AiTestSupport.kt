@@ -51,12 +51,15 @@ class FakeAiClient : AiClient {
     val requestedApiKeys: MutableList<String> = mutableListOf()
     var validationStatusCode: Int? = null
     var beforeSummary: (suspend (AiSummaryClientRequest) -> Unit)? = null
+    var summarizeWith: (suspend (AiSummaryClientRequest) -> AiSummaryClientResponse)? = null
+    var validateWith: (suspend (AiApiKeyValidationRequest) -> Unit)? = null
 
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
         requestedModels.add(request.model)
         requestedApiKeys.add(request.apiKey)
         beforeSummary?.invoke(request)
         failuresByModel[request.model]?.let { throw it }
+        summarizeWith?.let { return it(request) }
 
         return AiSummaryClientResponse(
             linkId = linkId,
@@ -73,6 +76,7 @@ class FakeAiClient : AiClient {
     override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
         requestedApiKeys.add(request.apiKey)
         validationStatusCode?.let { throw AiApiKeyValidationException(it) }
+        validateWith?.invoke(request)
     }
 
     fun reset() {
@@ -85,6 +89,8 @@ class FakeAiClient : AiClient {
         requestedApiKeys.clear()
         validationStatusCode = null
         beforeSummary = null
+        summarizeWith = null
+        validateWith = null
     }
 }
 

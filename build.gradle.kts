@@ -187,4 +187,6 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.localstack)
     testImplementation(libs.datafaker)
+    testImplementation(libs.openai.java)
+    testImplementation(libs.google.genai)
 }
