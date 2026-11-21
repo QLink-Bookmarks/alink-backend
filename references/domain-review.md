@@ -74,7 +74,8 @@ Review targets, by kind:
 
 | Package | Holds |
 |---|---|
-| `common/error` | `PrimitiveExtensions.kt` validation extensions that take an `ErrorCode`; `ErrorCode`, `BusinessException`, coroutine-aware exception capture |
+| `common/error` | `PrimitiveExtensions.kt` validation extensions that take an `ErrorCode`, `ErrorCode`, `BusinessException`, `ThrowableExtensions.kt` for fallback error messages |
+| `common/coroutines` | Coroutine-aware exception capture in `SuspendCatching.kt` |
 | `common/text` | string transforms that never fail, including URL normalization |
 | `common/collection`, `common/number` | collection helpers and numeric conversions |
 | `common/search`, `common/scroll` | query expressions, cursor codecs, scroll request and response |
