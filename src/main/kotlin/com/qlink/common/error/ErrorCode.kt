@@ -80,6 +80,7 @@ enum class ErrorCode(
     LINK_PREVIEW_OWNER_NOT_FOUND("LINK_404_0007", 404, "로그인 사용자를 찾을 수 없어요"),
 
     LINK_COPY_NOT_SHARED_FOLDER("LINK_422_0001", 422, "공유 폴더가 아니에요"),
+    LINK_PUBLIC_FOLDER_REQUIRED("LINK_422_0002", 422, "전체 공개 폴더의 링크만 전체 공개할 수 있어요"),
 
     LINK_INLINE_FAVICON_MODE_INVALID("LINK_500_0001", 500, "인라인 파비콘을 처리할 수 없는 프리뷰 모드예요"),
     LINK_INLINE_FAVICON_TOO_LARGE("LINK_500_0002", 500, "인라인 파비콘이 최대 크기를 넘었어요"),

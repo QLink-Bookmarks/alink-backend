@@ -31,6 +31,7 @@ class Link(
     val favoriteAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
+    val publicationId: String? = null,
 ) {
     val tags: List<String> = tags.distinct()
 
@@ -49,6 +50,19 @@ class Link(
     fun hasUrl(url: String): Boolean = this.url == url
 
     fun hasFolderChangedSince(startedFolderId: Long?): Boolean = folderId != startedFolderId
+
+    fun isPublicIn(folderPublicId: String?): Boolean = folderPublicId != null && publicationId == folderPublicId
+
+    fun resolveUpdatedPublicationId(
+        sourcePublicId: String?,
+        targetPublicId: String?,
+        isPublic: Boolean?,
+    ): String? =
+        when (isPublic) {
+            true -> requirePublicFolderId(targetPublicId)
+            false -> null
+            null -> targetPublicId.takeIf { isPublicIn(sourcePublicId) }
+        }
 
     fun validateOwner(ownerId: Long) {
         if (this.ownerId != ownerId) {
@@ -70,6 +84,7 @@ class Link(
         favoriteAt: Instant? = this.favoriteAt,
         faviconUrl: String? = this.faviconUrl,
         isVideo: Boolean = this.isVideo,
+        publicationId: String? = this.publicationId.takeIf { folderId == this.folderId },
     ): Link {
         if (thumbnailUrl != this.thumbnailUrl && thumbnailUrl != null) {
             validatePreviewUrl(
@@ -106,12 +121,14 @@ class Link(
             favoriteAt = favoriteAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            publicationId = publicationId,
         )
     }
 
     fun addToFolder(
         newOwnerId: Long,
         folderId: Long?,
+        publicationId: String? = null,
     ): Link =
         Link(
             ownerId = newOwnerId,
@@ -126,6 +143,7 @@ class Link(
             isVideo = isVideo,
             sourceType = SourceType.COPY,
             status = LinkStatus.C,
+            publicationId = publicationId,
         )
 
     fun changeFavorite(
@@ -156,6 +174,7 @@ class Link(
                     favoriteAt = resolveFavoriteAt(isFavorite, now),
                     createdAt = createdAt,
                     updatedAt = updatedAt,
+                    publicationId = publicationId,
                 )
             }
         }
@@ -196,6 +215,7 @@ class Link(
                     favoriteAt = favoriteAt,
                     createdAt = createdAt,
                     updatedAt = updatedAt,
+                    publicationId = publicationId,
                 )
             }
         }
@@ -222,6 +242,7 @@ class Link(
             favoriteAt = favoriteAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            publicationId = publicationId,
         )
 
     private fun resolveFavoriteAt(
@@ -254,6 +275,19 @@ class Link(
     }
 
     companion object {
+        fun resolveNewPublicationId(
+            folderPublicId: String?,
+            isPublic: Boolean?,
+        ): String? =
+            when (isPublic) {
+                true -> requirePublicFolderId(folderPublicId)
+                false -> null
+                null -> folderPublicId
+            }
+
+        private fun requirePublicFolderId(folderPublicId: String?): String =
+            folderPublicId ?: throw BusinessException(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
+
         fun createGuide(
             ownerId: Long,
             folderId: Long,
@@ -295,6 +329,7 @@ class Link(
             status: LinkStatus,
             previewPublicBaseUrl: String,
             previewEnvironment: String,
+            publicationId: String? = null,
         ): Link {
             (sourceType != SourceType.IMPORT).requireTrue(ErrorCode.LINK_SOURCE_TYPE_NOT_ALLOWED)
             thumbnailUrl?.let {
@@ -326,6 +361,7 @@ class Link(
                 isVideo = isVideo,
                 sourceType = sourceType,
                 status = status,
+                publicationId = publicationId,
             )
         }
 
@@ -335,6 +371,7 @@ class Link(
             url: String,
             title: String,
             createdAt: Instant,
+            publicationId: String? = null,
         ): Link =
             Link(
                 ownerId = ownerId,
@@ -346,6 +383,7 @@ class Link(
                 status = LinkStatus.C,
                 createdAt = createdAt,
                 updatedAt = createdAt,
+                publicationId = publicationId,
             )
 
         private fun validatePreviewUrl(

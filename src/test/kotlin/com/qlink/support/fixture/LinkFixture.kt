@@ -31,6 +31,7 @@ object LinkFixture {
         workModelId: Long? = null,
         favoriteAt: Instant? = null,
         createdAt: Instant? = null,
+        publicationId: String? = null,
     ): Link =
         Link(
             id = id,
@@ -50,6 +51,7 @@ object LinkFixture {
             tags = tags,
             createdAt = createdAt,
             updatedAt = createdAt,
+            publicationId = publicationId,
         )
 
     fun createImportedLinkOf(
