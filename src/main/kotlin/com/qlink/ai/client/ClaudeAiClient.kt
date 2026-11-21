@@ -157,7 +157,7 @@ class ClaudeAiClient(
             val resultIndex =
                 blocksAfterFetch.indexOfFirst { it.type == "web_fetch_tool_result" && it.toolUseId == fetchId }
             val result = blocksAfterFetch.getOrNull(resultIndex)?.content ?: return null
-            if (result.type != "web_fetch_result") return null
+            if (result.type != "web_fetch_result" || result.url != sourceUrl) return null
 
             return blocksAfterFetch
                 .drop(resultIndex + 1)
@@ -185,6 +185,7 @@ class ClaudeAiClient(
     @Serializable
     private data class FetchResult(
         val type: String,
+        val url: String? = null,
     )
 
     @Serializable

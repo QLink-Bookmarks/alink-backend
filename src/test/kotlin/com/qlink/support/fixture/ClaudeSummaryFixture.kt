@@ -42,6 +42,7 @@ class ClaudeSummaryFixture(
     fun messagesResponse(
         finalText: String,
         fetchUrl: String = sourceUrl,
+        resultUrl: String = fetchUrl,
         resultId: String = TOOL_ID,
         fetchStatus: String? = "web_fetch_result",
         stopReason: String = "end_turn",
@@ -66,7 +67,7 @@ class ClaudeSummaryFixture(
                         put("tool_use_id", resultId)
                         putJsonObject("content") {
                             put("type", fetchStatus)
-                            put("url", fetchUrl)
+                            put("url", resultUrl)
                             putJsonObject("content") {
                                 put("type", "document")
                                 put("title", PAGE_MARKER)

@@ -31,6 +31,7 @@ import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.config.AbbreviatedSqlLogger
 import com.qlink.config.MonitoringConfig
 import com.qlink.di.externalModule
 import com.qlink.di.repositoryModule
@@ -104,7 +105,9 @@ class ClaudeAiSummaryServiceTest :
         lateinit var folder: Folder
         lateinit var fixture: ClaudeSummaryFixture
         lateinit var appender: ListAppender<ILoggingEvent>
-        val loggers = listOf(ClaudeAiClient::class.java, AiSummaryWorker::class.java).map { LoggerFactory.getLogger(it) as Logger }
+        val loggers =
+            listOf(ClaudeAiClient::class.java, AiSummaryWorker::class.java, AbbreviatedSqlLogger::class.java)
+                .map { LoggerFactory.getLogger(it) as Logger }
         val baseUrl = "https://api.anthropic.com"
         val otherUrl = "https://claude-alternative.example/${RandomFixture.randomId()}"
         val apiKey = "dummy-claude-key-${RandomFixture.randomId()}"
@@ -168,6 +171,7 @@ class ClaudeAiSummaryServiceTest :
             listOf(
                 apiKey,
                 fixture.sourceUrl,
+                "claude-source.example",
                 ClaudeSummaryFixture.PAGE_MARKER,
                 ClaudeSummaryFixture.PDF_MARKER,
                 ClaudeHttpFixture.TRANSPORT_MARKER,
@@ -198,7 +202,10 @@ class ClaudeAiSummaryServiceTest :
                 appender = ListAppender<ILoggingEvent>().apply { start() }
                 loggers.forEach { it.addAppender(appender) }
 
-                fixture = ClaudeSummaryFixture()
+                fixture =
+                    ClaudeSummaryFixture(
+                        summary = "${ClaudeSummaryFixture.PAGE_MARKER} ${RandomFixture.randomSentenceWithMax(100)}",
+                    )
                 admin = users.insert(UserFixture.createRandomValidSuperAdmin())
                 owner = users.insert(UserFixture.createRandomValidUser())
                 provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.CLAUDE, isActive = false))
@@ -331,14 +338,17 @@ class ClaudeAiSummaryServiceTest :
             }
 
             When("사용자가 본인 Claude 설정의 모델 목록을 조회하면") {
-                Then("저장소의 활성 모델만 본인 설정으로 반환한다") {
+                var keyId = 0L
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
                     activateProvider()
                     activateModel()
                     models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
                     val other = users.insert(UserFixture.createRandomValidUser())
                     keys.insert(AiFixture.createUserProviderOf(userId = other.id!!, providerId = provider.id!!))
-                    val keyId = register()
-
+                    keyId = register()
+                }
+                Then("저장소의 활성 모델만 본인 설정으로 반환한다") {
                     val response = app.koin.get<GetAiProviderModelsService>().getAiProviderModels(loginId = owner.id, isMine = true)
                     val active = models.findAllByProviderId(provider.id!!).filter { it.isActive }
                     response.single().models.map { it.id } shouldBe active.map { it.id }
@@ -387,6 +397,7 @@ class ClaudeAiSummaryServiceTest :
                         links.findById(job.linkId)!!.status shouldBe LinkStatus.G
                         shouldNotThrow<BusinessException> { action() }
 
+                        appender.list.any { it.formattedMessage == "SQL operation=INSERT values redacted" } shouldBe true
                         verifyMessagesRequest(request = http.requests.last(), job = job, model = model.model, sourceUrl = fixture.sourceUrl)
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.C
@@ -416,6 +427,9 @@ class ClaudeAiSummaryServiceTest :
             val invalidMessages: Map<String, (AiJob) -> String> =
                 linkedMapOf(
                     "다른 URL" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchUrl = otherUrl) },
+                    "가져온 결과의 URL 불일치" to {
+                        fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultUrl = otherUrl)
+                    },
                     "다른 도구 호출 ID" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultId = "wrong") },
                     "가져오기 오류" to {
                         fixture.messagesResponse(
@@ -445,6 +459,7 @@ class ClaudeAiSummaryServiceTest :
                     val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
                     Then("실패 사유만 저장하고 요약·액션·사용량을 반영하지 않는다") {
                         shouldNotThrow<BusinessException> { action() }
+                        appender.list.any { it.formattedMessage == "SQL operation=UPDATE values redacted" } shouldBe true
                         val error = if (scenario.startsWith("링크 ID")) ErrorCode.AI_SUMMARY_LINK_MISMATCH else ErrorCode.AI_EMPTY_RESPONSE
                         jobs.findById(job.id!!)!!.let {
                             it.status shouldBe AiJobStatus.F
