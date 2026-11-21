@@ -15,6 +15,7 @@ import com.qlink.folder.dto.SearchFoldersQuery
 import com.qlink.folder.repository.table.Folders
 import com.qlink.folder.repository.table.fromDomain
 import com.qlink.folder.repository.table.fromDomainForInsert
+import com.qlink.folder.repository.table.fromDomainForPrivacy
 import com.qlink.folder.repository.table.refreshUpdatedAt
 import com.qlink.folder.repository.table.toFolderDomain
 import com.qlink.foldermember.repository.table.FolderMembers
@@ -47,6 +48,7 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
@@ -236,6 +238,12 @@ class DbFolderRepository : FolderRepository {
                 it.refreshUpdatedAt()
             }.single()
             .toFolderDomain()
+
+    override suspend fun updatePrivacy(folder: Folder) {
+        Folders.update(where = { Folders.id eq folder.id!! }) {
+            it.fromDomainForPrivacy(folder)
+        }
+    }
 
     override suspend fun deleteById(folderId: Long) {
         Folders.deleteWhere { id eq folderId }

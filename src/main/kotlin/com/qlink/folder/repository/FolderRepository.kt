@@ -44,6 +44,8 @@ interface FolderRepository {
 
     suspend fun update(folder: Folder): Folder
 
+    suspend fun updatePrivacy(folder: Folder)
+
     suspend fun deleteById(folderId: Long)
 
     suspend fun deleteAllByIds(folderIds: List<Long>)
