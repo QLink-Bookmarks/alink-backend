@@ -16,7 +16,6 @@ import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.DeviceTokenFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.NotificationFixture
-import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
@@ -26,7 +25,6 @@ import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
-import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import org.koin.core.context.GlobalContext
@@ -119,6 +117,56 @@ class SendNotificationServiceRegressionTest :
                 }
             }
 
+            When("다음 반복 시각에 대기 알림이 이미 있으면") {
+                lateinit var todo: Todo
+                lateinit var next: Notification
+                var notificationId = 0L
+
+                beforeTest {
+                    val userId = user.id!!
+                    val link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = userId))
+                    val now = Clock.System.now()
+                    val repeatTime =
+                        now
+                            .toJavaInstant()
+                            .atZone(ZoneOffset.UTC)
+                            .toLocalTime()
+                            .minusMinutes(1)
+                            .withSecond(0)
+                            .withNano(0)
+                    todo =
+                        todoRepository.insert(
+                            TodoFixture.createRandomTodoOf(
+                                linkId = link.id!!,
+                                ownerId = userId,
+                                reminderAt = now - 1.seconds,
+                                repeatUntil = now + 30.days,
+                                repeatDays = RepeatDay.entries.toList(),
+                                repeatTime = repeatTime,
+                            ),
+                        )
+                    deviceTokenRepository.insert(
+                        DeviceTokenFixture.createRandomValidDeviceToken(userId = userId, platform = DevicePlatform.WEB),
+                    )
+                    notificationId = notificationRepository.insert(NotificationFixture.createTodoNotificationOf(todo)).id!!
+                    next =
+                        notificationRepository.insert(
+                            NotificationFixture.createTodoNotificationOf(todo = todo, willFireAt = todo.setNextReminder(now).reminderAt!!),
+                        )
+                }
+
+                Then("기존 알림을 중복 생성하지 않고 액션 예약과 발송 집계를 저장한다") {
+                    koinGet<SendNotificationService>().send(notificationId)
+
+                    val pending = notificationRepository.findPendingByContext(context = NotificationContext.TODO, contextId = todo.id!!)
+                    pending.map { it.id } shouldBe listOf(next.id)
+                    todoRepository.findById(todo.id!!)!!.reminderAt shouldBe next.willFireAt
+                    val sent = notificationRepository.findById(notificationId)!!
+                    sent.successCount shouldBe 1
+                    sent.failureCount shouldBe 0
+                }
+            }
+
             When("대기 알림의 수신자가 조회되지 않으면") {
                 var notificationId = 0L
 
@@ -142,24 +190,14 @@ class SendNotificationServiceRegressionTest :
     private class FakePushNotificationSender(
         override val platform: DevicePlatform,
     ) : PushNotificationSender {
-        var beforeSuccess: suspend () -> Unit = {}
-        var failTokens: Set<String> = emptySet()
         val requests: MutableList<PushNotificationSendRequest> = mutableListOf()
 
         override suspend fun send(request: PushNotificationSendRequest): PushNotificationSendResult {
             requests.add(request)
-
-            return if (request.token in failTokens) {
-                PushNotificationSendResult.failure(errorMessage = "failed")
-            } else {
-                beforeSuccess()
-                PushNotificationSendResult.success(messageId = "sent-${request.token}")
-            }
+            return PushNotificationSendResult.success(messageId = request.token)
         }
 
         fun reset() {
-            beforeSuccess = {}
-            failTokens = emptySet()
             requests.clear()
         }
     }

@@ -1,11 +1,8 @@
 package com.qlink.linkcontent.worker.service
 
-import com.qlink.common.text.hostOrNull
 import com.qlink.link.domain.Link
 import com.qlink.link.repository.LinkRepository
-import com.qlink.linkcontent.client.LinkContentExtraction
 import com.qlink.linkcontent.domain.CollectOutcome
-import com.qlink.linkcontent.domain.ContentFailureCode
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.domain.LinkContent
 import com.qlink.linkcontent.repository.LinkContentRepository
@@ -18,12 +15,9 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.repository.UserRepository
-import io.kotest.matchers.collections.shouldBeEmpty
-import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class CollectLinkContentServiceRegressionTest :

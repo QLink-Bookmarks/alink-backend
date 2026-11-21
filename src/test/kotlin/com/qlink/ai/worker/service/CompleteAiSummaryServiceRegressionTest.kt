@@ -1,17 +1,12 @@
 package com.qlink.ai.worker.service
 
-import com.qlink.ai.client.AiSummaryTodo
 import com.qlink.ai.domain.AiJobStatus
-import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.repository.table.AiJobs
-import com.qlink.common.error.BusinessException
-import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
@@ -26,30 +21,17 @@ import com.qlink.notification.worker.TaskScheduler
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.AiFixture
 import com.qlink.support.fixture.FolderFixture
-import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.LinkFixture
-import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
-import com.qlink.support.searchTextOf
-import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository
-import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.core.test.TestType
-import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.slf4j.LoggerFactory
-import java.time.LocalDate
-import java.time.ZoneOffset
-import kotlin.time.Clock
 
 class CompleteAiSummaryServiceRegressionTest :
     BaseServiceTest({
