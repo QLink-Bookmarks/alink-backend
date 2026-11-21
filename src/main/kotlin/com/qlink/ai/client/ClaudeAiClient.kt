@@ -23,7 +23,6 @@ import com.anthropic.models.messages.WebFetchTool20250910
 import com.anthropic.models.models.ModelListParams
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.domain.AiProviderType
-import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -64,13 +63,13 @@ class ClaudeAiClient(
     }
 
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
-        val sourceUrl = request.requestedUrl?.trim()?.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        val sourceUrl = request.requestedUrl?.trim()?.takeIf(String::isNotBlank) ?: throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
         val sourceHost =
             try {
                 URI(sourceUrl).takeIf { it.scheme == "https" && it.host != null }?.host
-                    ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                    ?: throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
             } catch (_: URISyntaxException) {
-                throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                throw AiVendorException(ErrorCode.AI_EMPTY_RESPONSE)
             }
         val webFetch =
             WebFetchTool20250910

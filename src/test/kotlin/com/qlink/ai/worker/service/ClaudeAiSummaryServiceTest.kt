@@ -430,9 +430,42 @@ class ClaudeAiSummaryServiceTest :
                     }
                     val action = suspend { app.koin.get<ClaudeAiClient>().summarize(request!!) }
                     Then("외부 요청 없이 기존 빈 응답 오류를 반환한다") {
-                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_EMPTY_RESPONSE.message) { action() }
+                        runCatching { action() }.exceptionOrNull()?.message shouldBe ErrorCode.AI_EMPTY_RESPONSE.message
                         http.requests shouldBe emptyList()
                     }
+                }
+            }
+
+            When("기본 Claude 공급자 작업의 저장된 원문 URL을 사용할 수 없으면") {
+                lateinit var job: AiJob
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    val queued = enqueueDefault()
+                    models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1))
+                    job =
+                        jobs.update(
+                            AiJob(
+                                id = queued.id,
+                                linkId = queued.linkId,
+                                userProviderId = queued.userProviderId,
+                                requestModelId = queued.requestModelId,
+                                requestedUrl = "relative-${RandomFixture.randomId()}",
+                                prompt = queued.prompt,
+                            ),
+                        )
+                }
+
+                val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+
+                Then("첫 모델에서 실패를 저장하고 다른 후보와 HTTP 요청을 실행하지 않는다") {
+                    shouldNotThrow<BusinessException> { action() }
+                    appender.list
+                        .filter { it.formattedMessage.startsWith("[WORKER] Trial model=") }
+                        .map { it.formattedMessage } shouldBe
+                        listOf("[WORKER] Trial model=${model.model}")
+                    http.requests shouldBe emptyList()
+                    jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
+                    links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_EMPTY_RESPONSE.message
                 }
             }
 

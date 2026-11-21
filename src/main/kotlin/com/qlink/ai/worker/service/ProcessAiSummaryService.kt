@@ -30,6 +30,7 @@ import com.qlink.link.repository.LinkRepository
 import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.serialization.JsonConvertException
 import kotlinx.coroutines.delay
+import kotlinx.serialization.SerializationException
 import org.slf4j.Logger
 import java.io.IOException
 import java.time.LocalDate
@@ -291,9 +292,17 @@ class ProcessAiSummaryService(
                 onFailure = { failure ->
                     Result.failure(
                         when (failure) {
-                            is IOException -> AiVendorException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
-                            is JsonConvertException, is NoTransformationFoundException -> BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
-                            else -> failure
+                            is IOException -> {
+                                AiVendorException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                            }
+
+                            is JsonConvertException, is NoTransformationFoundException, is SerializationException -> {
+                                BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                            }
+
+                            else -> {
+                                failure
+                            }
                         },
                     )
                 },
