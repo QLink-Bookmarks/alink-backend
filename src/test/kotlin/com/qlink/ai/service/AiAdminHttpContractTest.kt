@@ -24,6 +24,7 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
+import com.zaxxer.hikari.HikariDataSource
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.bearerAuth
@@ -35,6 +36,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,7 +119,11 @@ class AiAdminHttpContractTest :
 
                     testApplication {
                         environment { this.config = config }
-                        application { getKoin().declare(AiClientRouter(clients = listOf(vendor))) }
+                        application {
+                            val dataSource = getKoin().get<HikariDataSource>()
+                            monitor.subscribe(ApplicationStopped) { dataSource.close() }
+                            getKoin().declare(AiClientRouter(clients = listOf(vendor)))
+                        }
 
                         client.get(keyPath).status shouldBe HttpStatusCode.Unauthorized
                         client.get(keyPath) { bearerAuth(token(nonAdmin)) }.status shouldBe HttpStatusCode.Forbidden
