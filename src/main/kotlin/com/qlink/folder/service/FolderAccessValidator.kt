@@ -14,6 +14,10 @@ class FolderAccessValidator(
     suspend fun lockForRead(folderId: Long): Folder =
         folderRepository.findByIdForShare(folderId) ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
 
+    suspend fun lockForUpdate(folderId: Long): Folder =
+        folderRepository.findAllByIdsForUpdate(listOf(folderId)).singleOrNull()
+            ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
+
     suspend fun canReadAsMember(
         folder: Folder,
         userId: Long,

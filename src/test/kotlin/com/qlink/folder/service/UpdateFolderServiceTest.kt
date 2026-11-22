@@ -195,6 +195,48 @@ class UpdateFolderServiceTest :
                 }
             }
 
+            When("공개 철회 저장 후 바깥 트랜잭션이 롤백되면") {
+                var folderPublicationAt: Instant? = null
+                var linkId = 0L
+                var linkPublicationAt: Instant? = null
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            folderPublicationAt = setPublic(folder, true).turnsPublicAt
+                            linkId =
+                                createLinkService
+                                    .createLink(
+                                        folder.ownerId,
+                                        LinkFixture.createValidLinkRequest(folderId = folder.id),
+                                    ).id
+                            linkPublicationAt = tx.readOnly { linkRepository.findById(linkId)?.turnsPublicAt }
+                        }.await()
+                }
+
+                val revoke =
+                    suspend {
+                        tx.required<Unit> {
+                            setPublic(folder, false)
+                            throw BusinessException(ErrorCode.FOLDER_DUPLICATE_NAME)
+                        }
+                    }
+
+                Then("폴더와 링크의 기존 공개 시각을 함께 복구한다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            folderPublicationAt shouldNotBe null
+                            linkPublicationAt shouldNotBe null
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_DUPLICATE_NAME.message) { revoke() }
+                            tx.readOnly {
+                                folderRepository.findById(folder.id!!)?.turnsPublicAt shouldBe folderPublicationAt
+                                linkRepository.findById(linkId)?.turnsPublicAt shouldBe linkPublicationAt
+                            }
+                        }.await()
+                }
+            }
+
             When("링크 생성과 최초 공개·철회가 서로 경합하면") {
                 Then("선행 트랜잭션의 공개 상태를 기준으로 저장하며 철회한 폴더의 링크는 재공개해도 비공개다") {
                     CoroutineScope(Dispatchers.IO)

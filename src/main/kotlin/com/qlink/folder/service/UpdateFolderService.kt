@@ -18,7 +18,8 @@ class UpdateFolderService(
     private val folderRepository: FolderRepository,
     private val folderMemberRepository: FolderMemberRepository,
     private val userRepository: UserRepository,
-    private val publicationWriter: FolderPublicationWriter,
+    private val folderAccessValidator: FolderAccessValidator,
+    private val saveFolderPublicationService: SaveFolderPublicationService,
 ) {
     suspend fun updateFolder(
         loginId: Long,
@@ -28,7 +29,7 @@ class UpdateFolderService(
         tx.required {
             val user = userRepository.findById(loginId) ?: throw BusinessException(ErrorCode.FOLDER_OWNER_NOT_FOUND)
 
-            val folder = publicationWriter.lock(folderId)
+            val folder = folderAccessValidator.lockForUpdate(folderId)
             if (request.isPublic != null) {
                 folder.isOwnedBy(loginId).requireTrue(ErrorCode.FOLDER_NOT_FOUND)
             } else {
@@ -52,7 +53,7 @@ class UpdateFolderService(
                 request.isPublic?.let {
                     updated.setPublic(isPublic = it, now = Clock.System.now())
                 } ?: updated
-            val saved = publicationWriter.save(previous = folder, updated = publication)
+            val saved = saveFolderPublicationService.save(previous = folder, updated = publication)
 
             if (saved.sharedAt != null && folderMemberRepository.existsByFolderId(folderId).not()) {
                 folderMemberRepository.insertIfAbsent(
