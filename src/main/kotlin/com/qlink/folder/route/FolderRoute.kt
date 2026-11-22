@@ -81,7 +81,7 @@ fun Route.folderRoutes() {
             val response = createFolderService.createFolder(principal.userId, request)
 
             call.respondSuccess(HttpStatusCode.Created, response)
-        }.install(ReadNoStore)
+        }
 
         post<FolderResources.ById>(createFolderInvitationDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!
@@ -127,7 +127,7 @@ fun Route.folderRoutes() {
             val response = updateFolderService.updateFolder(principal.userId, resource.id, request)
 
             call.respondSuccess(HttpStatusCode.OK, response)
-        }.install(ReadNoStore)
+        }
 
         put<FolderResources.ById.Privacy>(setFolderPrivacyDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!
@@ -136,7 +136,7 @@ fun Route.folderRoutes() {
                 setFolderPrivacyService.setPrivacy(loginId = principal.userId, folderId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
-        }.install(ReadNoStore)
+        }
 
         put<FolderResources.ById.Owner>(transferFolderOwnerDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!

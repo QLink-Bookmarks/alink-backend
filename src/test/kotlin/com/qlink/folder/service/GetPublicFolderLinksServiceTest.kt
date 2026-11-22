@@ -8,7 +8,6 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.dto.PublicFolderCursor
-import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkOrderKey
@@ -50,7 +49,7 @@ class GetPublicFolderLinksServiceTest :
         val todos = koinGet<TodoRepository>()
         val users = koinGet<UserRepository>()
         val codec = koinGet<PublicFolderCursorCodec>()
-        val updateFolder = koinGet<UpdateFolderService>()
+        val setFolderPrivacy = koinGet<SetFolderPrivacyService>()
 
         Given("활성 공개 폴더에 생성 시각이 같은 링크와 다른 시각의 링크가 있을 때") {
             lateinit var folder: Folder
@@ -123,11 +122,11 @@ class GetPublicFolderLinksServiceTest :
                     val publicIds = savedLinks.map { it.id }.toSet()
                     (ownerPage.contents + ownerNext.contents).forEach {
                         (it.id in publicIds) shouldBe true
-                        it.turnsPublicAt shouldBe links.findById(it.id)?.turnsPublicAt
+                        it.isPublic shouldBe (links.findById(it.id)?.turnsPublicAt != null)
                     }
                     val private = (read(viewerId = ownerId, isPublic = false) as ReadResult.Member).data
                     private.hasNext shouldBe false
-                    private.contents.single().turnsPublicAt shouldBe null
+                    private.contents.single().isPublic shouldBe false
                     val query = savedLinks.first().title
                     val matching = (read(viewerId = ownerId, isPublic = true, query = query) as ReadResult.Member).data
                     matching.contents.single().id shouldBe savedLinks.first().id
@@ -234,18 +233,18 @@ class GetPublicFolderLinksServiceTest :
                     val folderId = folder.id!!
                     val first = service.getPublicLinks(folderId, null, null, ScrollRequest(size = size))
                     val next = ScrollRequest(cursor = first.nextCursor.shouldNotBeNull(), size = size)
-                    updateFolder.updateFolder(
+                    setFolderPrivacy.setPrivacy(
                         loginId = folder.ownerId,
                         folderId = folderId,
-                        request = UpdateFolderRequest(name = folder.name, isPublic = false),
+                        isPublic = false,
                     )
                     shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
                         service.getPublicLinks(folderId, null, null, next)
                     }
-                    updateFolder.updateFolder(
+                    setFolderPrivacy.setPrivacy(
                         loginId = folder.ownerId,
                         folderId = folderId,
-                        request = UpdateFolderRequest(name = folder.name, isPublic = true),
+                        isPublic = true,
                     )
                     service.getPublicLinks(folderId, null, null, next).contents shouldBe emptyList()
                     links.findAllByFolderIds(listOf(folderId)).none { it.turnsPublicAt != null } shouldBe true

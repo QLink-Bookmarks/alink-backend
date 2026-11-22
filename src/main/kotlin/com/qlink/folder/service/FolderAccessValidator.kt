@@ -14,10 +14,6 @@ class FolderAccessValidator(
     suspend fun lockForRead(folderId: Long): Folder =
         folderRepository.findByIdForShare(folderId) ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
 
-    suspend fun lockForUpdate(folderId: Long): Folder =
-        folderRepository.findAllByIdsForUpdate(listOf(folderId)).singleOrNull()
-            ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
-
     suspend fun canReadAsMember(
         folder: Folder,
         userId: Long,
@@ -26,22 +22,21 @@ class FolderAccessValidator(
             (folder.isShared && folderMemberRepository.findByFolderIdAndUserId(folder.id!!, userId) != null)
 
     suspend fun validateWritable(
-        folderId: Long,
-        userId: Long,
-    ): Folder = validateWritable(folderRepository.findAllByIdsForKeyShare(listOf(folderId)).singleOrNull(), userId)
-
-    suspend fun validateWritable(
         folder: Folder?,
         userId: Long,
     ): Folder =
         folder
-            ?.also { (it.isOwnedBy(userId) || canMemberWrite(it, userId)).requireTrue(ErrorCode.LINK_FOLDER_ACCESS_DENIED) }
+            ?.also {
+                it
+                    .isLinkWritableBy(userId = userId, memberCanWrite = canMemberWrite(it, userId))
+                    .requireTrue(ErrorCode.LINK_FOLDER_ACCESS_DENIED)
+            }
             ?: throw BusinessException(ErrorCode.LINK_FOLDER_NOT_FOUND)
 
     private suspend fun canMemberWrite(
         folder: Folder,
         userId: Long,
     ): Boolean =
-        folder.sharedAt != null &&
+        folder.isShared && !folder.isOwnedBy(userId) &&
             folderMemberRepository.findByFolderIdAndUserId(folder.id!!, userId)?.canWriteLink() == true
 }

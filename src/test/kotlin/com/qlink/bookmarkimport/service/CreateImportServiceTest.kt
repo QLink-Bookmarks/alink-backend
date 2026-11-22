@@ -17,6 +17,7 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.SourceType
 import com.qlink.link.repository.LinkRepository
@@ -34,6 +35,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
+import com.qlink.support.runWhileFolderLocked
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrow
@@ -92,6 +94,43 @@ class CreateImportServiceTest :
             TransactionManager.current().exec(
                 "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
             ) { it.takeIf { row -> row.next() }?.getInt(1) } ?: 0
+
+        Given("이미 공개한 가져오기 대상 폴더") {
+            val setFolderPrivacy = koinGet<SetFolderPrivacyService>()
+
+            When("폴더 철회가 기존 폴더로 가져오는 요청과 경합하면") {
+                Then("철회 이후 저장된 링크는 폴더가 재공개되어도 비공개로 남는다") {
+                    withCommittedUser { owner ->
+                        val ownerId = owner.id!!
+                        val folder =
+                            tx.required { folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication()) }
+                        val folderId = folder.id!!
+                        val selection = ImportRequestFixture.createFolderRequest(folderId = folderId, name = folder.name)
+                        val request =
+                            ImportRequestFixture.createImportRequest(
+                                folders = listOf(selection),
+                                links = ImportRequestFixture.createLinkRequestsIn(folder = selection, count = 1),
+                            )
+
+                        runWhileFolderLocked(
+                            tx = tx,
+                            holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folderId)) },
+                            afterWaiting = {
+                                setFolderPrivacy.setPrivacy(loginId = ownerId, folderId = folderId, isPublic = false).isPublic shouldBe
+                                    false
+                            },
+                            action = { createImportService.createImport(ownerId, request) },
+                        )
+
+                        val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).single() }
+                        stored.sourceType shouldBe SourceType.IMPORT
+                        stored.turnsPublicAt shouldBe null
+                        setFolderPrivacy.setPrivacy(loginId = ownerId, folderId = folderId, isPublic = true).isPublic shouldBe true
+                        tx.readOnly { linkRepository.findById(stored.id!!)?.turnsPublicAt } shouldBe null
+                    }
+                }
+            }
+        }
 
         Given("폴더·링크가 있는 로그인 사용자") {
             lateinit var user: User

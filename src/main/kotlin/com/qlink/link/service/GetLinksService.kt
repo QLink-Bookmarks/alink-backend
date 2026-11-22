@@ -191,7 +191,7 @@ class GetLinksService(
                         contentExcerpt = queryRow.contentExcerpt,
                         matchedFields = queryRow.matchedFields(),
                         contentSnippet = keyword?.let { queryRow.toSnippetResponse(it) },
-                        turnsPublicAt = queryRow.turnsPublicAt,
+                        isPublic = queryRow.turnsPublicAt != null,
                     )
                 },
             nextCursor =

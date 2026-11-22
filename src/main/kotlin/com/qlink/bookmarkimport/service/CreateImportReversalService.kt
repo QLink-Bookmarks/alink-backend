@@ -33,17 +33,6 @@ class CreateImportReversalService(
         tx.required {
             userRepository.emptyById(loginId).requireFalse(ErrorCode.IMPORT_OWNER_NOT_FOUND)
 
-            val observedImport = bookmarkImportRepository.findById(importId) ?: throw BusinessException(ErrorCode.IMPORT_NOT_FOUND)
-            observedImport.validateOwner(loginId)
-
-            val requestedFolderIds = request.folderIds.toSet()
-            val folderIdsToLock =
-                bookmarkImportRepository
-                    .findFoldersByImportId(importId)
-                    .filter { it.kind == ImportFolderKind.NEW && it.folderId in requestedFolderIds }
-                    .map { it.folderId }
-            val currentFolders = folderRepository.findAllByIdsForUpdate(folderIdsToLock)
-
             val bookmarkImport =
                 bookmarkImportRepository.findByIdForUpdate(importId) ?: throw BusinessException(ErrorCode.IMPORT_NOT_FOUND)
             bookmarkImport.validateOwner(loginId)
@@ -51,12 +40,14 @@ class CreateImportReversalService(
             val now = Clock.System.now()
             val folders = bookmarkImportRepository.findFoldersByImportId(importId)
             val links = bookmarkImportRepository.findLinksByImportId(importId)
-            val requestedLinkIds = request.linkIds.toSet()
-            val selectedLinkIds = links.filter { it.linkId in requestedLinkIds }.map { it.linkId }
-            val linksInLockedFolders = linkRepository.findAllByFolderIds(currentFolders.map { it.id!! })
             val currentLinks =
-                linkRepository.findAllByIdsForUpdate(
-                    selectedLinkIds + linksInLockedFolders.map { it.id!! },
+                (
+                    linkRepository.findAllByIds(links.map { it.linkId }) +
+                        linkRepository.findAllByFolderIds(folders.filter { it.kind == ImportFolderKind.NEW }.map { it.folderId })
+                ).distinctBy { it.id }
+            val currentFolders =
+                folderRepository.findAllByIds(
+                    (folders.map { it.folderId } + currentLinks.mapNotNull { it.folderId }).distinct(),
                 )
             val reversal =
                 ImportTrackDomainService.reverse(
@@ -82,6 +73,9 @@ class CreateImportReversalService(
             return reversal.bookmarkImport
         }
 
+        if (reversal.folderIds.isNotEmpty()) {
+            folderRepository.findAllByIdsForUpdate(reversal.folderIds)
+        }
         linkRepository.detachFolders(reversal.folderIds)
         linkRepository.deleteAllByIds(reversal.linkIds)
         folderRepository.deleteAllByIds(reversal.folderIds)

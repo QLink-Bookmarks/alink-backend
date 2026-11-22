@@ -12,9 +12,10 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.link.domain.Link
 import com.qlink.link.repository.LinkRepository
-import com.qlink.link.service.PatchLinkService
+import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.ImportFixture
@@ -25,6 +26,7 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
+import com.qlink.support.runWhileLinkLocked
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -38,12 +40,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import kotlin.uuid.ExperimentalUuidApi
 
 class CreateImportReversalServiceTest :
     BaseServiceTest({
         val createImportReversalService = koinGet<CreateImportReversalService>()
-        val patchLinkService = koinGet<PatchLinkService>()
+        val setFolderPrivacyService = koinGet<SetFolderPrivacyService>()
+        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
         val userRepository = koinGet<UserRepository>()
         val folderRepository = koinGet<FolderRepository>()
         val linkRepository = koinGet<LinkRepository>()
@@ -165,18 +169,67 @@ class CreateImportReversalServiceTest :
                             val folderId = items.newFolder.id!!
                             val linkId = items.addedLaterLink.id!!
                             val ownerId = items.newFolder.ownerId
-                            val patch = LinkFixture.createPatchLinkRequest().copy(isPublic = true)
                             val reversal = ImportRequestFixture.createReversalRequest(folderIds = listOf(folderId))
-                            runWhileFolderLocked(
+                            runWhileLinkLocked(
                                 tx = tx,
-                                holdLock = { folderRepository.findAllByIdsForKeyShare(listOf(folderId)) },
-                                afterWaiting = { (patchLinkService.patchLink(ownerId, linkId, patch).turnsPublicAt != null) shouldBe true },
+                                holdLock = { linkRepository.findByIdForUpdate(linkId) },
+                                afterWaiting = {
+                                    setLinkPrivacyService.setPrivacy(loginId = ownerId, linkId = linkId, isPublic = true).isPublic shouldBe
+                                        true
+                                },
                                 action = {
                                     createImportReversalService.createReversal(
                                         loginId = ownerId,
                                         importId = items.bookmarkImport.id!!,
                                         request = reversal,
                                     )
+                                },
+                            )
+
+                            tx.readOnly {
+                                folderRepository.findById(folderId) shouldBe null
+                                val stored = linkRepository.findById(linkId).shouldNotBeNull()
+                                stored.folderId shouldBe null
+                                stored.turnsPublicAt shouldBe null
+                            }
+                        }.await()
+                }
+            }
+
+            When("폴더 철회와 같은 가져오기 폴더를 되돌리는 작업이 경합하면") {
+                Then("철회가 폴더와 링크를 갱신한 뒤 취소가 폴더를 지우고 링크를 분리한다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            val folderId = items.newFolder.id!!
+                            val linkId = items.addedLaterLink.id!!
+                            val ownerId = items.newFolder.ownerId
+                            val request = ImportRequestFixture.createReversalRequest(folderIds = listOf(folderId))
+                            setLinkPrivacyService.setPrivacy(loginId = ownerId, linkId = linkId, isPublic = true).isPublic shouldBe true
+
+                            runWhileFolderLocked(
+                                tx = tx,
+                                holdLock = {
+                                    TransactionManager.current().maxAttempts = 1
+                                    folderRepository.findAllByIdsForUpdate(listOf(folderId))
+                                },
+                                afterWaiting = {
+                                    setFolderPrivacyService
+                                        .setPrivacy(
+                                            loginId = ownerId,
+                                            folderId = folderId,
+                                            isPublic = false,
+                                        ).isPublic shouldBe
+                                        false
+                                },
+                                action = {
+                                    tx.required {
+                                        TransactionManager.current().maxAttempts = 1
+                                        createImportReversalService.createReversal(
+                                            loginId = ownerId,
+                                            importId = items.bookmarkImport.id!!,
+                                            request = request,
+                                        )
+                                    }
                                 },
                             )
 

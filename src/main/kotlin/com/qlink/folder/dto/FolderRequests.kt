@@ -2,7 +2,6 @@
 
 package com.qlink.folder.dto
 
-import com.qlink.common.serialization.StrictBooleanSerializer
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -10,7 +9,6 @@ data class CreateFolderRequest(
     val name: String,
     val emoji: String? = null,
     val isShared: Boolean? = null,
-    @Serializable(with = StrictBooleanSerializer::class)
     val isPublic: Boolean = false,
 )
 
@@ -19,8 +17,6 @@ data class UpdateFolderRequest(
     val name: String,
     val emoji: String? = null,
     val isShared: Boolean? = null,
-    @Serializable(with = StrictBooleanSerializer::class)
-    val isPublic: Boolean? = null,
 )
 
 @Serializable
@@ -30,6 +26,5 @@ data class TransferFolderOwnerRequest(
 
 @Serializable
 data class SetFolderPrivacyRequest(
-    @Serializable(with = StrictBooleanSerializer::class)
     val isPublic: Boolean,
 )

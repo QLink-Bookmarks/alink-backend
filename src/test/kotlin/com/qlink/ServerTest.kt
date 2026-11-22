@@ -41,8 +41,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -60,7 +60,7 @@ class ServerTest :
             }
         }
 
-        "folder privacy endpoints set no-store on authentication and request errors" {
+        "privacy PUT requires auth and uses the regular Boolean request parser" {
             val config = ServiceTestEnvironment.applicationConfig()
             val userId = RandomFixture.randomId()
             val token =
@@ -77,10 +77,11 @@ class ServerTest :
                 client.get(path).status shouldBe HttpStatusCode.NotFound
                 val unauthorized = client.put(path)
                 unauthorized.status shouldBe HttpStatusCode.Unauthorized
-                unauthorized.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                unauthorized.headers[HttpHeaders.CacheControl] shouldBe null
 
                 val missingLink = client.get("/api/links/${RandomFixture.randomId()}")
                 missingLink.status shouldBe HttpStatusCode.NotFound
+                missingLink.headers[HttpHeaders.CacheControl] shouldBe "no-store"
                 apiErrorCode(missingLink.bodyAsText()) shouldBe ErrorCode.LINK_NOT_FOUND.code
 
                 val malformedBodies =
@@ -94,7 +95,7 @@ class ServerTest :
                         }
 
                     badRequest.status shouldBe HttpStatusCode.BadRequest
-                    badRequest.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                    badRequest.headers[HttpHeaders.CacheControl] shouldBe null
                     apiErrorCode(badRequest.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
                 }
 
@@ -102,7 +103,6 @@ class ServerTest :
                     for (body in listOf(
                         "{}",
                         """{"isPublic":null}""",
-                        """{"isPublic":"true"}""",
                         """{"isPublic":1}""",
                         """{"isPublic":[]}""",
                     )) {
@@ -121,7 +121,7 @@ class ServerTest :
                     client.put(path.removeSuffix("/privacy")) {
                         bearerAuth(token)
                         contentType(ContentType.Application.Json)
-                        setBody("""{"name":"공개 폴더","isPublic":null}""")
+                        setBody("""{"name":"공개 폴더","isShared":null}""")
                     }
                 validRequest.status shouldBe HttpStatusCode.NotFound
                 apiErrorCode(validRequest.bodyAsText()) shouldBe ErrorCode.FOLDER_OWNER_NOT_FOUND.code
@@ -202,17 +202,14 @@ class ServerTest :
                     publicFolder.getValue("id").jsonPrimitive.long shouldBe folder
                     client.get(folderPath) { bearerAuth(token(outsider)) }.readData() shouldBe publicFolder
                     for (viewer in listOf(owner, member)) {
-                        client
-                            .get(folderPath) { bearerAuth(token(viewer)) }
-                            .readData()
-                            .getValue("ownerId")
-                            .jsonPrimitive.long shouldBe
-                            owner
+                        val memberFolder = client.get(folderPath) { bearerAuth(token(viewer)) }.readData()
+                        memberFolder.getValue("ownerId").jsonPrimitive.long shouldBe owner
+                        memberFolder.getValue("isPublic") shouldBe JsonPrimitive(true)
+                        memberFolder.containsKey("turnsPublicAt") shouldBe false
                         val detail = client.get(detailPath) { bearerAuth(token(viewer)) }.readData()
                         detail.containsKey("memo") shouldBe true
-                        detail.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
-                            tx.readOnly { links.findById(publicLink)?.turnsPublicAt.toString() }
-                        detail.containsKey("isPublic") shouldBe false
+                        detail.getValue("isPublic") shouldBe JsonPrimitive(true)
+                        detail.containsKey("turnsPublicAt") shouldBe false
                         detail.getValue("isOwner").jsonPrimitive.content shouldBe (viewer == owner).toString()
                         client.get("/api/links/$privateLink") { bearerAuth(token(viewer)) }.status shouldBe HttpStatusCode.OK
                     }
@@ -246,14 +243,16 @@ class ServerTest :
                     for ((filter, id) in listOf(true to publicLink, false to privateLink)) {
                         val filtered = client.get("$linksPath&isPublic=$filter") { bearerAuth(token(member)) }
                         filtered.headers[HttpHeaders.CacheControl] shouldBe "no-store"
-                        filtered
-                            .readData()
-                            .getValue("contents")
-                            .jsonArray
-                            .single()
-                            .jsonObject
-                            .getValue("id")
-                            .jsonPrimitive.long shouldBe id
+                        val entry =
+                            filtered
+                                .readData()
+                                .getValue("contents")
+                                .jsonArray
+                                .single()
+                                .jsonObject
+                        entry.getValue("id").jsonPrimitive.long shouldBe id
+                        entry.getValue("isPublic") shouldBe JsonPrimitive(filter)
+                        entry.containsKey("turnsPublicAt") shouldBe false
                     }
                     client.get("$linksPath&isPublic=true").readData() shouldBe guestLinks
                     for (viewer in listOf<Long?>(null, outsider)) {
@@ -441,7 +440,7 @@ class ServerTest :
                         client.patch(detailPath) {
                             bearerAuth(token(outsider))
                             contentType(ContentType.Application.Json)
-                            setBody("""{"isPublic":false}""")
+                            setBody("{}")
                         }
                     outsiderWrite.status shouldBe HttpStatusCode.Forbidden
 
@@ -453,18 +452,24 @@ class ServerTest :
                             bearerAuth(token(owner))
                             contentType(ContentType.Application.Json)
                             setBody("""{"isPublic":$isPublic}""")
-                        }.readData()
+                        }.readData(cacheControl = null)
 
-                    val folderPublication = setPrivacy(folderPath, true)
-                    folderPublication.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
-                        tx.readOnly { folders.findById(folder)?.turnsPublicAt.toString() }
-                    val linkPublication = setPrivacy(detailPath, true)
-                    linkPublication.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
-                        tx.readOnly { links.findById(publicLink)?.turnsPublicAt.toString() }
-                    setPrivacy(detailPath, true) shouldBe linkPublication
-                    setPrivacy(detailPath, false).getValue("turnsPublicAt") shouldBe JsonNull
+                    val folderPublication = tx.readOnly { folders.findById(folder)?.turnsPublicAt }
+                    val linkPublication = tx.readOnly { links.findById(publicLink)?.turnsPublicAt }
+                    folderPublication shouldNotBe null
+                    linkPublication shouldNotBe null
+                    val published = JsonObject(mapOf("isPublic" to JsonPrimitive(true)))
+                    setPrivacy(folderPath, true) shouldBe published
+                    tx.readOnly { folders.findById(folder)?.turnsPublicAt } shouldBe folderPublication
+                    setPrivacy(detailPath, true) shouldBe published
+                    tx.readOnly { links.findById(publicLink)?.turnsPublicAt } shouldBe linkPublication
+                    setPrivacy(detailPath, false) shouldBe JsonObject(mapOf("isPublic" to JsonPrimitive(false)))
+                    tx.readOnly { links.findById(publicLink)?.turnsPublicAt } shouldBe null
                     client.get(detailPath).status shouldBe HttpStatusCode.NotFound
-                    setPrivacy(detailPath, true).getValue("turnsPublicAt") shouldNotBe linkPublication.getValue("turnsPublicAt")
+                    setPrivacy(detailPath, true) shouldBe published
+                    val republished = tx.readOnly { links.findById(publicLink)?.turnsPublicAt }
+                    republished shouldNotBe null
+                    republished shouldNotBe linkPublication
 
                     val move =
                         client.patch(detailPath) {
@@ -472,7 +477,7 @@ class ServerTest :
                             contentType(ContentType.Application.Json)
                             setBody("""{"folderId":$privateFolder}""")
                         }
-                    move.status shouldBe HttpStatusCode.OK
+                    move.readData(cacheControl = null).getValue("isPublic") shouldBe JsonPrimitive(false)
                     client.get(detailPath).status shouldBe HttpStatusCode.NotFound
                     client
                         .get(linksPath)
@@ -614,7 +619,7 @@ class ServerTest :
                         ownedDetail shouldBe beforeOwnedDetail
                         ownedDetail.getValue("id").jsonPrimitive.long shouldBe memberLinkId
                         ownedDetail.getValue("isOwner").jsonPrimitive.content shouldBe "true"
-                        ownedDetail.getValue("turnsPublicAt").jsonPrimitive.content shouldBe "null"
+                        ownedDetail.getValue("isPublic") shouldBe JsonPrimitive(false)
                         ownedDetail.containsKey("memo") shouldBe true
                         client.get(ownedLinkPath).status shouldBe HttpStatusCode.NotFound
 
@@ -641,9 +646,9 @@ private fun apiErrorCode(json: String): String =
         .getValue("code")
         .jsonPrimitive.content
 
-private suspend fun HttpResponse.readData(): JsonObject {
+private suspend fun HttpResponse.readData(cacheControl: String? = "no-store"): JsonObject {
     status shouldBe HttpStatusCode.OK
-    headers[HttpHeaders.CacheControl] shouldBe "no-store"
+    headers[HttpHeaders.CacheControl] shouldBe cacheControl
     return Json
         .parseToJsonElement(bodyAsText())
         .jsonObject

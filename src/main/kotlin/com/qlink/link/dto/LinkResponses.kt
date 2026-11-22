@@ -41,7 +41,7 @@ data class GetLinkDetailResponse(
     val workModel: String?,
     val isFavorite: Boolean,
     val content: LinkContentResponse?,
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
     val isOwner: Boolean,
 )
 
@@ -71,7 +71,7 @@ data class GetLinksContentResponse(
     val contentExcerpt: String?,
     val matchedFields: List<MatchedField>,
     val contentSnippet: SnippetResponse?,
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
 )
 
 @Serializable
@@ -104,12 +104,12 @@ data class UpdateLinkResponse(
     val tags: List<String>,
     val thumbnailUrl: String?,
     val sourceType: SourceType,
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
 )
 
 @Serializable
 data class LinkPrivacyResponse(
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
 )
 
 @Serializable

@@ -152,7 +152,7 @@ fun Route.linkRoutes() {
                 setLinkPrivacyService.setPrivacy(loginId = principal.userId, linkId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
-        }.install(ReadNoStore)
+        }
     }
 
     authenticate {

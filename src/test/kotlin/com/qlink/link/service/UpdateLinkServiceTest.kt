@@ -79,16 +79,16 @@ class UpdateLinkServiceTest :
                     val linkId = link.id!!
                     val request = LinkFixture.createUpdateLinkRequestFrom(link)
 
-                    suspend fun update(isPublic: Boolean?) =
-                        updateLinkService.updateLink(link.ownerId, linkId, request.copy(isPublic = isPublic))
+                    suspend fun setPrivacy(isPublic: Boolean) =
+                        setLinkPrivacyService.setPrivacy(loginId = link.ownerId, linkId = linkId, isPublic = isPublic)
 
-                    update(true).turnsPublicAt shouldNotBe null
+                    setPrivacy(true).isPublic shouldBe true
                     val title = RandomFixture.randomSentenceWithMax(300)
-                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).turnsPublicAt shouldNotBe null
+                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).isPublic shouldBe true
                     val stored = linkRepository.findById(linkId)!!
                     stored.isPublishedIn(folder.isPublished) shouldBe true
                     stored.title shouldBe title
-                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).turnsPublicAt shouldNotBe null
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
                     publicLinks
                         .getPublicLinks(folder.id!!, null, null, ScrollRequest())
                         .contents
@@ -101,18 +101,18 @@ class UpdateLinkServiceTest :
                         .title shouldBe
                         todoRepository.findAllByLinkId(linkId).single().title
 
-                    update(false).turnsPublicAt shouldBe null
+                    setPrivacy(false).isPublic shouldBe false
                     linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
-                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).turnsPublicAt shouldBe null
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
                     publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     publicTodos.getPublicTodos(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
-            When("다른 사용자가 링크를 공개하면") {
+            When("다른 사용자가 일반 수정으로 링크를 변경하면") {
                 val update =
                     suspend {
-                        val request = LinkFixture.createUpdateLinkRequestFrom(link).copy(isPublic = true)
+                        val request = LinkFixture.createUpdateLinkRequestFrom(link)
                         updateLinkService.updateLink(otherId, link.id!!, request)
                     }
 
@@ -123,18 +123,20 @@ class UpdateLinkServiceTest :
             }
 
             When("링크 소유자가 전용 설정으로 공개, 반복 공개, 철회, 재공개하면") {
-                Then("실제 저장 시각을 반환하고 연속 공개에서 같은 시각을 유지한다") {
+                Then("저장된 공개 상태를 반환하고 연속 공개에서 같은 시각을 유지한다") {
                     val id = link.id!!
 
                     suspend fun setPrivacy(isPublic: Boolean) =
                         setLinkPrivacyService.setPrivacy(loginId = link.ownerId, linkId = id, isPublic = isPublic)
 
-                    val first = setPrivacy(true).turnsPublicAt.shouldNotBeNull()
-                    setPrivacy(true).turnsPublicAt shouldBe first
+                    setPrivacy(true).isPublic shouldBe true
+                    val first = linkRepository.findById(id)!!.turnsPublicAt.shouldNotBeNull()
+                    setPrivacy(true).isPublic shouldBe true
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe first
-                    setPrivacy(false).turnsPublicAt shouldBe null
-                    setPrivacy(false).turnsPublicAt shouldBe null
-                    val next = setPrivacy(true).turnsPublicAt.shouldNotBeNull()
+                    setPrivacy(false).isPublic shouldBe false
+                    setPrivacy(false).isPublic shouldBe false
+                    setPrivacy(true).isPublic shouldBe true
+                    val next = linkRepository.findById(id)!!.turnsPublicAt.shouldNotBeNull()
                     (next > first) shouldBe true
                     val stored = linkRepository.findById(id)!!
                     stored.turnsPublicAt shouldBe next

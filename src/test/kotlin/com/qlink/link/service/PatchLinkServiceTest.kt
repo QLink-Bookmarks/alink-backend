@@ -49,6 +49,7 @@ import kotlin.time.toKotlinInstant
 class PatchLinkServiceTest :
     BaseServiceTest({
         val patchLinkService = koinGet<PatchLinkService>()
+        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
         val tx = koinGet<TransactionRunner>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
@@ -87,38 +88,33 @@ class PatchLinkServiceTest :
                 }
             }
 
-            When("공개값만 변경하면") {
+            When("전용 PUT으로 공개값만 변경하면") {
                 Then("링크 소속과 메모는 유지하고 새 공개값을 저장한다") {
                     val id = privateLink.id!!
                     val response =
-                        patchLinkService.patchLink(
-                            privateLink.ownerId,
-                            id,
-                            LinkFixture.createPatchLinkRequest().copy(isPublic = true),
-                        )
+                        setLinkPrivacyService.setPrivacy(loginId = privateLink.ownerId, linkId = id, isPublic = true)
                     val stored = linkRepository.findById(id)!!
 
-                    response.turnsPublicAt shouldNotBe null
+                    response.isPublic shouldBe true
                     (stored.turnsPublicAt != null) shouldBe source.isPublished
                     stored.folderId shouldBe privateLink.folderId
                     stored.memo shouldBe privateLink.memo
                 }
             }
 
-            When("명시 공개로 비공개 폴더에 옮기면") {
+            When("비공개 폴더로 옮긴 후 전용 PUT으로 공개를 요청하면") {
                 val memo = RandomFixture.randomSentenceWithMax(50)
-                val patch =
-                    suspend {
-                        val request = LinkFixture.createPatchLinkRequest(folderId = privateTarget.id, memo = memo).copy(isPublic = true)
-                        patchLinkService.patchLink(publicLink.ownerId, publicLink.id!!, request)
-                    }
+                val publish =
+                    suspend { setLinkPrivacyService.setPrivacy(loginId = publicLink.ownerId, linkId = publicLink.id!!, isPublic = true) }
 
-                Then("공개 조건 오류가 발생하고 소속·공개값·메모는 그대로다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { patch() }
+                Then("공개 오류가 발생하고 이동과 메모 수정은 저장된다") {
+                    val request = LinkFixture.createPatchLinkRequest(folderId = privateTarget.id, memo = memo)
+                    patchLinkService.patchLink(publicLink.ownerId, publicLink.id!!, request).isPublic shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { publish() }
                     val stored = linkRepository.findById(publicLink.id!!)!!
-                    stored.folderId shouldBe publicLink.folderId
-                    stored.turnsPublicAt shouldBe publicLink.turnsPublicAt
-                    stored.memo shouldBe publicLink.memo
+                    stored.folderId shouldBe privateTarget.id
+                    stored.turnsPublicAt shouldBe null
+                    stored.memo shouldBe memo
                 }
             }
 
@@ -132,7 +128,7 @@ class PatchLinkServiceTest :
                             LinkFixture.createPatchLinkRequest(folderId = publicTarget.id),
                         )
 
-                    response.turnsPublicAt shouldBe null
+                    response.isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
                     publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
@@ -151,15 +147,15 @@ class PatchLinkServiceTest :
                             LinkFixture.createPatchLinkRequest(folderId = folderId, memo = RandomFixture.randomSentenceWithMax(50)),
                         )
 
-                    patch(null).turnsPublicAt shouldNotBe null
+                    patch(null).isPublic shouldBe true
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
-                    patch(publicTarget.id).turnsPublicAt shouldNotBe null
+                    patch(publicTarget.id).isPublic shouldBe true
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
-                    patch(privateTarget.id).turnsPublicAt shouldBe null
+                    patch(privateTarget.id).isPublic shouldBe false
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
                     publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     publicTodos.getPublicTodos(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    patch(0).turnsPublicAt shouldBe null
+                    patch(0).isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }
             }

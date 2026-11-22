@@ -49,7 +49,7 @@ class FillImportThumbnailService(
         row: ImportLink,
         preview: LinkPreviewResult,
     ): ThumbnailStatus? {
-        val link = linkRepository.findByIdForUpdate(row.linkId)
+        val link = linkRepository.findById(row.linkId)
         val prepared = ImportTrackDomainService.prepareThumbnail(link = row, current = link)
         if (!prepared.isThumbnailPending || link == null) return save(prepared)
 

@@ -5,7 +5,6 @@ import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryCompletionResult
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.DailyUsageRepository
-import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
@@ -35,113 +34,101 @@ class CompleteAiSummaryService(
     private val log: Logger,
 ) {
     suspend fun complete(completion: AiSummaryCompletion): AiSummaryCompletionResult {
-        val attempt =
-            retryUntilNotNull {
-                tx.required {
-                    val snapshot = completion.snapshot
-                    val linkBeforeLock = linkRepository.findById(snapshot.linkId) ?: return@required CompletionAttempt.Skipped
-                    val lockedFolders =
-                        folderRepository.findAllByIdsForUpdate(
-                            listOfNotNull(linkBeforeLock.folderId, completion.candidateFolderId),
-                        )
-                    val candidate = lockedFolders.find { it.id == completion.candidateFolderId }
-                    val member =
-                        candidate?.let {
-                            folderMemberRepository.findByFolderIdAndUserIdForUpdate(
-                                folderId = it.id!!,
-                                userId = linkBeforeLock.ownerId,
-                            )
-                        }
-                    val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required CompletionAttempt.Skipped
-                    if (link.hasFolderChangedSince(linkBeforeLock.folderId)) return@required null
-                    val job = aiJobRepository.findById(snapshot.jobId) ?: return@required CompletionAttempt.Skipped
-                    val folderId =
-                        LinkAiFolderDomainService.resolve(
-                            link = link,
-                            startedFolderId = snapshot.folderId,
-                            candidateFolderId = completion.candidateFolderId,
-                            candidate = candidate,
-                            member = member,
-                        )
-                    val response = completion.response
-                    val completedAt = Clock.System.now()
-                    aiJobRepository.update(
-                        job.complete(
-                            responseModelId = completion.responseModelId,
-                            response = response.rawResponse,
-                            completedAt = completedAt,
-                        ),
+        val applied =
+            tx.required {
+                val snapshot = completion.snapshot
+                val observedLink = linkRepository.findById(snapshot.linkId) ?: return@required null
+                val folders =
+                    folderRepository.findAllByIdsForUpdate(
+                        listOfNotNull(completion.candidateFolderId),
                     )
-                    val usageDate = LocalDate.now(ZoneOffset.UTC)
-                    val usage =
-                        dailyUsageRepository.findByUserIdAndProviderIdAndUsageDate(
+                val candidate = folders.find { it.id == completion.candidateFolderId }
+                val member =
+                    candidate?.let {
+                        folderMemberRepository.findByFolderIdAndUserIdForUpdate(
+                            folderId = it.id!!,
+                            userId = observedLink.ownerId,
+                        )
+                    }
+                val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required null
+                val job = aiJobRepository.findById(snapshot.jobId) ?: return@required null
+                val folderId =
+                    LinkAiFolderDomainService.resolve(
+                        link = link,
+                        startedFolderId = snapshot.folderId,
+                        candidateFolderId = completion.candidateFolderId,
+                        candidate = candidate,
+                        member = member,
+                    )
+                val response = completion.response
+                aiJobRepository.update(
+                    job.complete(
+                        responseModelId = completion.responseModelId,
+                        response = response.rawResponse,
+                        completedAt = Clock.System.now(),
+                    ),
+                )
+                val usageDate = LocalDate.now(ZoneOffset.UTC)
+                val usage =
+                    dailyUsageRepository.findByUserIdAndProviderIdAndUsageDate(
+                        userProviderId = job.userProviderId,
+                        modelId = completion.responseModelId,
+                        usageDate = usageDate,
+                    )
+                val updatedUsage =
+                    usage?.addUsage(response.usedTokens)
+                        ?: DailyUsage(
                             userProviderId = job.userProviderId,
                             modelId = completion.responseModelId,
                             usageDate = usageDate,
+                            requests = 1,
+                            tokens = response.usedTokens,
                         )
-                    val updatedUsage =
-                        usage?.addUsage(response.usedTokens)
-                            ?: DailyUsage(
-                                userProviderId = job.userProviderId,
-                                modelId = completion.responseModelId,
-                                usageDate = usageDate,
-                                requests = 1,
-                                tokens = response.usedTokens,
-                            )
-                    if (usage == null) {
-                        dailyUsageRepository.insert(updatedUsage)
-                    } else {
-                        dailyUsageRepository.update(updatedUsage)
-                    }
-                    val summarizedLink =
-                        link
-                            .update(
-                                folderId = folderId,
-                                url = link.url,
-                                title = response.title,
-                                summary = response.summary,
-                                memo = link.memo,
-                                tags = response.tags,
-                                thumbnailUrl = link.thumbnailUrl,
-                                sourceType = link.sourceType,
-                                previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                                previewEnvironment = urlResolver.environment,
-                                turnsPublicAt =
-                                    link.resolveUpdatedVisibility(
-                                        sourceIsPublic = lockedFolders.find { it.id == link.folderId }?.isPublished == true,
-                                        targetIsPublic = lockedFolders.find { it.id == folderId }?.isPublished == true,
-                                        isPublic = null,
-                                        now = completedAt,
-                                    ),
-                            ).copyAiStatus(status = LinkStatus.A, workModelId = completion.responseModelId)
-                    linkRepository.updateAiResult(
-                        linkId = link.id!!,
-                        folderId = summarizedLink.folderId,
-                        title = summarizedLink.title,
-                        summary = summarizedLink.summary,
-                        tags = summarizedLink.tags,
-                        status = summarizedLink.status,
-                        workModelId = summarizedLink.workModelId,
-                        turnsPublicAt = summarizedLink.turnsPublicAt,
-                    )
-                    val todos =
-                        response.todos.map {
-                            todoRepository.insert(
-                                Todo(
-                                    linkId = link.id!!,
-                                    ownerId = link.ownerId,
-                                    title = it.title,
-                                    reminderAt = it.reminderAt,
-                                ),
-                            )
-                        }
-                    CompletionAttempt.Applied(
-                        createdTodos = todos,
-                        folderKeptAfterMove = link.hasFolderChangedSince(snapshot.folderId),
-                    )
+                if (usage == null) {
+                    dailyUsageRepository.insert(updatedUsage)
+                } else {
+                    dailyUsageRepository.update(updatedUsage)
                 }
-            }
-        val applied = attempt as? CompletionAttempt.Applied ?: return AiSummaryCompletionResult()
+                val summarizedLink =
+                    link
+                        .update(
+                            folderId = folderId,
+                            url = link.url,
+                            title = response.title,
+                            summary = response.summary,
+                            memo = link.memo,
+                            tags = response.tags,
+                            thumbnailUrl = link.thumbnailUrl,
+                            sourceType = link.sourceType,
+                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                            previewEnvironment = urlResolver.environment,
+                        ).copyAiStatus(status = LinkStatus.A, workModelId = completion.responseModelId)
+                linkRepository.updateAiResult(
+                    linkId = link.id!!,
+                    folderId = summarizedLink.folderId,
+                    title = summarizedLink.title,
+                    summary = summarizedLink.summary,
+                    tags = summarizedLink.tags,
+                    status = summarizedLink.status,
+                    workModelId = summarizedLink.workModelId,
+                    clearPublication = link.hasFolderChangedSince(folderId) && candidate?.isPublished != true,
+                )
+                val todos =
+                    response.todos.map {
+                        todoRepository.insert(
+                            Todo(
+                                linkId = link.id!!,
+                                ownerId = link.ownerId,
+                                title = it.title,
+                                reminderAt = it.reminderAt,
+                            ),
+                        )
+                    }
+                AppliedAiSummary(
+                    createdTodos = todos,
+                    folderKeptAfterMove = link.hasFolderChangedSince(snapshot.folderId),
+                )
+            } ?: return AiSummaryCompletionResult()
 
         return try {
             applied.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
@@ -167,12 +154,8 @@ class CompleteAiSummaryService(
             .forEach { scheduleTodoNotificationService.replaceForTodo(it) }
     }
 
-    private sealed interface CompletionAttempt {
-        data object Skipped : CompletionAttempt
-
-        data class Applied(
-            val createdTodos: List<Todo>,
-            val folderKeptAfterMove: Boolean,
-        ) : CompletionAttempt
-    }
+    private data class AppliedAiSummary(
+        val createdTodos: List<Todo>,
+        val folderKeptAfterMove: Boolean,
+    )
 }

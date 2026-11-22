@@ -2,7 +2,6 @@
 
 package com.qlink.ai.dto
 
-import com.qlink.common.serialization.StrictBooleanSerializer
 import com.qlink.todo.domain.RepeatDay
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -21,8 +20,6 @@ data class AiSummaryRequest(
     val isVideo: Boolean = false,
     val memo: String? = null,
     val todos: List<AiSummaryTodoRequest>? = null,
-    @Serializable(with = StrictBooleanSerializer::class)
-    val isPublic: Boolean? = null,
 )
 
 @Serializable

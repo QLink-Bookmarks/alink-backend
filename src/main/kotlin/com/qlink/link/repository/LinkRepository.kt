@@ -97,7 +97,7 @@ interface LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
-        turnsPublicAt: Instant? = null,
+        clearPublication: Boolean = false,
     )
 
     suspend fun updateAiFailure(
