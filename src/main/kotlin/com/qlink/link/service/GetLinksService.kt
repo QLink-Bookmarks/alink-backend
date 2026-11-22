@@ -159,30 +159,10 @@ class GetLinksService(
                 isPublic = isPublic,
             )
 
-        suspend fun search(
-            size: Int,
-            cursor: LinkSearchCursor? = null,
-            linkId: Long? = null,
-        ) = linkRepository.search(
-            ownerId = loginId,
-            keyword = keyword,
-            folderId = folderId,
-            isFavorite = isFavorite,
-            sort = sort,
-            cursor = cursor,
-            size = size,
-            isPublic = isPublic,
-            linkId = linkId,
-        )
-
         val cursor =
-            scrollRequest.cursor?.let { encoded ->
-                decodeCursor(encoded = encoded, sort = sort, scope = scope) { id ->
-                    search(size = 1, linkId = id).singleOrNull()
-                }
-            }
+            scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort, scope = scope, keyword = keyword) }
         val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
-        val queries = search(size = size, cursor = cursor)
+        val queries = search(scope = scope, keyword = keyword, sort = sort, size = size, cursor = cursor)
         val hasNext = queries.size > size
         val contents = queries.take(size)
         val todosByLinkId = todoRepository.findAllByLinkIds(contents.map { it.id }).groupBy { it.linkId }
@@ -223,11 +203,31 @@ class GetLinksService(
         )
     }
 
+    private suspend fun search(
+        scope: LinkSearchCursorScope,
+        keyword: SearchKeyword?,
+        sort: LinkSort,
+        size: Int,
+        cursor: LinkSearchCursor? = null,
+        linkId: Long? = null,
+    ): List<SearchLinksQuery> =
+        linkRepository.search(
+            ownerId = scope.viewerId,
+            keyword = keyword,
+            folderId = scope.folderId,
+            isFavorite = scope.isFavorite,
+            sort = sort,
+            cursor = cursor,
+            size = size,
+            isPublic = scope.isPublic,
+            linkId = linkId,
+        )
+
     private suspend fun decodeCursor(
         encoded: String,
         sort: LinkSort,
         scope: LinkSearchCursorScope,
-        findLegacyBoundary: suspend (Long) -> SearchLinksQuery?,
+        keyword: SearchKeyword?,
     ): LinkSearchCursor {
         val legacy = ':' !in encoded
         val cursor =
@@ -243,7 +243,9 @@ class GetLinksService(
         validateCursorValue(value = cursor.value, orderKey = sort.orderKey, hasKeyword = scope.keyword != null)
 
         if (!legacy) return cursor
-        val row = findLegacyBoundary(cursor.value.id!!) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
+        val row =
+            search(scope = scope, keyword = keyword, sort = sort, size = 1, linkId = cursor.value.id!!).singleOrNull()
+                ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
         return if (sort.orderKey == LinkOrderKey.CREATED_AT && cursor.value.createdAt == null) {
             cursor.copy(value = cursor.value.copy(createdAt = row.createdAt))
         } else {
