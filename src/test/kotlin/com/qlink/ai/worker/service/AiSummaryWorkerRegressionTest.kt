@@ -1,5 +1,10 @@
 package com.qlink.ai.worker.service
 
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.classic.spi.ThrowableProxyUtil
+import ch.qos.logback.core.read.ListAppender
+import com.qlink.ai.client.parseSummaryResponse
 import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AvailableModel
@@ -34,6 +39,8 @@ import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
+import io.ktor.serialization.JsonConvertException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -43,6 +50,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
+import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -172,6 +180,70 @@ class AiSummaryWorkerRegressionTest :
                     fakeAiClient.requestedModels shouldBe listOf(model.model)
                     aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
                     linkRepository.findById(link.id!!)!!.summary shouldBe reason
+                }
+            }
+
+            listOf(
+                ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE to { detail: String -> IOException(detail) },
+                ErrorCode.AI_EMPTY_RESPONSE to { detail: String -> JsonConvertException(detail) },
+            ).forEach { (error, failure) ->
+                When("레거시 공급자가 ${error.name}에 해당하는 전송 또는 응답 오류를 반환하면") {
+                    beforeTest {
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
+                        enqueue()
+                        fakeAiClient.failuresByModel = mapOf(model.model to failure(RandomFixture.randomSentenceWithMax(100)))
+                    }
+
+                    val action = suspend { worker.proceed(jobId) }
+
+                    Then("일반 사용자의 모델을 한 번 호출하고 정제된 실패를 저장한다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        fakeAiClient.requestedModels shouldBe listOf(model.model)
+                        aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
+                        linkRepository.findById(link.id!!)!!.summary shouldBe error.message
+                    }
+                }
+            }
+
+            When("기존 제공자의 모델들이 잘못된 요약 JSON을 반환하면") {
+                lateinit var fallback: AvailableModel
+                val rawMarker = "provider-private-${RandomFixture.randomId()}"
+
+                beforeTest {
+                    if (it.type != TestType.Test) {
+                        return@beforeTest
+                    }
+                    enqueue(Role.SUPER_ADMIN)
+                    fallback =
+                        availableModelRepository.insert(AiFixture.createRandomAvailableModelOf(providerId = key.providerId, priority = 2))
+                    fakeAiClient.beforeSummary = {
+                        parseSummaryResponse(
+                            rawResponse = """{"title":"$rawMarker","summary":}""",
+                            usedTokens = RandomFixture.randomInt(1, 100),
+                        )
+                    }
+                }
+
+                val action = suspend { worker.proceed(jobId) }
+
+                Then("기존 후보 순서를 유지하고 로그와 저장 결과에는 정제된 실패만 남긴다") {
+                    val logger = LoggerFactory.getLogger(AiSummaryWorker::class.java) as Logger
+                    val appender = ListAppender<ILoggingEvent>().apply { start() }
+                    logger.addAppender(appender)
+                    try {
+                        shouldNotThrow<BusinessException> { action() }
+                        fakeAiClient.requestedModels shouldBe List(5) { listOf(model.model, fallback.model) }.flatten()
+                        aiJobRepository.findById(jobId)!!.status shouldBe AiJobStatus.F
+                        linkRepository.findById(link.id!!)!!.summary shouldBe ErrorCode.AI_EMPTY_RESPONSE.message
+                        val failure = appender.list.single { it.formattedMessage == "AI summary failed. jobId=$jobId" }
+                        failure.throwableProxy.message shouldBe ErrorCode.AI_EMPTY_RESPONSE.message
+                        ThrowableProxyUtil.asString(failure.throwableProxy) shouldNotContain rawMarker
+                    } finally {
+                        logger.detachAppender(appender)
+                        appender.stop()
+                    }
                 }
             }
 

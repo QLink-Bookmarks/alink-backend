@@ -1,7 +1,5 @@
 package com.qlink.support.fixture
 
-import com.qlink.ai.client.AiSummaryClientResponse
-import com.qlink.ai.client.AiSummaryTodo
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
@@ -9,8 +7,10 @@ import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummarySnapshot
+import com.qlink.ai.dto.AiSummaryTodo
 import com.qlink.ai.dto.AiSummaryTodoRequest
 import com.qlink.link.domain.Link
 import com.qlink.todo.domain.RepeatDay
@@ -57,12 +57,13 @@ object AiFixture {
         isActive: Boolean = true,
         id: Long? = null,
         priority: Int = RandomFixture.randomInt(1, 100),
+        model: String = "model-${RandomFixture.randomId()}",
     ): AvailableModel =
         AvailableModel(
             id = id,
             activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
             providerId = providerId,
-            model = "model-${RandomFixture.randomId()}",
+            model = model,
             priority = priority,
             rpdLimit = RandomFixture.randomInt(1, 1000),
             tpdLimit = RandomFixture.randomInt(1, 10_000_000),

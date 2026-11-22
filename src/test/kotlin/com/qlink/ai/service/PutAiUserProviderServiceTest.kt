@@ -154,8 +154,8 @@ class PutAiUserProviderServiceTest :
             }
 
             When("vendor가 인증 실패를 반환하면") {
-                listOf(401, 403).forEach { statusCode ->
-                    Then("$statusCode 상태를 AI_API_KEY_INVALID 예외로 반환한다") {
+                mapOf(401 to ErrorCode.AI_API_KEY_INVALID, 403 to ErrorCode.AI_VENDOR_PERMISSION_DENIED).forEach { (statusCode, code) ->
+                    Then("$statusCode 상태를 ${code.name} 예외로 반환한다") {
                         fakeAiClient.validationStatusCode = statusCode
                         val register =
                             suspend {
@@ -169,7 +169,7 @@ class PutAiUserProviderServiceTest :
                                 )
                             }
 
-                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_API_KEY_INVALID.message) {
+                        shouldThrowWithMessage<BusinessException>(code.message) {
                             register()
                         }
                     }
@@ -198,7 +198,7 @@ class PutAiUserProviderServiceTest :
             }
 
             When("vendor가 정의되지 않은 상태를 반환하면") {
-                Then("COMMON_INTERNAL_SERVER_ERROR 예외를 반환한다") {
+                Then("AI_VENDOR_REQUEST_REJECTED 예외를 반환한다") {
                     fakeAiClient.validationStatusCode = 418
                     val register =
                         suspend {
@@ -212,7 +212,7 @@ class PutAiUserProviderServiceTest :
                             )
                         }
 
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message) {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_REQUEST_REJECTED.message) {
                         register()
                     }
                 }

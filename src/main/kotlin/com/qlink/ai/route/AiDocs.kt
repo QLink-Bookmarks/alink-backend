@@ -78,10 +78,20 @@ internal fun putAiUserProviderDocs(): RouteConfig.() -> Unit =
                         ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.AI_PROVIDER_NOT_SUPPORTED,
                         ErrorCode.AI_API_KEY_INVALID,
+                        ErrorCode.AI_PROVIDER_BASE_URL_INVALID,
                     )
                 }
             }
             authErrorResponse()
+            code(HttpStatusCode.Forbidden) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_VENDOR_PERMISSION_DENIED) }
+            }
+            code(HttpStatusCode.TooManyRequests) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_VENDOR_RATE_LIMITED, ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED) }
+            }
+            code(HttpStatusCode.InternalServerError) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_INTERNAL_SERVER_ERROR) }
+            }
             code(HttpStatusCode.NotFound) {
                 description = "AI API Key 등록 대상 리소스 조회 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -94,7 +104,11 @@ internal fun putAiUserProviderDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.UnprocessableEntity) {
                 description = "AI 제공자 비활성 또는 서비스 일시적 사용 불가"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AI_PROVIDER_INACTIVE, ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                    examples(
+                        ErrorCode.AI_PROVIDER_INACTIVE,
+                        ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
+                        ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    )
                 }
             }
         }

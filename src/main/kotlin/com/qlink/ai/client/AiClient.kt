@@ -1,38 +1,14 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
-import kotlinx.serialization.Serializable
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.ai.dto.AiSummaryResult
+import com.qlink.ai.dto.AiSummaryTodo
+import com.qlink.common.error.ErrorCode
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
-
-data class AiSummaryPrompt(
-    val linkId: Long,
-    val url: String,
-)
-
-data class AiSummaryClientRequest(
-    val providerType: AiProviderType,
-    val baseUrl: String,
-    val apiKey: String,
-    val model: String,
-    val prompt: String,
-)
-
-data class AiSummaryClientResponse(
-    val linkId: Long?,
-    val folderId: Long?,
-    val rawResponse: String,
-    val title: String,
-    val summary: String,
-    val tags: List<String>,
-    val todos: List<AiSummaryTodo>,
-    val usedTokens: Int,
-)
-
-data class AiSummaryTodo(
-    val title: String,
-    val reminderAt: Instant?,
-)
 
 interface AiClient {
     val providerType: AiProviderType
@@ -42,14 +18,18 @@ interface AiClient {
     suspend fun validateApiKey(request: AiApiKeyValidationRequest)
 }
 
-data class AiApiKeyValidationRequest(
-    val baseUrl: String,
-    val apiKey: String,
-)
-
-class AiApiKeyValidationException(
-    val statusCode: Int,
-) : RuntimeException("AI API key validation failed. statusCode=$statusCode")
+internal fun aiVendorErrorCode(
+    status: Int,
+    quotaExhausted: Boolean = false,
+): ErrorCode =
+    when {
+        status == 401 -> ErrorCode.AI_API_KEY_INVALID
+        status == 403 -> ErrorCode.AI_VENDOR_PERMISSION_DENIED
+        status == 408 || status in 500..599 -> ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE
+        quotaExhausted && status in 400..499 -> ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED
+        status == 429 -> ErrorCode.AI_VENDOR_RATE_LIMITED
+        else -> ErrorCode.AI_VENDOR_REQUEST_REJECTED
+    }
 
 private val summaryJson = Json { ignoreUnknownKeys = true }
 
@@ -89,20 +69,3 @@ private fun String.removeMarkdownJsonFence(): String =
         .removePrefix("```JSON")
         .removePrefix("```")
         .removeSuffix("```")
-
-@Serializable
-private data class AiSummaryResult(
-    val id: Long? = null,
-    val linkId: Long? = null,
-    val folderId: Long? = null,
-    val title: String,
-    val summary: String,
-    val tags: List<String> = emptyList(),
-    val todos: List<AiSummaryTodoResult> = emptyList(),
-)
-
-@Serializable
-private data class AiSummaryTodoResult(
-    val title: String,
-    val reminderAt: String? = null,
-)

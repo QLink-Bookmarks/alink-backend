@@ -112,6 +112,7 @@ tasks.check {
 }
 
 tasks.withType<ShadowJar> {
+    isZip64 = true
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     mergeServiceFiles()
 }
@@ -123,6 +124,7 @@ dependencies {
     implementation(ktorLibs.server.netty)
 
     // Http
+    implementation(libs.anthropic.java)
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.compression)
     implementation(ktorLibs.server.contentNegotiation)
