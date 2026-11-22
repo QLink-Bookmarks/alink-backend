@@ -28,6 +28,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.getPublicLinks
 import com.qlink.support.getPublicTodos
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
@@ -91,7 +92,12 @@ class CreateLinkServiceTest :
                 val folderOwnerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 privateFolder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(writerId))
                 publicFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(true))
+                    folderRepository.insert(
+                        FolderFixture
+                            .createSharedFolderOf(
+                                folderOwnerId,
+                            ).withPublication(),
+                    )
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createMember(folderId = publicFolder.id!!, userId = writerId),
                 )

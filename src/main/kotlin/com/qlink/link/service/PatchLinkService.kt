@@ -2,10 +2,8 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.error.requireFalse
 import com.qlink.common.retry.retryUntilNotNull
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
@@ -16,15 +14,13 @@ import com.qlink.link.repository.LinkRepository
 import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
-import com.qlink.user.repository.UserRepository
 import kotlin.time.Clock
 
 class PatchLinkService(
     private val tx: TransactionRunner,
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
-    private val userRepository: UserRepository,
-    private val folderRepository: FolderRepository,
+    private val ownedLinkLoader: OwnedLinkLoader,
     private val folderAccessValidator: FolderAccessValidator,
     private val scheduleTodoNotificationService: ScheduleTodoNotificationService,
     private val urlResolver: PreviewImageUrlResolver,
@@ -37,31 +33,24 @@ class PatchLinkService(
         val result =
             retryUntilNotNull {
                 tx.required {
-                    userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                    val sourceFolderId = linkRepository.findById(linkId)?.folderId
                     val requestedFolderId = request.folderId?.takeUnless { it == 0L }
-                    val folders =
-                        folderRepository
-                            .findAllByIdsForKeyShare(
-                                listOfNotNull(sourceFolderId, requestedFolderId),
-                            ).associateBy { it.id }
-
-                    val link =
-                        linkRepository.findByIdForUpdate(linkId)?.also { it.validateOwner(loginId) }
-                            ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
-                    if (link.hasFolderChangedSince(sourceFolderId)) return@required null
+                    val locked =
+                        ownedLinkLoader.load(loginId = loginId, linkId = linkId, targetFolderId = requestedFolderId)
+                            ?: return@required null
+                    val link = locked.link
 
                     val target =
                         when {
-                            request.folderId == null -> folders[sourceFolderId]
+                            request.folderId == null -> locked.sourceFolder
                             requestedFolderId == null -> null
-                            else -> folderAccessValidator.validateWritable(folders[requestedFolderId], loginId)
+                            else -> folderAccessValidator.validateWritable(locked.targetFolder, loginId)
                         }
                     val turnsPublicAt =
                         link.resolveUpdatedVisibility(
-                            sourceIsPublic = folders[sourceFolderId]?.isPublished == true,
+                            sourceIsPublic = locked.sourceFolder?.isPublished == true,
                             targetIsPublic = target?.isPublished == true,
                             isPublic = request.isPublic,
+                            now = Clock.System.now(),
                         )
                     val targetMemo = request.resolveMemo(link)
                     val targetTags = request.resolveTags(link)

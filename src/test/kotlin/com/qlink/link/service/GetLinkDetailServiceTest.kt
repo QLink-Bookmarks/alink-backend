@@ -31,6 +31,7 @@ import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.getMemberLinkDetail
 import com.qlink.support.getPublicLinks
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.domain.Todo
@@ -247,7 +248,12 @@ class GetLinkDetailServiceTest :
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
                 published = true
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(published))
+                    folderRepository.insert(
+                        FolderFixture
+                            .createSharedFolderOf(
+                                owner.id!!,
+                            ).withPublication(published),
+                    )
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )

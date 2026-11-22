@@ -22,6 +22,7 @@ import com.qlink.support.fixture.ImportRequestFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.user.domain.User
@@ -143,7 +144,7 @@ class CreateImportReversalServiceTest :
                             tx.required {
                                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                                 val committed = insertImportedItemsOf(ownerId)
-                                folderRepository.update(committed.newFolder.setPublic(true))
+                                folderRepository.update(committed.newFolder.withPublication())
                                 committed
                             }
                         }.await()

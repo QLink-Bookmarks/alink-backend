@@ -11,6 +11,7 @@ import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.repository.LinkRepository
 import com.qlink.support.ServiceTestEnvironment
 import com.qlink.support.fixture.FolderFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
@@ -163,7 +164,7 @@ class ServerTest :
             val (owner, member, outsider) = identities
             val (folder, privateFolder) =
                 tx.required {
-                    val shared = folders.insert(FolderFixture.createSharedFolderOf(owner).setPublic(true)).id!!
+                    val shared = folders.insert(FolderFixture.createSharedFolderOf(owner).withPublication()).id!!
                     members.insertIfAbsent(FolderMemberFixture.createMember(folderId = shared, userId = member))
                     shared to folders.insert(FolderFixture.createValidUnsharedFolder(owner)).id!!
                 }
@@ -516,7 +517,7 @@ class ServerTest :
                 tx.required {
                     listOf(owner to true, owner to false, member to true).map { (folderOwner, isPublic) ->
                         val collaborator = if (folderOwner == owner) member else owner
-                        val folder = folders.insert(FolderFixture.createSharedFolderOf(folderOwner).setPublic(isPublic))
+                        val folder = folders.insert(FolderFixture.createSharedFolderOf(folderOwner).withPublication(isPublic))
                         val folderId = folder.id!!
                         members.insertIfAbsent(FolderMemberFixture.createOwnerMember(folderId = folderId, userId = folderOwner))
                         members.insertIfAbsent(FolderMemberFixture.createMember(folderId = folderId, userId = collaborator))

@@ -20,6 +20,7 @@ import com.qlink.link.service.GetLinksService
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.assertPublicCursorHidesIds
 import com.qlink.support.fixture.FolderFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.PublicFolderFixture
 import com.qlink.support.fixture.RandomFixture
@@ -60,8 +61,8 @@ class GetPublicFolderLinksServiceTest :
 
             beforeTest {
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
-                other = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
+                other = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
                 links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = other.id, isPublic = other.isPublished))
                 links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = null))
                 val createdAt = RandomFixture.randomPastInstant()
@@ -353,7 +354,7 @@ class GetPublicFolderLinksServiceTest :
 
             beforeTest {
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
             }
 
             When("링크를 조회하면") {

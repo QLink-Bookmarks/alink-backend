@@ -26,6 +26,7 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.getMemberLinkDetail
 import com.qlink.support.getPublicLinks
 import com.qlink.support.getPublicTodos
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -45,6 +46,7 @@ import kotlin.time.Clock
 class UpdateLinkServiceTest :
     BaseServiceTest({
         val updateLinkService = koinGet<UpdateLinkService>()
+        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
         val urlResolver = koinGet<PreviewImageUrlResolver>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
@@ -64,7 +66,10 @@ class UpdateLinkServiceTest :
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 otherId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder =
+                    folderRepository.insert(
+                        FolderFixture.createValidUnsharedFolder(ownerId).withPublication(),
+                    )
                 link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id))
                 todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
             }
@@ -122,7 +127,7 @@ class UpdateLinkServiceTest :
                     val id = link.id!!
 
                     suspend fun setPrivacy(isPublic: Boolean) =
-                        updateLinkService.setPrivacy(loginId = link.ownerId, linkId = id, isPublic = isPublic)
+                        setLinkPrivacyService.setPrivacy(loginId = link.ownerId, linkId = id, isPublic = isPublic)
 
                     val first = setPrivacy(true).turnsPublicAt.shouldNotBeNull()
                     setPrivacy(true).turnsPublicAt shouldBe first
@@ -139,7 +144,7 @@ class UpdateLinkServiceTest :
             }
 
             When("다른 사용자가 전용 설정으로 링크를 공개하면") {
-                val update = suspend { updateLinkService.setPrivacy(loginId = otherId, linkId = link.id!!, isPublic = true) }
+                val update = suspend { setLinkPrivacyService.setPrivacy(loginId = otherId, linkId = link.id!!, isPublic = true) }
 
                 Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }

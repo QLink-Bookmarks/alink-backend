@@ -19,6 +19,7 @@ import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
@@ -86,8 +87,8 @@ class CopyLinkServiceTest :
                 beforeTest {
                     originalVisibility = true
                     targetVisibility = true
-                    folderRepository.update(sharedFolder.setPublic(originalVisibility))
-                    folderRepository.update(personalFolder.setPublic(targetVisibility))
+                    folderRepository.update(sharedFolder.withPublication(originalVisibility))
+                    folderRepository.update(personalFolder.withPublication(targetVisibility))
                     published =
                         linkRepository.insert(
                             LinkFixture.createRandomLinkOf(

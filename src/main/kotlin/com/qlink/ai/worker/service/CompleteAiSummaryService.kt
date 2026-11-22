@@ -64,11 +64,12 @@ class CompleteAiSummaryService(
                             member = member,
                         )
                     val response = completion.response
+                    val completedAt = Clock.System.now()
                     aiJobRepository.update(
                         job.complete(
                             responseModelId = completion.responseModelId,
                             response = response.rawResponse,
-                            completedAt = Clock.System.now(),
+                            completedAt = completedAt,
                         ),
                     )
                     val usageDate = LocalDate.now(ZoneOffset.UTC)
@@ -110,6 +111,7 @@ class CompleteAiSummaryService(
                                         sourceIsPublic = lockedFolders.find { it.id == link.folderId }?.isPublished == true,
                                         targetIsPublic = lockedFolders.find { it.id == folderId }?.isPublished == true,
                                         isPublic = null,
+                                        now = completedAt,
                                     ),
                             ).copyAiStatus(status = LinkStatus.A, workModelId = completion.responseModelId)
                     linkRepository.updateAiResult(

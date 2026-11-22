@@ -13,6 +13,7 @@ import com.qlink.link.repository.LinkRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.assertPublicCursorHidesIds
 import com.qlink.support.fixture.FolderFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.PublicFolderFixture
 import com.qlink.support.fixture.RandomFixture
@@ -52,7 +53,7 @@ class GetPublicFolderTodosServiceTest :
 
             beforeTest {
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
                 other = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 movedLink =
                     links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished))
@@ -113,7 +114,7 @@ class GetPublicFolderTodosServiceTest :
 
             beforeTest {
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
                 val link =
                     links.insert(
                         LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished),
@@ -142,7 +143,7 @@ class GetPublicFolderTodosServiceTest :
 
             beforeTest {
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
                 link =
                     links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished))
                 savedTodos =

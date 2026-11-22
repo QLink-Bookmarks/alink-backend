@@ -22,6 +22,7 @@ import com.qlink.link.service.GetLinkDetailService
 import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.PatchLinkService
 import com.qlink.link.service.SetLinkFavoriteService
+import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.link.service.UpdateLinkService
 import com.qlink.plugin.respondMissingAccessToken
 import io.github.smiley4.ktoropenapi.resources.delete
@@ -44,6 +45,7 @@ fun Route.linkRoutes() {
     val getLinkDetailService by inject<GetLinkDetailService>()
     val getLinksService by inject<GetLinksService>()
     val updateLinkService by inject<UpdateLinkService>()
+    val setLinkPrivacyService by inject<SetLinkPrivacyService>()
     val patchLinkService by inject<PatchLinkService>()
     val deleteLinkService by inject<DeleteLinkService>()
     val setLinkFavoriteService by inject<SetLinkFavoriteService>()
@@ -147,7 +149,7 @@ fun Route.linkRoutes() {
             val principal = call.principal<JwtPrincipal>()!!
             val request = call.receive<SetLinkPrivacyRequest>()
             val response =
-                updateLinkService.setPrivacy(loginId = principal.userId, linkId = resource.parent.id, isPublic = request.isPublic)
+                setLinkPrivacyService.setPrivacy(loginId = principal.userId, linkId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }.install(ReadNoStore)

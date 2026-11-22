@@ -123,6 +123,7 @@ class UpdateLinkAiSummaryService(
                                                         sourceIsPublic = source?.isPublished == true,
                                                         targetIsPublic = target?.isPublished == true,
                                                         isPublic = request.isPublic,
+                                                        now = Clock.System.now(),
                                                     ),
                                             ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
                                     ).also { resetContentForUrlChange(savedLink = it, now = now) }
@@ -254,7 +255,12 @@ class UpdateLinkAiSummaryService(
                 status = LinkStatus.G,
                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                 previewEnvironment = urlResolver.environment,
-                turnsPublicAt = Link.resolveNewVisibility(folderIsPublic = folder?.isPublished == true, isPublic = request.isPublic),
+                turnsPublicAt =
+                    Link.resolveNewVisibility(
+                        folderIsPublic = folder?.isPublished == true,
+                        isPublic = request.isPublic,
+                        now = Clock.System.now(),
+                    ),
             ),
         )
 

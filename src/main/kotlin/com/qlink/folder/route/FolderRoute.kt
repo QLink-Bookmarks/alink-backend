@@ -19,6 +19,7 @@ import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
 import io.github.smiley4.ktoropenapi.resources.delete
@@ -42,6 +43,7 @@ fun Route.folderRoutes() {
     val getFolderService by inject<GetFolderService>()
     val getFoldersService by inject<GetFoldersService>()
     val updateFolderService by inject<UpdateFolderService>()
+    val setFolderPrivacyService by inject<SetFolderPrivacyService>()
     val transferFolderOwnerService by inject<TransferFolderOwnerService>()
 
     authenticate(optional = true) {
@@ -131,7 +133,7 @@ fun Route.folderRoutes() {
             val principal = call.principal<JwtPrincipal>()!!
             val request = call.receive<SetFolderPrivacyRequest>()
             val response =
-                updateFolderService.setPrivacy(loginId = principal.userId, folderId = resource.parent.id, isPublic = request.isPublic)
+                setFolderPrivacyService.setPrivacy(loginId = principal.userId, folderId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }.install(ReadNoStore)

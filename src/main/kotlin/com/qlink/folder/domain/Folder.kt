@@ -8,7 +8,6 @@ import com.qlink.common.error.requireNotOver
 import com.qlink.common.error.requireTrue
 import com.qlink.common.error.requiresEmoji
 import kotlin.random.Random
-import kotlin.time.Clock
 import kotlin.time.Instant
 
 private const val GUIDE_FOLDER_NAME = "ALink Tips"
@@ -104,7 +103,7 @@ class Folder(
 
     fun setPublic(
         isPublic: Boolean,
-        now: Instant = Clock.System.now(),
+        now: Instant,
     ): Folder {
         if (isPublic == isPublished) return this
         val turnsPublicAt = now.takeIf { isPublic }
