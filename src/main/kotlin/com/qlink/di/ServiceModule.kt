@@ -36,6 +36,7 @@ import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
+import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
@@ -288,7 +289,7 @@ fun serviceModule() =
         }
 
         single {
-            FolderAccessValidator(folderMemberRepository = get())
+            FolderAccessValidator(folderRepository = get(), folderMemberRepository = get())
         }
 
         single {
@@ -314,6 +315,14 @@ fun serviceModule() =
                 userRepository = get(),
                 folderRepository = get(),
                 linkRepository = get(),
+            )
+        }
+
+        single {
+            GetFolderService(
+                tx = get(),
+                folderRepository = get(),
+                folderAccessValidator = get(),
             )
         }
 
@@ -415,6 +424,7 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderAccessValidator = get(),
             )
         }
 

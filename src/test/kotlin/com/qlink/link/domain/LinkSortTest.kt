@@ -140,6 +140,31 @@ class LinkSortTest :
             }
         }
 
+        Given("공개 폴더 링크 정렬") {
+            When("기준을 제목으로 지정하면") {
+                Then("회원과 같은 기본 방향과 명시적 방향을 사용한다") {
+                    for (order in listOf(null, "asc", "desc")) {
+                        val expected = LinkSort.of(orderKey = "title", order = order)
+                        val actual = LinkSort.forPublicFolder(orderKey = "title", order = order)
+                        actual.orderKey shouldBe expected.orderKey
+                        actual.direction shouldBe expected.direction
+                    }
+                }
+            }
+
+            When("기준이나 방향을 빈 문자열로 명시하면") {
+                val sort = { key: String?, order: String? -> LinkSort.forPublicFolder(orderKey = key, order = order) }
+
+                Then("이전과 같은 정렬 오류를 반환한다") {
+                    for ((key, order) in listOf("" to null, null to "", "title" to "")) {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) {
+                            sort(key, order)
+                        }
+                    }
+                }
+            }
+        }
+
         Given("저장일 내림차순 정렬") {
             val sort = LinkSort.of(orderKey = "created_at", order = "desc")
 
@@ -208,6 +233,36 @@ class LinkSortTest :
 
                 Then("예외 없이 통과한다") {
                     shouldNotThrow<BusinessException> { validate() }
+                }
+            }
+        }
+
+        Given("공개 폴더의 링크 정렬") {
+            When("지원하지 않는 정렬 키를 지정하면") {
+                val sort = { LinkSort.forPublicFolder(orderKey = RandomFixture.randomFixedSentence(20), order = null) }
+
+                Then("지원하지 않는 정렬 오류를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) { sort() }
+                }
+            }
+
+            When("생성 시각 키와 레거시 요청 별칭을 함께 지정하면") {
+                val sort = { order: String ->
+                    LinkSort.forPublicFolder(orderKey = "created_at", order = RandomFixture.randomCase(order))
+                }
+
+                Then("지원하지 않는 정렬 오류를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) { sort("latest") }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_INVALID_SORT_ORDER.message) { sort("earliest") }
+                }
+            }
+
+            When("키 없이 latest 또는 earliest를 지정하면") {
+                Then("생성 시각 내림차순 또는 오름차순으로 해석한다") {
+                    LinkSort.forPublicFolder(orderKey = null, order = RandomFixture.randomCase("latest")).direction shouldBe
+                        SortDirection.DESC
+                    LinkSort.forPublicFolder(orderKey = null, order = RandomFixture.randomCase("earliest")).direction shouldBe
+                        SortDirection.ASC
                 }
             }
         }

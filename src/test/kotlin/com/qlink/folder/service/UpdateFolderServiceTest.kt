@@ -2,6 +2,7 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.dto.UpdateFolderRequest
@@ -15,6 +16,7 @@ import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.CopyLinkService
 import com.qlink.link.service.CreateLinkService
+import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.PatchLinkService
 import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.support.BaseServiceTest
@@ -25,6 +27,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -53,6 +56,8 @@ class UpdateFolderServiceTest :
         val createLinkService = koinGet<CreateLinkService>()
         val patchLinkService = koinGet<PatchLinkService>()
         val copyLinkService = koinGet<CopyLinkService>()
+        val foldersService = koinGet<GetFolderService>()
+        val publicLinks = koinGet<GetLinksService>()
         val todoRepository = koinGet<TodoRepository>()
         val tx = koinGet<TransactionRunner>()
 
@@ -93,6 +98,9 @@ class UpdateFolderServiceTest :
                     linkRepository.findById(created.id)!!.isPublishedIn(first != null) shouldBe true
                     setPublic(folder, false) shouldBe null
                     setPublic(folder, false) shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
+                    }
                     val next = setPublic(folder, true)
                     next shouldNotBe null
                     next shouldNotBe first
@@ -100,6 +108,7 @@ class UpdateFolderServiceTest :
                     folderRepository.findById(folderId)?.sharedAt shouldBe folder.sharedAt
                     folderMemberRepository.findByFolderIdAndUserId(folderId, memberId)?.role shouldBe MemberRole.MEMBER
                     linkRepository.findAllByFolderIds(listOf(folderId)).none { it.isPublishedIn(next != null) } shouldBe true
+                    publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
@@ -284,6 +293,9 @@ class UpdateFolderServiceTest :
                             stored.getValue(createdWhilePublic).turnsPublicAt shouldBe null
                             stored.getValue(createdPrivate).turnsPublicAt shouldBe null
                             stored.getValue(createdAfterRevoke).turnsPublicAt shouldBe null
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
+                            }
                             val next = setPublic(folder, true)
                             tx.readOnly {
                                 linkRepository
@@ -292,6 +304,7 @@ class UpdateFolderServiceTest :
                                     ).none { it.isPublishedIn(next != null) }
                             } shouldBe
                                 true
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -329,7 +342,7 @@ class UpdateFolderServiceTest :
             }
 
             When("링크 생성이 대기 중인 공개 철회보다 먼저 커밋되면") {
-                Then("공개 상태가 사라지고 재공개 뒤에도 링크가 비공개다") {
+                Then("이전 주소가 닫히고 재공개 뒤에도 그 링크와 액션은 조회되지 않는다") {
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
@@ -353,14 +366,18 @@ class UpdateFolderServiceTest :
                                 linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
                                 todoRepository.findAllByLinkId(linkId).size shouldBe 1
                             }
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
+                            }
                             val next = setPublic(folder, true)
                             tx.readOnly { linkRepository.findById(linkId)!!.isPublishedIn(next != null) } shouldBe false
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
 
             When("철회와 링크 공개값 단독 변경이 경합하면") {
-                Then("두 커밋 순서에서 재공개 뒤에도 링크가 비공개다") {
+                Then("두 커밋 순서에서 재공개 뒤에도 링크와 액션은 보이지 않는다") {
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
@@ -402,13 +419,14 @@ class UpdateFolderServiceTest :
                                 tx.readOnly { folderRepository.findById(folderId)?.turnsPublicAt } shouldBe null
                                 val next = setPublic(folder, true)
                                 tx.readOnly { linkRepository.findById(linkId)!!.isPublishedIn(next != null) } shouldBe false
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                             }
                         }.await()
                 }
             }
 
             When("목적지 철회와 링크 이동·복사가 경합하면") {
-                Then("이동·복사한 링크가 비공개로 저장된다") {
+                Then("비공개 목적지에 저장되며 예전 주소나 재공개 주소로 링크·액션을 읽을 수 없다") {
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
@@ -466,7 +484,11 @@ class UpdateFolderServiceTest :
                             val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)) }
                             stored.map { it.id }.toSet() shouldBe setOf(link.id, copy.id)
                             stored.none { it.turnsPublicAt != null } shouldBe true
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
+                            }
                             setPublic(folder, true) shouldNotBe null
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -692,7 +714,7 @@ class UpdateFolderServiceTest :
                     stored.ownerId shouldBe recipientId
                     stored.turnsPublicAt shouldNotBe null
                     stored.turnsPublicAt shouldBe folder.turnsPublicAt
-                    stored.name shouldBe folder.name
+                    foldersService.getPublicFolder(folderId = folder.id!!).name shouldBe folder.name
                 }
             }
         }

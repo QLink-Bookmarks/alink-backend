@@ -18,6 +18,7 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.respondError
 import com.qlink.common.response.respondSuccess
 import io.github.smiley4.ktoropenapi.resources.post
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
@@ -26,6 +27,7 @@ import io.ktor.server.plugins.csrf.CSRF
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveNullable
 import io.ktor.server.resources.resource
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
 import io.github.smiley4.ktoropenapi.delete as deleteWithoutResource
@@ -46,6 +48,7 @@ fun Route.authRoutes() {
         val result = signInService.signIn(call.receive<SignInRequest>())
 
         result.cookie?.let { call.appendRefreshTokenCookie(refreshToken = it.token, maxAge = it.maxAge) }
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         call.respondSuccess(HttpStatusCode.Created, result.response)
     }
 
@@ -55,6 +58,7 @@ fun Route.authRoutes() {
         val request = call.receive<NativeRefreshTokenRequest>()
         val response = refreshNativeAuthTokenService.refresh(request.requireRefreshToken())
 
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         call.respondSuccess(HttpStatusCode.Created, response)
     }
 
@@ -108,6 +112,7 @@ private fun Route.webRefreshRoute(refreshWebAuthTokenService: RefreshWebAuthToke
             val result = refreshWebAuthTokenService.refresh(refreshToken)
 
             call.appendRefreshTokenCookie(refreshToken = result.cookie.token, maxAge = result.cookie.maxAge)
+            call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondSuccess(HttpStatusCode.Created, result.response)
         }
     }

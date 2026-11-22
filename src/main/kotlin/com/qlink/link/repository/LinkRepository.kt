@@ -6,6 +6,8 @@ import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
+import com.qlink.link.dto.PublicLinkDetailQuery
+import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
 import kotlin.time.Instant
 
@@ -29,6 +31,15 @@ interface LinkRepository {
 
     suspend fun findAllByFolderIdForUpdate(folderId: Long): List<Link>
 
+    suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery?
+
+    suspend fun findPublicByFolderId(
+        folderId: Long,
+        sort: LinkSort,
+        cursor: LinkSearchCursor?,
+        limit: Int,
+    ): List<PublicLinkQuery>
+
     suspend fun findAllByIdsForUpdate(linkIds: List<Long>): List<Link>
 
     suspend fun assignFolderByIds(
@@ -44,8 +55,6 @@ interface LinkRepository {
 
     suspend fun findAllUrlsByOwnerId(ownerId: Long): List<String>
 
-    suspend fun findCreatedAtById(linkId: Long): Instant?
-
     suspend fun findDetailById(
         linkId: Long,
         loginId: Long,
@@ -59,6 +68,8 @@ interface LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean? = null,
+        linkId: Long? = null,
     ): List<SearchLinksQuery>
 
     suspend fun update(link: Link): Link

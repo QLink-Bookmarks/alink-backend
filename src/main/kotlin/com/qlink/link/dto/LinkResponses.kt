@@ -70,6 +70,7 @@ data class GetLinksContentResponse(
     val contentExcerpt: String?,
     val matchedFields: List<MatchedField>,
     val contentSnippet: SnippetResponse?,
+    val isPublic: Boolean,
 )
 
 @Serializable
@@ -108,4 +109,35 @@ data class UpdateLinkResponse(
 @Serializable
 data class LinkPrivacyResponse(
     val isPublic: Boolean,
+)
+
+@Serializable
+data class PublicFolderLinkResponse(
+    val id: Long,
+    val title: String,
+    val url: String,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
+)
+
+@Serializable
+data class PublicLinkDetailResponse(
+    val id: Long,
+    val folderId: Long,
+    val title: String,
+    val url: String,
+    val folderName: String,
+    val folderEmoji: String?,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val content: PublicLinkContentResponse,
+    val todos: List<LinkDetailTodoQuery>?,
+)
+
+@Serializable
+data class PublicLinkContentResponse(
+    val excerpt: String?,
 )

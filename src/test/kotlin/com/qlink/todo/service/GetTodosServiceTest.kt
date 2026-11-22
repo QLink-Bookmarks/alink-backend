@@ -16,6 +16,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getMemberTodos
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
@@ -91,7 +92,7 @@ class GetTodosServiceTest :
             size: Int = 50,
             isCompleted: Boolean? = null,
             reminderAt: String? = null,
-        ) = getTodosService.getTodos(
+        ) = getTodosService.getMemberTodos(
             loginId = ownerId,
             status = status,
             orderKey = orderKey,
@@ -203,7 +204,7 @@ class GetTodosServiceTest :
                 val first = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "first todo")
                 val second = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "second todo")
                 val actual =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -229,7 +230,7 @@ class GetTodosServiceTest :
                 val first = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "first todo")
                 val second = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "second todo")
                 val firstPage =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 1),
@@ -237,7 +238,7 @@ class GetTodosServiceTest :
                         reminderAt = null,
                     )
                 val secondPage =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(cursor = firstPage.nextCursor, size = 1),
@@ -266,7 +267,7 @@ class GetTodosServiceTest :
                         repeatTimezone = java.time.ZoneId.of("Asia/Seoul"),
                     )
                 val actual =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -288,7 +289,7 @@ class GetTodosServiceTest :
                 val completed = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "done", completedAt = completedAt)
                 val incomplete = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "todo")
                 val completedResult =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -296,7 +297,7 @@ class GetTodosServiceTest :
                         reminderAt = null,
                     )
                 val incompleteResult =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -321,7 +322,7 @@ class GetTodosServiceTest :
                 val upcoming = insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "upcoming", reminderAt = upcomingAt)
                 insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "overdue", reminderAt = overdueAt)
                 val actual =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -348,7 +349,7 @@ class GetTodosServiceTest :
                         completedAt = overdueAt,
                     )
                 val actual =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 50),
@@ -367,7 +368,7 @@ class GetTodosServiceTest :
                     insertTodo(linkId = link.id!!, ownerId = user.id!!, title = "todo $it")
                 }
                 val actual =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = user.id!!,
                         order = "latest",
                         scrollRequest = ScrollRequest(size = 0),
@@ -384,7 +385,7 @@ class GetTodosServiceTest :
             When("커서가 올바르지 않으면") {
                 val get =
                     suspend {
-                        getTodosService.getTodos(
+                        getTodosService.getMemberTodos(
                             loginId = user.id!!,
                             order = "latest",
                             scrollRequest = ScrollRequest(cursor = "not-base64", size = 50),
@@ -403,7 +404,7 @@ class GetTodosServiceTest :
             When("알림 필터가 올바르지 않으면") {
                 val get =
                     suspend {
-                        getTodosService.getTodos(
+                        getTodosService.getMemberTodos(
                             loginId = user.id!!,
                             order = "latest",
                             scrollRequest = ScrollRequest(size = 50),
@@ -422,7 +423,7 @@ class GetTodosServiceTest :
             When("로그인 사용자가 없으면") {
                 val get =
                     suspend {
-                        getTodosService.getTodos(
+                        getTodosService.getMemberTodos(
                             loginId = RandomFixture.randomId(),
                             order = "latest",
                             scrollRequest = ScrollRequest(size = 50),
@@ -776,7 +777,7 @@ class GetTodosServiceTest :
                         userRepository = userRepository,
                     )
                 val actual =
-                    racingService.getTodos(
+                    racingService.getMemberTodos(
                         loginId = todos.ownerId,
                         scrollRequest = ScrollRequest(size = 50),
                         isCompleted = null,

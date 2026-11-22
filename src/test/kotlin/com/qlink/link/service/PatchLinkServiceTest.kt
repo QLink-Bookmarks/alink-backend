@@ -2,12 +2,14 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.notification.service.ScheduleTodoNotificationService
@@ -18,6 +20,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -52,6 +55,7 @@ class PatchLinkServiceTest :
         val todoRepository = koinGet<TodoRepository>()
         val notificationRepository = koinGet<NotificationRepository>()
         val scheduleTodoNotificationService = koinGet<ScheduleTodoNotificationService>()
+        val publicLinks = koinGet<GetLinksService>()
 
         Given("공개 폴더 두 개와 개인 비공개 폴더") {
             lateinit var source: Folder
@@ -124,6 +128,7 @@ class PatchLinkServiceTest :
                     response.isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
+                    publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
@@ -160,6 +165,7 @@ class PatchLinkServiceTest :
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
                     patch(privateTarget.id).isPublic shouldBe false
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
+                    publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     patch(0).isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }

@@ -13,6 +13,7 @@ import com.qlink.ai.repository.table.AiJobs
 import com.qlink.ai.repository.table.AiProviders
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -21,6 +22,7 @@ import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
@@ -37,6 +39,7 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileLinkLocked
@@ -73,6 +76,7 @@ class CompleteAiSummaryServiceTest :
         val todoRepository = koinGet<TodoRepository>()
         val notificationRepository = koinGet<NotificationRepository>()
         val resolver = koinGet<PreviewImageUrlResolver>()
+        val publicLinks = koinGet<GetLinksService>()
         val setLinkPrivacy = koinGet<SetLinkPrivacyService>()
 
         Given("커밋된 공개 링크와 공개 AI 추천 폴더") {
@@ -233,6 +237,7 @@ class CompleteAiSummaryServiceTest :
                     stored.folderId shouldBe candidate.id
                     stored.isPublishedIn(targetIsPublic) shouldBe false
                     todoRepository.findAllByLinkId(link.id!!).size shouldBe completion.response.todos.size
+                    publicLinks.getPublicLinks(candidate.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
@@ -253,6 +258,9 @@ class CompleteAiSummaryServiceTest :
                     val stored = linkRepository.findById(link.id!!)!!
                     stored.folderId shouldBe candidate.id
                     stored.turnsPublicAt shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(candidate.id!!, null, null, ScrollRequest())
+                    }
                 }
             }
 

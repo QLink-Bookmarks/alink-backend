@@ -10,12 +10,14 @@ import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folderinvite.repository.table.FolderInvites
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
@@ -29,7 +31,9 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
+import com.qlink.support.toPublicListItem
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
@@ -60,6 +64,7 @@ class DeleteFolderServiceTest :
         val models = koinGet<AvailableModelRepository>()
         val userProviders = koinGet<UserProviderRepository>()
         val usages = koinGet<DailyUsageRepository>()
+        val publicLinks = koinGet<GetLinksService>()
 
         Given("공개 링크와 비공개 링크가 있는 개인 공개 폴더") {
             lateinit var folder: Folder
@@ -88,6 +93,9 @@ class DeleteFolderServiceTest :
                     val stored = links.findById(publicLink.id!!)!!
                     stored.folderId shouldBe null
                     stored.turnsPublicAt shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest())
+                    }
                 }
             }
 
@@ -117,6 +125,8 @@ class DeleteFolderServiceTest :
                     links.findById(privateLink.id!!)!!.folderId shouldBe target.id
                     links.findById(privateLink.id!!)!!.turnsPublicAt shouldBe null
                     links.findById(publicLink.id!!)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
+                    publicLinks.getPublicLinks(target.id!!, null, null, ScrollRequest()).contents shouldBe
+                        listOf(publicLink.toPublicListItem())
                 }
             }
 
@@ -139,6 +149,9 @@ class DeleteFolderServiceTest :
                     stored.folderId shouldBe target.id
                     stored.turnsPublicAt shouldBe null
                     stored.isPublishedIn(folders.findById(target.id!!)?.isPublished == true) shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest())
+                    }
                 }
             }
         }
