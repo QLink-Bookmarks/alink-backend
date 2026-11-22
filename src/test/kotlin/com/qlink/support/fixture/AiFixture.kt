@@ -57,12 +57,13 @@ object AiFixture {
         isActive: Boolean = true,
         id: Long? = null,
         priority: Int = RandomFixture.randomInt(1, 100),
+        model: String = "model-${RandomFixture.randomId()}",
     ): AvailableModel =
         AvailableModel(
             id = id,
             activeAt = RandomFixture.randomPastInstant().takeIf { isActive },
             providerId = providerId,
-            model = "model-${RandomFixture.randomId()}",
+            model = model,
             priority = priority,
             rpdLimit = RandomFixture.randomInt(1, 1000),
             tpdLimit = RandomFixture.randomInt(1, 10_000_000),

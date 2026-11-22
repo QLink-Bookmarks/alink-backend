@@ -7,6 +7,7 @@ import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
+import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.client.GeminiCurlClient
 import com.qlink.ai.client.GeminiSdkClient
 import com.qlink.ai.client.OpenAiCurlClient
@@ -160,12 +161,15 @@ fun externalModule(
         )
     }
 
+    registerClaude(config)
+
     single {
         AiClientRouter(
             clients =
                 listOf(
                     get<AiClient>(named("gemini")),
                     get<AiClient>(named("openai")),
+                    get<ClaudeSdkClient>(),
                 ),
         )
     }
