@@ -100,7 +100,7 @@ class DbLinkRepository : LinkRepository {
             ?.toLinkDomain()
 
     override suspend fun clearFolderVisibility(folderId: Long) {
-        Links.update(where = { (Links.folderId eq folderId) and Links.turnsPublicAt.isNotNull() }) {
+        Links.update(where = { Links.folderId eq folderId }) {
             it[turnsPublicAt] = null
         }
     }
@@ -358,11 +358,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
-        turnsPublicAt: Instant?,
+        clearPublication: Boolean,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
-            it[Links.turnsPublicAt] = turnsPublicAt?.toJavaInstant()
+            if (clearPublication) it[Links.turnsPublicAt] = null
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags

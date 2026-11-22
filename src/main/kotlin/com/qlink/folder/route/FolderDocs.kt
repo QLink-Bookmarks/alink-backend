@@ -141,7 +141,6 @@ internal fun updateFolderDocs(): RouteConfig.() -> Unit =
                 description = "폴더 수정 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
-                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.FOLDER_NAME_BLANK,
                         ErrorCode.FOLDER_NAME_OVER_MAX,
                         ErrorCode.FOLDER_EMOJI_OVER_MAX,

@@ -22,6 +22,7 @@ import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.link.worker.LinkPreviewFillSignal
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
@@ -68,6 +69,7 @@ import kotlin.time.Clock
 class UpdateLinkAiSummaryServiceTest :
     BaseServiceTest({
         val service = koinGet<UpdateLinkAiSummaryService>()
+        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
         val urlResolver = koinGet<PreviewImageUrlResolver>()
         val userRepository = koinGet<UserRepository>()
         val folderRepository = koinGet<FolderRepository>()
@@ -1125,7 +1127,7 @@ class UpdateLinkAiSummaryServiceTest :
                     privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                 }
 
-                Then("새 원문 링크만 기본 공개이고 명시한 비공개와 기존 비공개를 유지한다") {
+                Then("새 링크는 폴더의 공개 상태를 상속하고 전용 PUT과 기존 비공개 상태가 유지된다") {
                     val request =
                         AiSummaryRequest(
                             folderId = publicFolder.id,
@@ -1138,9 +1140,12 @@ class UpdateLinkAiSummaryServiceTest :
                     val createdPrivate =
                         service.updateLinkAiSummary(
                             user.id!!,
-                            request.copy(isPublic = false, url = RandomFixture.randomUrl()),
+                            request.copy(url = RandomFixture.randomUrl()),
                         )
                     val privateJobId = withTimeout(1_000) { commandChannel.receive() }
+                    linkRepository.findById(createdPrivate.id)!!.isPublishedIn(publicFolder.isPublished) shouldBe true
+                    setLinkPrivacyService.setPrivacy(loginId = user.id!!, linkId = createdPrivate.id, isPublic = false).isPublic shouldBe
+                        false
                     val retried = service.updateLinkAiSummary(user.id!!, request.copy(id = privateLink.id, url = privateLink.url))
                     val retriedJobId = withTimeout(1_000) { commandChannel.receive() }
 

@@ -36,7 +36,7 @@ class ServerTest :
             }
         }
 
-        "folder privacy endpoints set no-store on authentication and request errors" {
+        "privacy PUT requires auth and uses the regular Boolean request parser" {
             val config = ServiceTestEnvironment.applicationConfig()
             val userId = RandomFixture.randomId()
             val token =
@@ -53,7 +53,7 @@ class ServerTest :
                 client.get(path).status shouldBe HttpStatusCode.NotFound
                 val unauthorized = client.put(path)
                 unauthorized.status shouldBe HttpStatusCode.Unauthorized
-                unauthorized.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                unauthorized.headers[HttpHeaders.CacheControl] shouldBe null
 
                 val unauthorizedLink = client.get("/api/links/${RandomFixture.randomId()}")
                 unauthorizedLink.status shouldBe HttpStatusCode.Unauthorized
@@ -70,7 +70,7 @@ class ServerTest :
                         }
 
                     badRequest.status shouldBe HttpStatusCode.BadRequest
-                    badRequest.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                    badRequest.headers[HttpHeaders.CacheControl] shouldBe null
                     apiErrorCode(badRequest.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
                 }
 
@@ -78,7 +78,6 @@ class ServerTest :
                     for (body in listOf(
                         "{}",
                         """{"isPublic":null}""",
-                        """{"isPublic":"true"}""",
                         """{"isPublic":1}""",
                         """{"isPublic":[]}""",
                     )) {
@@ -97,7 +96,7 @@ class ServerTest :
                     client.put(path.removeSuffix("/privacy")) {
                         bearerAuth(token)
                         contentType(ContentType.Application.Json)
-                        setBody("""{"name":"공개 폴더","isPublic":null}""")
+                        setBody("""{"name":"공개 폴더","isShared":null}""")
                     }
                 validRequest.status shouldBe HttpStatusCode.NotFound
                 apiErrorCode(validRequest.bodyAsText()) shouldBe ErrorCode.FOLDER_OWNER_NOT_FOUND.code

@@ -50,19 +50,17 @@ class SetFolderPrivacyServiceTest :
                 Then("공개 시각은 null을 유지한다") {
                     val response = service.setPrivacy(isPublic = false, loginId = private.ownerId, folderId = private.id!!)
 
-                    response.turnsPublicAt shouldBe null
-                    response.turnsPublicAt shouldBe null
+                    response.isPublic shouldBe false
                     folders.findById(private.id!!)?.turnsPublicAt shouldBe null
                 }
             }
 
             When("소유자가 이미 공개한 폴더를 다시 공개하면") {
-                Then("기존 공개 시각을 반환한다") {
+                Then("공개 상태를 반환하고 기존 공개 시각을 유지한다") {
                     val response = service.setPrivacy(isPublic = true, loginId = shared.ownerId, folderId = shared.id!!)
 
-                    response.turnsPublicAt shouldNotBe null
-                    response.turnsPublicAt shouldBe shared.turnsPublicAt
-                    response.turnsPublicAt shouldBe folders.findById(shared.id!!)?.turnsPublicAt
+                    response.isPublic shouldBe true
+                    folders.findById(shared.id!!)?.turnsPublicAt shouldBe shared.turnsPublicAt
                 }
             }
 
@@ -73,12 +71,15 @@ class SetFolderPrivacyServiceTest :
                     val ownerId = private.ownerId
                     val created = createFolder.createFolder(ownerId, CreateFolderRequest(name = name, isPublic = true))
                     val storedPublic = folders.findById(created.id)!!.turnsPublicAt
-                    val expected = FolderPrivacyResponse(turnsPublicAt = storedPublic)
+                    val expected = FolderPrivacyResponse(isPublic = true)
                     service.setPrivacy(isPublic = true, loginId = ownerId, folderId = created.id) shouldBe expected
                     service.setPrivacy(isPublic = true, loginId = ownerId, folderId = created.id) shouldBe expected
 
+                    storedPublic shouldNotBe null
+                    folders.findById(created.id)?.turnsPublicAt shouldBe storedPublic
+
                     service.setPrivacy(isPublic = false, loginId = ownerId, folderId = created.id) shouldBe
-                        FolderPrivacyResponse(turnsPublicAt = null)
+                        FolderPrivacyResponse(isPublic = false)
                     folders.findById(created.id)?.turnsPublicAt shouldBe null
                 }
             }

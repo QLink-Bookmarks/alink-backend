@@ -74,7 +74,7 @@ object ImportPlanDomainService {
     fun links(
         plan: ImportPlan,
         savedNewFolders: List<Folder>,
-        visibilityByFolder: Map<Long, Boolean> = emptyMap(),
+        publicFolderIds: Set<Long> = emptySet(),
         now: Instant,
     ): List<Link> {
         val newFolderIdByName = savedNewFolders.idByName()
@@ -89,7 +89,7 @@ object ImportPlanDomainService {
                 createdAt = link.createdAt,
                 turnsPublicAt =
                     Link.resolveNewVisibility(
-                        folderIsPublic = visibilityByFolder[folderId] == true,
+                        folderIsPublic = folderId in publicFolderIds,
                         isPublic = null,
                         now = now,
                     ),

@@ -1,7 +1,10 @@
 package com.qlink.link.service
 
-import com.qlink.common.retry.retryUntilNotNull
+import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
+import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
@@ -11,13 +14,14 @@ import com.qlink.link.repository.LinkRepository
 import com.qlink.linkcontent.domain.service.LinkContentPlanDomainService
 import com.qlink.linkcontent.repository.LinkContentRepository
 import com.qlink.linkcontent.worker.LinkContentSignal
+import com.qlink.user.repository.UserRepository
 import kotlin.time.Clock
-import kotlin.time.Instant
 
 class UpdateLinkService(
     private val tx: TransactionRunner,
     private val linkRepository: LinkRepository,
-    private val ownedLinkLoader: OwnedLinkLoader,
+    private val userRepository: UserRepository,
+    private val folderRepository: FolderRepository,
     private val folderAccessValidator: FolderAccessValidator,
     private val urlResolver: PreviewImageUrlResolver,
     private val linkContentRepository: LinkContentRepository,
@@ -27,56 +31,47 @@ class UpdateLinkService(
         loginId: Long,
         linkId: Long,
         request: UpdateLinkRequest,
-    ): UpdateLinkResponse {
-        val response =
-            retryUntilNotNull {
-                tx.required {
-                    val locked =
-                        ownedLinkLoader.load(loginId = loginId, linkId = linkId, targetFolderId = request.folderId)
-                            ?: return@required null
-                    val link = locked.link
-                    val target = request.folderId?.let { folderAccessValidator.validateWritable(locked.targetFolder, loginId) }
-                    val turnsPublicAt =
-                        link.resolveUpdatedVisibility(
-                            sourceIsPublic = locked.sourceFolder?.isPublished == true,
-                            targetIsPublic = target?.isPublished == true,
-                            isPublic = request.isPublic,
-                            now = Clock.System.now(),
-                        )
+    ): UpdateLinkResponse =
+        tx
+            .required {
+                userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+                val lockedTarget = request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)).singleOrNull() }
 
-                    val updatedLink =
-                        link.update(
-                            folderId = request.folderId,
-                            url = request.url,
-                            title = request.title,
-                            summary = request.summary,
-                            memo = request.memo,
-                            tags = request.tags,
-                            thumbnailUrl = request.thumbnailUrl,
-                            sourceType = request.sourceType,
-                            faviconUrl = request.faviconUrl,
-                            isVideo = request.isVideo,
-                            previewPublicBaseUrl = urlResolver.publicBaseUrl,
-                            previewEnvironment = urlResolver.environment,
-                            turnsPublicAt = turnsPublicAt,
-                        )
+                val link = linkRepository.findByIdForUpdate(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+                link.validateOwner(loginId)
 
-                    val savedLink = linkRepository.update(updatedLink)
-                    LinkContentPlanDomainService
-                        .forUrlChange(
-                            current = linkContentRepository.findByLinkId(linkId),
-                            savedLink = savedLink,
-                            now = Clock.System.now(),
-                        )?.let { linkContentRepository.upsertForLink(it) }
+                val target = request.folderId?.let { folderAccessValidator.validateWritable(lockedTarget, loginId) }
+                val targetIsPublic = target?.isPublished == true
 
-                    savedLink.toResponse(turnsPublicAt = savedLink.publishedAtIn(target?.isPublished == true))
-                }
-            }
-        linkContentSignal.wake()
-        return response
-    }
+                val updatedLink =
+                    link.update(
+                        folderId = request.folderId,
+                        url = request.url,
+                        title = request.title,
+                        summary = request.summary,
+                        memo = request.memo,
+                        tags = request.tags,
+                        thumbnailUrl = request.thumbnailUrl,
+                        sourceType = request.sourceType,
+                        faviconUrl = request.faviconUrl,
+                        isVideo = request.isVideo,
+                        previewPublicBaseUrl = urlResolver.publicBaseUrl,
+                        previewEnvironment = urlResolver.environment,
+                        turnsPublicAt = link.publishedAtIn(targetIsPublic),
+                    )
 
-    private fun Link.toResponse(turnsPublicAt: Instant?): UpdateLinkResponse =
+                val savedLink = linkRepository.update(updatedLink)
+                LinkContentPlanDomainService
+                    .forUrlChange(
+                        current = linkContentRepository.findByLinkId(linkId),
+                        savedLink = savedLink,
+                        now = Clock.System.now(),
+                    )?.let { linkContentRepository.upsertForLink(it) }
+
+                savedLink.toResponse(isPublic = savedLink.isPublishedIn(targetIsPublic))
+            }.also { linkContentSignal.wake() }
+
+    private fun Link.toResponse(isPublic: Boolean): UpdateLinkResponse =
         UpdateLinkResponse(
             folderId = folderId,
             url = url,
@@ -86,6 +81,6 @@ class UpdateLinkService(
             tags = tags,
             thumbnailUrl = thumbnailUrl,
             sourceType = sourceType,
-            turnsPublicAt = turnsPublicAt,
+            isPublic = isPublic,
         )
 }

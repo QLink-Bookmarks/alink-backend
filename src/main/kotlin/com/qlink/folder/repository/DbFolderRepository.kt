@@ -90,14 +90,6 @@ class DbFolderRepository : FolderRepository {
             .orderBy(Folders.id to SortOrder.ASC)
             .map { it.toFolderDomain() }
 
-    override suspend fun findAllByOwnerIdForKeyShare(ownerId: Long): List<Folder> =
-        Folders
-            .selectAll()
-            .where { Folders.ownerId eq ownerId }
-            .orderBy(Folders.id to SortOrder.ASC)
-            .forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
-            .map { it.toFolderDomain() }
-
     override suspend fun findCreatedAtById(id: Long): Instant? =
         Folders
             .select(Folders.createdAt)

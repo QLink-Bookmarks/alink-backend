@@ -60,7 +60,7 @@ class GetLinkDetailService(
             todos = todos,
             workModel = workModel,
             isFavorite = favoriteAt != null,
-            turnsPublicAt = turnsPublicAt,
+            isPublic = turnsPublicAt != null,
             isOwner = isOwner,
             content =
                 if (hasContent) {
