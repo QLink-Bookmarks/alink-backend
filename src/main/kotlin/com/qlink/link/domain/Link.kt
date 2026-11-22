@@ -59,7 +59,7 @@ class Link(
         sourceIsPublic: Boolean,
         targetIsPublic: Boolean,
         isPublic: Boolean?,
-        now: Instant = Clock.System.now(),
+        now: Instant,
     ): Instant? =
         when (isPublic) {
             true -> {
@@ -67,8 +67,13 @@ class Link(
                 publishedAtIn(sourceIsPublic) ?: now
             }
 
-            false -> null
-            null -> publishedAtIn(sourceIsPublic && targetIsPublic)
+            false -> {
+                null
+            }
+
+            null -> {
+                publishedAtIn(sourceIsPublic && targetIsPublic)
+            }
         }
 
     fun validateOwner(ownerId: Long) {
@@ -285,7 +290,7 @@ class Link(
         fun resolveNewVisibility(
             folderIsPublic: Boolean,
             isPublic: Boolean?,
-            now: Instant = Clock.System.now(),
+            now: Instant,
         ): Instant? {
             if (isPublic == true) folderIsPublic.requireTrue(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
             return now.takeIf { folderIsPublic && isPublic != false }
