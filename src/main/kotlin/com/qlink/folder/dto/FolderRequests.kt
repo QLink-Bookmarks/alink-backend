@@ -9,6 +9,7 @@ data class CreateFolderRequest(
     val name: String,
     val emoji: String? = null,
     val isShared: Boolean? = null,
+    val isPublic: Boolean = false,
 )
 
 @Serializable
@@ -21,4 +22,9 @@ data class UpdateFolderRequest(
 @Serializable
 data class TransferFolderOwnerRequest(
     val ownerId: Long,
+)
+
+@Serializable
+data class SetFolderPrivacyRequest(
+    val isPublic: Boolean,
 )

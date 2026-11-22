@@ -14,6 +14,81 @@ import io.kotest.matchers.shouldNotBe
 
 class LinkTest :
     BehaviorSpec({
+        Given("폴더의 현재 공개 상태와 링크의 공개 상태") {
+            val link =
+                LinkFixture.createRandomLinkOf(
+                    ownerId = RandomFixture.randomId(),
+                    folderId = RandomFixture.randomId(),
+                    isPublic = true,
+                )
+            val now = RandomFixture.randomPastInstant()
+
+            When("신규 링크 공개값을 생략하면") {
+                Then("목적지의 활성 공개 상태가 있으면 그대로 사용한다") {
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = null, now = now) shouldBe now
+                    Link.resolveNewVisibility(folderIsPublic = false, isPublic = null, now = now) shouldBe null
+                }
+            }
+
+            When("신규 링크에 비공개를 지정하면") {
+                Then("공개 폴더에서도 링크에 공개 상태가 없다") {
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = false, now = now) shouldBe null
+                }
+            }
+
+            When("비공개 목적지의 새 링크에 공개를 지정하면") {
+                val create = { Link.resolveNewVisibility(folderIsPublic = false, isPublic = true, now = now) }
+                Then("공개 조건 오류가 발생한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { create() }
+                }
+            }
+
+            When("공개값 지정 없이 이동 또는 복사하면") {
+                Then("출발지에서 유효하고 목적지도 공개 중일 때만 링크를 공개한다") {
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = true,
+                        targetIsPublic = true,
+                        isPublic = null,
+                        now = now,
+                    ) shouldBe link.turnsPublicAt
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = false,
+                        targetIsPublic = true,
+                        isPublic = null,
+                        now = now,
+                    ) shouldBe null
+                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = null, now = now) shouldBe null
+                }
+            }
+
+            When("이미 공개된 링크를 다시 공개하면") {
+                Then("기존 공개 시각을 보존한다") {
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = true,
+                        targetIsPublic = true,
+                        isPublic = true,
+                        now = now,
+                    ) shouldBe link.turnsPublicAt
+                }
+            }
+
+            When("공개 링크를 비공개 폴더로 이동하면서 공개를 지정하면") {
+                val update = {
+                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = true, now = now)
+                }
+                Then("공개 조건 오류가 발생한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { update() }
+                }
+            }
+
+            When("다른 사람이 기존 링크 공개 변경에 필요한 소유권을 확인하면") {
+                val validate = { link.validateOwner(RandomFixture.randomId()) }
+                Then("링크 소유자 오류가 발생한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { validate() }
+                }
+            }
+        }
+
         Given("생성 테스트") {
             val ownerId = RandomFixture.randomId()
             val folderId = RandomFixture.randomId()

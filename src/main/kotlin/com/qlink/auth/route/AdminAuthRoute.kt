@@ -13,12 +13,14 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.respondError
 import com.qlink.common.response.respondSuccess
 import io.github.smiley4.ktoropenapi.resources.post
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.plugins.csrf.CSRF
 import io.ktor.server.request.receive
 import io.ktor.server.resources.resource
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
 import io.github.smiley4.ktoropenapi.delete as deleteRoute
@@ -32,6 +34,7 @@ internal fun Route.adminAuthRoutes() {
     post<AuthResources.Admin.Sign>(adminSignInDocs()) {
         val result = signIn.signIn(call.receive<AdminSignInRequest>())
         call.appendAdminRefreshTokenCookie(refreshToken = result.refreshToken.token, maxAge = result.refreshToken.maxAge)
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         call.respondSuccess(HttpStatusCode.Created, WebAuthTokenResponse(accessToken = result.accessToken))
     }
     resource<AuthResources.Admin.Refresh> {
@@ -43,6 +46,7 @@ internal fun Route.adminAuthRoutes() {
                     scope = AuthSessionScope.ADMIN,
                 )
             call.appendAdminRefreshTokenCookie(refreshToken = result.refreshToken.token, maxAge = result.refreshToken.maxAge)
+            call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondSuccess(HttpStatusCode.Created, WebAuthTokenResponse(accessToken = result.accessToken))
         }
     }

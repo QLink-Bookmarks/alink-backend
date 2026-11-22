@@ -57,7 +57,7 @@ class UpdateFolderService(
                 )
             }
 
-            UpdateFolderResponse(id = saved.id!!)
+            UpdateFolderResponse(id = saved.id!!, isPublic = saved.isPublished)
         }
 
     private fun UpdateFolderRequest.sharedAtOrExisting(current: kotlin.time.Instant?): kotlin.time.Instant? =

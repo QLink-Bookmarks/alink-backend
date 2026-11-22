@@ -19,6 +19,7 @@ import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
@@ -76,6 +77,48 @@ class CopyLinkServiceTest :
                             isVideo = true,
                         ),
                     )
+            }
+
+            When("원본 링크의 공개 상태와 복사 대상의 공개 상태가 다르면") {
+                var originalVisibility = false
+                var targetVisibility = false
+                lateinit var published: Link
+
+                beforeTest {
+                    originalVisibility = true
+                    targetVisibility = true
+                    folderRepository.update(sharedFolder.withPublication(originalVisibility))
+                    folderRepository.update(personalFolder.withPublication(targetVisibility))
+                    published =
+                        linkRepository.insert(
+                            LinkFixture.createRandomLinkOf(
+                                ownerId = owner.id!!,
+                                folderId = sharedFolder.id,
+                                isPublic = originalVisibility,
+                            ),
+                        )
+                }
+
+                Then("원본과 대상이 모두 공개일 때만 공개 복사본을 저장한다") {
+                    suspend fun copy(
+                        linkId: Long,
+                        folderId: Long?,
+                    ) = copyLinkService.copyLink(
+                        loginId = member.id!!,
+                        linkId = linkId,
+                        request = CopyLinkRequest(fromFolderId = sharedFolder.id!!, toFolderId = folderId),
+                    )
+
+                    val publicCopy = copy(published.id!!, personalFolder.id)
+                    val privateCopy = copy(sharedLink.id!!, personalFolder.id)
+                    folderRepository.update(personalFolder)
+                    val copyIntoPrivate = copy(published.id!!, personalFolder.id)
+
+                    (linkRepository.findById(publicCopy.id)!!.turnsPublicAt != null) shouldBe targetVisibility
+                    linkRepository.findById(privateCopy.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(copyIntoPrivate.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(published.id!!)!!.turnsPublicAt shouldBe published.turnsPublicAt
+                }
             }
 
             When("공유 폴더의 링크를 개인 폴더에 복사하면") {

@@ -35,12 +35,13 @@ class UpdateLinkService(
         tx
             .required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
+                val lockedTarget = request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)).singleOrNull() }
 
                 val link = linkRepository.findByIdForUpdate(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
                 link.validateOwner(loginId)
 
-                request.folderId?.let { folderAccessValidator.validateWritable(it, loginId) }
+                val target = request.folderId?.let { folderAccessValidator.validateWritable(lockedTarget, loginId) }
+                val targetIsPublic = target?.isPublished == true
 
                 val updatedLink =
                     link.update(
@@ -56,6 +57,7 @@ class UpdateLinkService(
                         isVideo = request.isVideo,
                         previewPublicBaseUrl = urlResolver.publicBaseUrl,
                         previewEnvironment = urlResolver.environment,
+                        turnsPublicAt = link.publishedAtIn(targetIsPublic),
                     )
 
                 val savedLink = linkRepository.update(updatedLink)
@@ -66,10 +68,10 @@ class UpdateLinkService(
                         now = Clock.System.now(),
                     )?.let { linkContentRepository.upsertForLink(it) }
 
-                savedLink.toResponse()
+                savedLink.toResponse(isPublic = savedLink.isPublishedIn(targetIsPublic))
             }.also { linkContentSignal.wake() }
 
-    private fun Link.toResponse(): UpdateLinkResponse =
+    private fun Link.toResponse(isPublic: Boolean): UpdateLinkResponse =
         UpdateLinkResponse(
             folderId = folderId,
             url = url,
@@ -79,5 +81,6 @@ class UpdateLinkService(
             tags = tags,
             thumbnailUrl = thumbnailUrl,
             sourceType = sourceType,
+            isPublic = isPublic,
         )
 }

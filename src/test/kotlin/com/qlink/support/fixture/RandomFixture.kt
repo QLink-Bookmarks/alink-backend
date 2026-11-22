@@ -16,6 +16,8 @@ object RandomFixture {
 
     fun randomId(): Long = randomLong(1L, Long.MAX_VALUE)
 
+    fun randomUuid(): String = UUID.randomUUID().toString()
+
     fun randomSentenceWithMax(maxLength: Int): String =
         faker
             .lorem()

@@ -20,6 +20,7 @@ object Folders : Table("folders") {
     val sharedAt = timestamp("shared_at").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
+    val turnsPublicAt = timestamp("turns_public_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
 
@@ -38,6 +39,7 @@ fun ResultRow.toFolderDomain(): Folder =
         sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
         createdAt = this[Folders.createdAt].toKotlinInstant(),
         updatedAt = this[Folders.updatedAt].toKotlinInstant(),
+        turnsPublicAt = this[Folders.turnsPublicAt]?.toKotlinInstant(),
     )
 
 fun UpdateBuilder<*>.fromDomain(folder: Folder) {
@@ -45,6 +47,7 @@ fun UpdateBuilder<*>.fromDomain(folder: Folder) {
     this[Folders.name] = folder.name
     this[Folders.emoji] = folder.emoji
     this[Folders.sharedAt] = folder.sharedAt?.toJavaInstant()
+    this[Folders.turnsPublicAt] = folder.turnsPublicAt?.toJavaInstant()
 }
 
 fun UpdateBuilder<*>.fromDomainForInsert(folder: Folder) {

@@ -4,6 +4,8 @@ import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
+import com.qlink.link.dto.CreateLinkRequest
+import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkTodoRequest
 import com.qlink.link.dto.UpdateLinkRequest
@@ -31,6 +33,8 @@ object LinkFixture {
         workModelId: Long? = null,
         favoriteAt: Instant? = null,
         createdAt: Instant? = null,
+        isPublic: Boolean = false,
+        turnsPublicAt: Instant? = if (isPublic) RandomFixture.randomPastInstant() else null,
     ): Link =
         Link(
             id = id,
@@ -50,6 +54,22 @@ object LinkFixture {
             tags = tags,
             createdAt = createdAt,
             updatedAt = createdAt,
+            turnsPublicAt = turnsPublicAt,
+        )
+
+    fun createValidLinkRequest(
+        folderId: Long? = null,
+        isPublic: Boolean? = null,
+        todos: List<CreateLinkTodoRequest> = emptyList(),
+    ): CreateLinkRequest =
+        CreateLinkRequest(
+            folderId = folderId,
+            isPublic = isPublic,
+            url = RandomFixture.randomUrl(),
+            title = RandomFixture.randomSentenceWithMax(300),
+            sourceType = randomRequestSourceType(),
+            tags = randomDistinctTags(),
+            todos = todos,
         )
 
     fun createImportedLinkOf(

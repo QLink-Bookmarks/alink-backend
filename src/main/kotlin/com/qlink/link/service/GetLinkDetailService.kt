@@ -6,6 +6,8 @@ import com.qlink.common.transaction.TransactionRunner
 import com.qlink.link.dto.GetLinkDetailResponse
 import com.qlink.link.dto.LinkContentResponse
 import com.qlink.link.dto.LinkDetailQuery
+import com.qlink.link.dto.PublicLinkContentResponse
+import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.todo.dto.LinkDetailTodoQuery
 import com.qlink.todo.repository.TodoRepository
@@ -15,27 +17,39 @@ class GetLinkDetailService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
 ) {
-    suspend fun getLinkDetail(
-        loginId: Long,
+    suspend fun getMemberLinkDetailOrNull(
+        viewerId: Long,
         linkId: Long,
-    ): GetLinkDetailResponse =
+    ): GetLinkDetailResponse? =
         tx.readOnly {
-            val link =
-                linkRepository.findDetailById(
-                    linkId = linkId,
-                    loginId = loginId,
-                ) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+            linkRepository.findDetailById(linkId = linkId, loginId = viewerId)?.toMemberResponse(viewerId)
+        }
 
-            validateAccess(link = link, loginId = loginId)
-
-            val todos = todoRepository.findAllByLinkIdForLinkDetail(link.id)
-
-            link.toResponse(
-                todos = todos,
+    suspend fun getPublicLinkDetail(linkId: Long): PublicLinkDetailResponse =
+        tx.readOnly {
+            val detail = linkRepository.findPublicDetailById(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+            PublicLinkDetailResponse(
+                id = detail.id,
+                folderId = detail.folderId,
+                title = detail.title,
+                url = detail.url,
+                folderName = detail.folderName,
+                folderEmoji = detail.folderEmoji,
+                thumbnailUrl = detail.thumbnailUrl,
+                faviconUrl = detail.faviconUrl,
+                isVideo = detail.isVideo,
+                content = PublicLinkContentResponse(excerpt = detail.contentExcerpt),
+                todos = null,
             )
         }
 
-    private fun LinkDetailQuery.toResponse(todos: List<LinkDetailTodoQuery>): GetLinkDetailResponse =
+    private suspend fun LinkDetailQuery.toMemberResponse(loginId: Long): GetLinkDetailResponse =
+        toResponse(todos = todoRepository.findAllByLinkIdForLinkDetail(id), isOwner = ownerId == loginId)
+
+    private fun LinkDetailQuery.toResponse(
+        todos: List<LinkDetailTodoQuery>,
+        isOwner: Boolean,
+    ): GetLinkDetailResponse =
         GetLinkDetailResponse(
             id = id,
             url = url,
@@ -55,6 +69,8 @@ class GetLinkDetailService(
             todos = todos,
             workModel = workModel,
             isFavorite = favoriteAt != null,
+            isPublic = turnsPublicAt != null,
+            isOwner = isOwner,
             content =
                 if (hasContent) {
                     LinkContentResponse(excerpt = contentExcerpt, isPending = isContentPending)
@@ -62,23 +78,4 @@ class GetLinkDetailService(
                     null
                 },
         )
-
-    private fun validateAccess(
-        link: LinkDetailQuery,
-        loginId: Long,
-    ) {
-        if (link.ownerId == loginId) {
-            return
-        }
-
-        if (link.folderSharedAt != null) {
-            if (link.folderMemberUserId == loginId) {
-                return
-            }
-
-            throw BusinessException(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
-        }
-
-        throw BusinessException(ErrorCode.LINK_DIFFERENT_OWNER)
-    }
 }

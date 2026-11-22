@@ -10,7 +10,11 @@ import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.ai.repository.table.AiJobs
+import com.qlink.ai.repository.table.AiProviders
 import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
+import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
@@ -18,6 +22,8 @@ import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
+import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
@@ -32,18 +38,25 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
+import com.qlink.support.runWhileLinkLocked
 import com.qlink.support.searchTextOf
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldNotThrow
+import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.core.test.TestType
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.slf4j.LoggerFactory
@@ -63,6 +76,97 @@ class CompleteAiSummaryServiceTest :
         val todoRepository = koinGet<TodoRepository>()
         val notificationRepository = koinGet<NotificationRepository>()
         val resolver = koinGet<PreviewImageUrlResolver>()
+        val publicLinks = koinGet<GetLinksService>()
+        val setLinkPrivacy = koinGet<SetLinkPrivacyService>()
+
+        Given("커밋된 공개 링크와 공개 AI 추천 폴더") {
+            val tx = koinGet<TransactionRunner>()
+            lateinit var link: Link
+            lateinit var target: Folder
+            lateinit var completion: AiSummaryCompletion
+            var providerId = 0L
+
+            beforeTest {
+                if (it.type != TestType.Test) return@beforeTest
+                CoroutineScope(Dispatchers.IO)
+                    .async {
+                        tx.required {
+                            val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                            val source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
+                            target = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
+                            val (provider, model) =
+                                insertAiContext(
+                                    userId = ownerId,
+                                    aiProviderRepository = koinGet<AiProviderRepository>(),
+                                    availableModelRepository = koinGet<AvailableModelRepository>(),
+                                    userProviderRepository = koinGet<UserProviderRepository>(),
+                                )
+                            providerId = provider.providerId
+                            link =
+                                linkRepository.insert(
+                                    LinkFixture.createRandomLinkOf(
+                                        ownerId = ownerId,
+                                        folderId = source.id,
+                                        status = LinkStatus.G,
+                                        workModelId = model.id,
+                                        isPublic = true,
+                                    ),
+                                )
+                            val job =
+                                jobRepository.insert(
+                                    AiFixture.createPendingAiJobOf(link = link, userProviderId = provider.id!!, modelId = model.id!!),
+                                )
+                            completion = AiFixture.createAiSummaryCompletionOf(job = job, link = link, candidateFolderId = target.id)
+                        }
+                    }.await()
+            }
+
+            afterTest { (testCase, _) ->
+                if (testCase.type != TestType.Test) return@afterTest
+                CoroutineScope(Dispatchers.IO)
+                    .async {
+                        tx.required {
+                            userRepository.deleteById(link.ownerId)
+                            AiProviders.deleteWhere { AiProviders.id eq providerId }
+                        }
+                    }.await()
+            }
+
+            When("공개 폴더 사이에서 AI가 링크를 이동하면") {
+                Then("기존 공개 시각을 보존한다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            service.complete(completion)
+                            val stored = tx.readOnly { linkRepository.findById(link.id!!)!! }
+                            stored.folderId shouldBe target.id
+                            stored.turnsPublicAt shouldBe link.turnsPublicAt
+                            stored.status shouldBe LinkStatus.A
+                        }.await()
+                }
+            }
+
+            When("공개 링크 철회와 AI의 공개 폴더 이동이 경합하면") {
+                Then("AI가 이동과 결과 저장을 마쳐도 비공개로 남는다") {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            val linkId = link.id!!
+                            runWhileLinkLocked(
+                                tx = tx,
+                                holdLock = { linkRepository.findByIdForUpdate(linkId) },
+                                afterWaiting = {
+                                    val response = setLinkPrivacy.setPrivacy(loginId = link.ownerId, linkId = linkId, isPublic = false)
+                                    response.isPublic shouldBe false
+                                },
+                                action = { service.complete(completion) },
+                            )
+                            val stored = tx.readOnly { linkRepository.findById(linkId)!! }
+                            stored.folderId shouldBe target.id
+                            stored.turnsPublicAt shouldBe null
+                            stored.status shouldBe LinkStatus.A
+                        }.await()
+                }
+            }
+        }
 
         Given("진행 중인 AI 작업과 작업 시작 snapshot") {
             lateinit var source: Folder
@@ -112,6 +216,52 @@ class CompleteAiSummaryServiceTest :
                     )
                 unrelatedLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!))
                 unrelatedNotification = notificationRepository.insert(NotificationFixture.createRandomNotificationOf(user.id!!))
+            }
+
+            When("비공개 링크를 AI가 공개 폴더로 분류하면") {
+                var targetIsPublic = false
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    targetIsPublic = true
+                    folderRepository.update(candidate.withPublication(targetIsPublic))
+                    folderRepository.update(source.withPublication())
+                    setLinkPrivacy.setPrivacy(loginId = link.ownerId, linkId = link.id!!, isPublic = true)
+                    setLinkPrivacy.setPrivacy(loginId = link.ownerId, linkId = link.id!!, isPublic = false)
+                }
+
+                Then("링크는 이동하고 공개 상태는 비공개로 유지된다") {
+                    service.complete(completion)
+                    val stored = linkRepository.findById(link.id!!)!!
+
+                    stored.folderId shouldBe candidate.id
+                    stored.isPublishedIn(targetIsPublic) shouldBe false
+                    todoRepository.findAllByLinkId(link.id!!).size shouldBe completion.response.todos.size
+                    publicLinks.getPublicLinks(candidate.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                }
+            }
+
+            When("추천 목적지를 철회한 뒤 AI 결과를 저장하면") {
+                var wasPublic = false
+
+                beforeTest {
+                    if (it.type != TestType.Test) return@beforeTest
+                    wasPublic = true
+                    folderRepository.update(candidate.withPublication(wasPublic))
+                    folderRepository.update(source.withPublication())
+                    setLinkPrivacy.setPrivacy(loginId = link.ownerId, linkId = link.id!!, isPublic = true)
+                    folderRepository.update(candidate)
+                }
+
+                Then("이동한 링크는 비공개이고 이전 목적지 주소를 조회할 수 없다") {
+                    service.complete(completion)
+                    val stored = linkRepository.findById(link.id!!)!!
+                    stored.folderId shouldBe candidate.id
+                    stored.turnsPublicAt shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(candidate.id!!, null, null, ScrollRequest())
+                    }
+                }
             }
 
             suspend fun currentUsage(): DailyUsage =

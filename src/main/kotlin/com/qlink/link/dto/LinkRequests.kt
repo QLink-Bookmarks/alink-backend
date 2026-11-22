@@ -20,6 +20,7 @@ data class CreateLinkRequest(
     val faviconUrl: String? = null,
     val isVideo: Boolean = false,
     val sourceType: SourceType,
+    val isPublic: Boolean? = null,
 )
 
 @Serializable
@@ -55,4 +56,9 @@ data class SetLinkFavoriteRequest(
 data class CopyLinkRequest(
     val fromFolderId: Long,
     val toFolderId: Long? = null,
+)
+
+@Serializable
+data class SetLinkPrivacyRequest(
+    val isPublic: Boolean,
 )

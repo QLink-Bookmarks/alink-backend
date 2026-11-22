@@ -2,6 +2,7 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -10,6 +11,7 @@ import com.qlink.link.domain.Link
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.domain.LinkContent
@@ -19,10 +21,15 @@ import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkContentFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
+import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
+import com.qlink.support.getMemberLinkDetail
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
+import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -37,12 +44,109 @@ import kotlin.time.Clock
 class UpdateLinkServiceTest :
     BaseServiceTest({
         val updateLinkService = koinGet<UpdateLinkService>()
+        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
         val urlResolver = koinGet<PreviewImageUrlResolver>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
         val linkContentRepository = koinGet<LinkContentRepository>()
         val tx = koinGet<TransactionRunner>()
         val folderRepository = koinGet<FolderRepository>()
+        val todoRepository = koinGet<TodoRepository>()
+        val publicLinks = koinGet<GetLinksService>()
+        val linkDetail = koinGet<GetLinkDetailService>()
+
+        Given("비공개 링크와 액션이 있는 공개 폴더") {
+            lateinit var folder: Folder
+            lateinit var link: Link
+            var otherId = 0L
+
+            beforeTest {
+                val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                otherId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
+                folder =
+                    folderRepository.insert(
+                        FolderFixture.createValidUnsharedFolder(ownerId).withPublication(),
+                    )
+                link = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id))
+                todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
+            }
+
+            When("링크 소유자가 공개하고 공개값을 생략해 제목을 저장한 뒤 철회하면") {
+                Then("개별 공개값을 유지하고 익명 링크 상세의 액션은 공개하지 않는다") {
+                    val linkId = link.id!!
+                    val request = LinkFixture.createUpdateLinkRequestFrom(link)
+
+                    suspend fun setPrivacy(isPublic: Boolean) =
+                        setLinkPrivacyService.setPrivacy(loginId = link.ownerId, linkId = linkId, isPublic = isPublic)
+
+                    setPrivacy(true).isPublic shouldBe true
+                    val title = RandomFixture.randomSentenceWithMax(300)
+                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).isPublic shouldBe true
+                    val stored = linkRepository.findById(linkId)!!
+                    stored.isPublishedIn(folder.isPublished) shouldBe true
+                    stored.title shouldBe title
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+                    publicLinks
+                        .getPublicLinks(folder.id!!, null, null, ScrollRequest())
+                        .contents
+                        .single()
+                        .title shouldBe title
+                    val guestDetail = linkDetail.getPublicLinkDetail(linkId)
+                    guestDetail.todos shouldBe null
+                    todoRepository.findAllByLinkId(linkId).single().ownerId shouldBe link.ownerId
+
+                    setPrivacy(false).isPublic shouldBe false
+                    linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                    publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                }
+            }
+
+            When("다른 사용자가 일반 수정으로 링크를 변경하면") {
+                val update =
+                    suspend {
+                        val request = LinkFixture.createUpdateLinkRequestFrom(link)
+                        updateLinkService.updateLink(otherId, link.id!!, request)
+                    }
+
+                Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }
+                    linkRepository.findById(link.id!!)!!.turnsPublicAt shouldBe null
+                }
+            }
+
+            When("링크 소유자가 전용 설정으로 공개, 반복 공개, 철회, 재공개하면") {
+                Then("저장된 공개 상태를 반환하고 연속 공개에서 같은 시각을 유지한다") {
+                    val id = link.id!!
+
+                    suspend fun setPrivacy(isPublic: Boolean) =
+                        setLinkPrivacyService.setPrivacy(loginId = link.ownerId, linkId = id, isPublic = isPublic)
+
+                    setPrivacy(true).isPublic shouldBe true
+                    val first = linkRepository.findById(id)!!.turnsPublicAt.shouldNotBeNull()
+                    setPrivacy(true).isPublic shouldBe true
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe first
+                    setPrivacy(false).isPublic shouldBe false
+                    setPrivacy(false).isPublic shouldBe false
+                    setPrivacy(true).isPublic shouldBe true
+                    val next = linkRepository.findById(id)!!.turnsPublicAt.shouldNotBeNull()
+                    (next > first) shouldBe true
+                    val stored = linkRepository.findById(id)!!
+                    stored.turnsPublicAt shouldBe next
+                    stored.title shouldBe link.title
+                    stored.folderId shouldBe link.folderId
+                }
+            }
+
+            When("다른 사용자가 전용 설정으로 링크를 공개하면") {
+                val update = suspend { setLinkPrivacyService.setPrivacy(loginId = otherId, linkId = link.id!!, isPublic = true) }
+
+                Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }
+                    linkRepository.findById(link.id!!)!!.turnsPublicAt shouldBe null
+                }
+            }
+        }
 
         Given("링크 수정 서비스 테스트") {
             lateinit var user: User

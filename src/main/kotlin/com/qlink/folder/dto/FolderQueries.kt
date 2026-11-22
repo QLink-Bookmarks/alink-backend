@@ -18,6 +18,7 @@ data class SearchFoldersQuery(
     val name: String,
     val emoji: String?,
     val sharedAt: Instant?,
+    val turnsPublicAt: Instant?,
     val createdAt: Instant,
     val shareCounts: Int,
     val linkCounts: Int,

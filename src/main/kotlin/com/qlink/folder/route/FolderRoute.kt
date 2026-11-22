@@ -6,6 +6,7 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.dto.AcceptFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderRequest
+import com.qlink.folder.dto.SetFolderPrivacyRequest
 import com.qlink.folder.dto.TransferFolderOwnerRequest
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.service.AcceptFolderInvitationService
@@ -14,17 +15,21 @@ import com.qlink.folder.service.CreateFolderService
 import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.GetFolderMembersService
+import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
 import io.github.smiley4.ktoropenapi.resources.delete
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
 
@@ -35,9 +40,23 @@ fun Route.folderRoutes() {
     val acceptFolderInvitationService by inject<AcceptFolderInvitationService>()
     val deleteFolderService by inject<DeleteFolderService>()
     val getFolderMembersService by inject<GetFolderMembersService>()
+    val getFolderService by inject<GetFolderService>()
     val getFoldersService by inject<GetFoldersService>()
     val updateFolderService by inject<UpdateFolderService>()
+    val setFolderPrivacyService by inject<SetFolderPrivacyService>()
     val transferFolderOwnerService by inject<TransferFolderOwnerService>()
+
+    authenticate(optional = true) {
+        get<FolderResources.ById>(getFolderDocs()) { resource ->
+            val viewerId = call.principal<JwtPrincipal>()?.userId
+            val member = viewerId?.let { getFolderService.getMemberFolderOrNull(folderId = resource.id, viewerId = it) }
+            if (member != null) {
+                call.respondSuccess(HttpStatusCode.OK, member)
+            } else {
+                call.respondSuccess(HttpStatusCode.OK, getFolderService.getPublicFolder(resource.id))
+            }
+        }
+    }
 
     authenticate {
         get<FolderResources>(getFoldersDocs()) { resource ->
@@ -71,6 +90,7 @@ fun Route.folderRoutes() {
             val request = call.receive<CreateFolderInvitationRequest>()
             val response = createFolderInvitationService.createInvitation(principal.userId, resource.id, request)
 
+            call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondSuccess(HttpStatusCode.Created, response)
         }
 
@@ -108,6 +128,15 @@ fun Route.folderRoutes() {
             val principal = call.principal<JwtPrincipal>()!!
             val request = call.receive<UpdateFolderRequest>()
             val response = updateFolderService.updateFolder(principal.userId, resource.id, request)
+
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+
+        put<FolderResources.ById.Privacy>(setFolderPrivacyDocs()) { resource ->
+            val principal = call.principal<JwtPrincipal>()!!
+            val request = call.receive<SetFolderPrivacyRequest>()
+            val response =
+                setFolderPrivacyService.setPrivacy(loginId = principal.userId, folderId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }
