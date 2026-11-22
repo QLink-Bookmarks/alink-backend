@@ -5,7 +5,6 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
-import com.qlink.folder.dto.PublicFolderResponse
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
 import com.qlink.folder.repository.FolderRepository
@@ -715,7 +714,7 @@ class UpdateFolderServiceTest :
                     stored.ownerId shouldBe recipientId
                     stored.turnsPublicAt shouldNotBe null
                     stored.turnsPublicAt shouldBe folder.turnsPublicAt
-                    (foldersService.getFolder(folderId = folder.id!!, viewerId = null) as PublicFolderResponse).name shouldBe folder.name
+                    foldersService.getPublicFolder(folderId = folder.id!!).name shouldBe folder.name
                 }
             }
         }

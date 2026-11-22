@@ -61,7 +61,7 @@ class DeleteLinkServiceTest :
                     linkRepository.findById(linkId) shouldBe null
 
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
-                        getLinkDetailService.getLinkDetail(user.id!!, linkId)
+                        getLinkDetailService.getPublicLinkDetail(linkId)
                     }
                 }
             }

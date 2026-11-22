@@ -17,7 +17,6 @@ import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.domain.Snippet
 import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.HighlightRange
-import com.qlink.link.dto.LinkListItemResponse
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.PublicFolderLinkResponse
@@ -38,8 +37,8 @@ class GetLinksService(
     private val userRepository: UserRepository,
     private val folderAccessValidator: FolderAccessValidator,
 ) {
-    suspend fun getLinks(
-        viewerId: Long?,
+    suspend fun getMemberLinksOrNull(
+        viewerId: Long,
         query: String?,
         folderId: Long?,
         isFavorite: Boolean?,
@@ -47,10 +46,10 @@ class GetLinksService(
         order: String?,
         scrollRequest: ScrollRequest,
         isPublic: Boolean? = null,
-    ): ScrollResponse<LinkListItemResponse> =
+    ): ScrollResponse<GetLinksContentResponse>? =
         tx.required {
             val folder = folderId?.takeUnless { it == 0L }?.let { folderAccessValidator.lockForRead(it) }
-            if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
+            if (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId)) {
                 readMemberLinks(
                     loginId = viewerId,
                     query = query,
@@ -62,11 +61,23 @@ class GetLinksService(
                     isPublic = isPublic,
                 )
             } else {
-                val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
-                folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
-                (query == null && isFavorite == null).requireTrue(ErrorCode.COMMON_INVALID_FILTER)
-                readPublicLinks(publicFolderId, orderKey, order, scrollRequest, isPublic)
+                null
             }
+        }
+
+    suspend fun getPublicLinks(
+        folderId: Long,
+        query: String?,
+        isFavorite: Boolean?,
+        orderKey: String?,
+        order: String?,
+        scrollRequest: ScrollRequest,
+        isPublic: Boolean? = null,
+    ): ScrollResponse<PublicFolderLinkResponse> =
+        tx.required {
+            folderAccessValidator.lockForRead(folderId).isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+            (query == null && isFavorite == null).requireTrue(ErrorCode.COMMON_INVALID_FILTER)
+            readPublicLinks(folderId, orderKey, order, scrollRequest, isPublic)
         }
 
     private suspend fun readPublicLinks(

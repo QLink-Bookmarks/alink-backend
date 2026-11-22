@@ -302,10 +302,8 @@ class DbLinkRepository : LinkRepository {
                 Links.id,
                 Links.ownerId,
                 Links.folderId,
-                Folders.sharedAt,
                 Folders.turnsPublicAt,
                 Links.turnsPublicAt,
-                FolderMembers.userId,
                 folderName,
                 folderEmoji,
                 Links.url,
@@ -325,7 +323,7 @@ class DbLinkRepository : LinkRepository {
                 hasContent,
                 contentExcerpt,
                 isContentPending,
-            ).where { Links.id eq linkId }
+            ).where { (Links.id eq linkId) and readableBy(loginId) }
             .singleOrNull()
             ?.let { row ->
                 row.toLinkDetailQuery(
@@ -769,6 +767,9 @@ class DbLinkRepository : LinkRepository {
                 },
             )
 
+    private fun readableBy(userId: Long): Op<Boolean> =
+        (Links.ownerId eq userId) or ((FolderMembers.userId eq userId) and Folders.sharedAt.isNotNull())
+
     private fun accessibleWith(
         ownerId: Long,
         folderId: Long?,
@@ -777,7 +778,7 @@ class DbLinkRepository : LinkRepository {
         linkId: Long?,
     ): Op<Boolean> =
         listOfNotNull(
-            (Links.ownerId eq ownerId) or ((FolderMembers.userId eq ownerId) and Folders.sharedAt.isNotNull()),
+            readableBy(ownerId),
             folderId?.let { requestedFolderId ->
                 when (requestedFolderId) {
                     0L -> Links.folderId.isNull()
@@ -1036,8 +1037,6 @@ class DbLinkRepository : LinkRepository {
             id = this[Links.id],
             ownerId = this[Links.ownerId],
             folderId = this[Links.folderId],
-            folderSharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
-            folderMemberUserId = this[FolderMembers.userId],
             folderName = this[folderName],
             folderEmoji = this[folderEmoji],
             url = this[Links.url],

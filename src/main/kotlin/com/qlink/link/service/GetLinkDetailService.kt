@@ -6,7 +6,6 @@ import com.qlink.common.transaction.TransactionRunner
 import com.qlink.link.dto.GetLinkDetailResponse
 import com.qlink.link.dto.LinkContentResponse
 import com.qlink.link.dto.LinkDetailQuery
-import com.qlink.link.dto.LinkDetailResponse
 import com.qlink.link.dto.PublicLinkContentResponse
 import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.repository.LinkRepository
@@ -19,34 +18,31 @@ class GetLinkDetailService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
 ) {
-    suspend fun getLinkDetail(
-        viewerId: Long?,
+    suspend fun getMemberLinkDetailOrNull(
+        viewerId: Long,
         linkId: Long,
-    ): LinkDetailResponse =
+    ): GetLinkDetailResponse? =
         tx.readOnly {
-            val link = viewerId?.let { linkRepository.findDetailById(linkId = linkId, loginId = it) }
-            if (viewerId != null && link != null && link.canRead(viewerId)) {
-                link.toMemberResponse(viewerId)
-            } else {
-                val detail = linkRepository.findPublicDetailById(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
-                PublicLinkDetailResponse(
-                    id = detail.id,
-                    folderId = detail.folderId,
-                    title = detail.title,
-                    url = detail.url,
-                    folderName = detail.folderName,
-                    folderEmoji = detail.folderEmoji,
-                    thumbnailUrl = detail.thumbnailUrl,
-                    faviconUrl = detail.faviconUrl,
-                    isVideo = detail.isVideo,
-                    content = PublicLinkContentResponse(excerpt = detail.contentExcerpt),
-                    todos = detail.todos.map { PublicLinkTodoResponse(title = it.title, isCompleted = it.isCompleted) },
-                )
-            }
+            linkRepository.findDetailById(linkId = linkId, loginId = viewerId)?.toMemberResponse(viewerId)
         }
 
-    private fun LinkDetailQuery.canRead(loginId: Long): Boolean =
-        ownerId == loginId || (folderSharedAt != null && folderMemberUserId == loginId)
+    suspend fun getPublicLinkDetail(linkId: Long): PublicLinkDetailResponse =
+        tx.readOnly {
+            val detail = linkRepository.findPublicDetailById(linkId) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
+            PublicLinkDetailResponse(
+                id = detail.id,
+                folderId = detail.folderId,
+                title = detail.title,
+                url = detail.url,
+                folderName = detail.folderName,
+                folderEmoji = detail.folderEmoji,
+                thumbnailUrl = detail.thumbnailUrl,
+                faviconUrl = detail.faviconUrl,
+                isVideo = detail.isVideo,
+                content = PublicLinkContentResponse(excerpt = detail.contentExcerpt),
+                todos = detail.todos.map { PublicLinkTodoResponse(title = it.title, isCompleted = it.isCompleted) },
+            )
+        }
 
     private suspend fun LinkDetailQuery.toMemberResponse(loginId: Long): GetLinkDetailResponse =
         toResponse(todos = todoRepository.findAllByLinkIdForLinkDetail(id), isOwner = ownerId == loginId)

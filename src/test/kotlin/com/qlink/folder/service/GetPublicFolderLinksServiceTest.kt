@@ -9,10 +9,8 @@ import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkOrderKey
-import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
-import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
 import com.qlink.support.BaseServiceTest
@@ -25,7 +23,6 @@ import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.toPublicListItem
-import com.qlink.support.withItems
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -91,15 +88,29 @@ class GetPublicFolderLinksServiceTest :
                 Then("각 요청의 공개 필터와 권한을 페이지 경계 전에 적용한다") {
                     val folderId = folder.id!!
 
-                    suspend fun read(
-                        viewerId: Long?,
+                    suspend fun readMember(
+                        viewerId: Long,
                         isPublic: Boolean?,
                         cursor: String? = null,
                         query: String? = null,
-                    ) = service.getLinks(
-                        viewerId = viewerId,
-                        query = query,
+                    ) = service
+                        .getMemberLinksOrNull(
+                            viewerId = viewerId,
+                            query = query,
+                            folderId = folderId,
+                            isFavorite = null,
+                            orderKey = null,
+                            order = null,
+                            scrollRequest = ScrollRequest(cursor = cursor, size = size),
+                            isPublic = isPublic,
+                        ).shouldNotBeNull()
+
+                    suspend fun readPublic(
+                        isPublic: Boolean,
+                        cursor: String? = null,
+                    ) = service.getPublicLinks(
                         folderId = folderId,
+                        query = null,
                         isFavorite = null,
                         orderKey = null,
                         order = null,
@@ -108,48 +119,42 @@ class GetPublicFolderLinksServiceTest :
                     )
 
                     val ownerId = folder.ownerId
-                    val ownerPage = read(viewerId = ownerId, isPublic = true).withItems<GetLinksContentResponse>()
+                    val ownerPage = readMember(viewerId = ownerId, isPublic = true)
                     val ownerCursor = ownerPage.nextCursor.shouldNotBeNull()
-                    val ownerNext = read(viewerId = ownerId, isPublic = true, cursor = ownerCursor).withItems<GetLinksContentResponse>()
+                    val ownerNext = readMember(viewerId = ownerId, isPublic = true, cursor = ownerCursor)
                     val publicIds = savedLinks.map { it.id }.toSet()
                     (ownerPage.contents + ownerNext.contents).forEach {
                         (it.id in publicIds) shouldBe true
                         it.isPublic shouldBe (links.findById(it.id)?.turnsPublicAt != null)
                     }
-                    val private = read(viewerId = ownerId, isPublic = false).withItems<GetLinksContentResponse>()
+                    val private = readMember(viewerId = ownerId, isPublic = false)
                     private.hasNext shouldBe false
                     private.contents.single().isPublic shouldBe false
                     val query = savedLinks.first().title
-                    val matching = read(viewerId = ownerId, isPublic = true, query = query).withItems<GetLinksContentResponse>()
+                    val matching = readMember(viewerId = ownerId, isPublic = true, query = query)
                     matching.contents.single().id shouldBe savedLinks.first().id
-                    val excluded = read(viewerId = ownerId, isPublic = false, query = query).withItems<GetLinksContentResponse>()
+                    val excluded = readMember(viewerId = ownerId, isPublic = false, query = query)
                     excluded.isEmpty shouldBe true
 
-                    val guest = read(viewerId = null, isPublic = true).withItems<PublicFolderLinkResponse>()
+                    val guest = readPublic(isPublic = true)
                     guest.contents.single().id shouldBe ownerPage.contents.single().id
                     val guestCursor = guest.nextCursor.shouldNotBeNull()
-                    val guestNext = read(viewerId = null, isPublic = true, cursor = guestCursor).withItems<PublicFolderLinkResponse>()
+                    val guestNext = readPublic(isPublic = true, cursor = guestCursor)
                     guestNext.contents.single().id shouldBe ownerNext.contents.single().id
-                    val empty = read(viewerId = null, isPublic = false).withItems<PublicFolderLinkResponse>()
+                    val empty = readPublic(isPublic = false)
                     empty.contents shouldBe emptyList()
                     empty.isEmpty shouldBe true
                     empty.hasNext shouldBe false
                     empty.nextCursor shouldBe null
 
-                    val guestWithMemberCursor =
-                        read(
-                            viewerId = null,
-                            isPublic = true,
-                            cursor = ownerCursor,
-                        ).withItems<PublicFolderLinkResponse>()
+                    val guestWithMemberCursor = readPublic(isPublic = true, cursor = ownerCursor)
                     guestWithMemberCursor shouldBe guestNext
-                    read(viewerId = null, isPublic = false, cursor = guestCursor).contents shouldBe emptyList()
-                    read(viewerId = ownerId, isPublic = false, cursor = ownerCursor)
-                        .withItems<GetLinksContentResponse>()
+                    readPublic(isPublic = false, cursor = guestCursor).contents shouldBe emptyList()
+                    readMember(viewerId = ownerId, isPublic = false, cursor = ownerCursor)
                         .contents
                         .all { !it.isPublic } shouldBe true
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        read(viewerId = ownerId, isPublic = true, cursor = ownerCursor + RandomFixture.randomId())
+                        readMember(viewerId = ownerId, isPublic = true, cursor = ownerCursor + RandomFixture.randomId())
                     }
                 }
             }
@@ -165,26 +170,27 @@ class GetPublicFolderLinksServiceTest :
                         folderId: Long? = null,
                         isFavorite: Boolean? = null,
                         isPublic: Boolean? = null,
-                    ) = service.getLinks(
-                        viewerId = folder.ownerId,
-                        query = null,
-                        folderId = folderId,
-                        isFavorite = isFavorite,
-                        orderKey = null,
-                        order = null,
-                        scrollRequest =
-                            ScrollRequest(
-                                cursor =
-                                    Base64CursorCodec.encode(
-                                        LinkSearchCursor(
-                                            orderKey = LinkOrderKey.CREATED_AT,
-                                            direction = SortDirection.DESC,
-                                            value = LinkSearchCursorValue(id = id),
+                    ) = service
+                        .getMemberLinksOrNull(
+                            viewerId = folder.ownerId,
+                            query = null,
+                            folderId = folderId,
+                            isFavorite = isFavorite,
+                            orderKey = null,
+                            order = null,
+                            scrollRequest =
+                                ScrollRequest(
+                                    cursor =
+                                        Base64CursorCodec.encode(
+                                            LinkSearchCursor(
+                                                orderKey = LinkOrderKey.CREATED_AT,
+                                                direction = SortDirection.DESC,
+                                                value = LinkSearchCursorValue(id = id),
+                                            ),
                                         ),
-                                    ),
-                            ),
-                        isPublic = isPublic,
-                    )
+                                ),
+                            isPublic = isPublic,
+                        ).shouldNotBeNull()
 
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
                         read(id = otherOwnerLink.id!!)
@@ -199,7 +205,7 @@ class GetPublicFolderLinksServiceTest :
                         read(id = savedLinks.first().id!!, folderId = folder.id, isFavorite = true)
                     }
                     val filtered = read(id = savedLinks.first().id!!, folderId = folder.id, isPublic = true)
-                    filtered.withItems<GetLinksContentResponse>().contents.all { it.isPublic } shouldBe true
+                    filtered.contents.all { it.isPublic } shouldBe true
                 }
             }
 
@@ -383,11 +389,11 @@ class GetPublicFolderLinksServiceTest :
                     val stored = links.findAllByFolderIds(listOf(folderId)).filter { it.turnsPublicAt != null }
                     val ascending = stored.sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
 
-                    suspend fun read(
-                        viewerId: Long?,
+                    suspend fun readMember(
+                        viewerId: Long,
                         direction: SortDirection,
                         cursor: String? = null,
-                    ) = service.getLinks(
+                    ) = service.getMemberLinksOrNull(
                         viewerId = viewerId,
                         query = null,
                         folderId = folderId,
@@ -399,12 +405,22 @@ class GetPublicFolderLinksServiceTest :
                     )
 
                     for ((direction, expected) in listOf(SortDirection.ASC to ascending, SortDirection.DESC to ascending.reversed())) {
-                        val memberFirst = read(viewerId = folder.ownerId, direction = direction)
+                        val memberFirst = readMember(viewerId = folder.ownerId, direction = direction).shouldNotBeNull()
                         for (viewerId in listOf(null, outsiderId)) {
                             var cursor: String? = null
                             for ((index, link) in expected.withIndex()) {
-                                val page = read(viewerId = viewerId, direction = direction, cursor = cursor)
-                                page.withItems<PublicFolderLinkResponse>().contents shouldBe listOf(link.toPublicListItem())
+                                viewerId?.let { readMember(viewerId = it, direction = direction, cursor = cursor) shouldBe null }
+                                val page =
+                                    service.getPublicLinks(
+                                        folderId = folderId,
+                                        query = null,
+                                        isFavorite = null,
+                                        orderKey = "title",
+                                        order = direction.name,
+                                        scrollRequest = ScrollRequest(cursor = cursor, size = 1),
+                                        isPublic = true,
+                                    )
+                                page.contents shouldBe listOf(link.toPublicListItem())
                                 page.hasNext shouldBe (index < expected.lastIndex)
                                 cursor = page.nextCursor
                                 if (page.hasNext) {

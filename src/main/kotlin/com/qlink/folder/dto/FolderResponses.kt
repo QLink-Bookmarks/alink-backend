@@ -10,9 +10,6 @@ data class CreateFolderResponse(
 )
 
 @Serializable
-sealed interface FolderReadResponse
-
-@Serializable
 data class GetFoldersContentResponse(
     val id: Long,
     val ownerId: Long,
@@ -24,7 +21,7 @@ data class GetFoldersContentResponse(
     val shareCounts: Int,
     val linkCounts: Int,
     val myLinkCounts: Int,
-) : FolderReadResponse
+)
 
 @Serializable
 data class GetFolderMembersResponse(
@@ -58,7 +55,7 @@ data class PublicFolderResponse(
     val id: Long,
     val name: String,
     val emoji: String?,
-) : FolderReadResponse
+)
 
 internal fun SearchFoldersQuery.toFoldersContentResponse(): GetFoldersContentResponse =
     GetFoldersContentResponse(

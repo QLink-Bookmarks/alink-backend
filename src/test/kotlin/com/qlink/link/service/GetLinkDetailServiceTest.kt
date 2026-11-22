@@ -14,7 +14,6 @@ import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.dto.LinkContentResponse
-import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentFailureCode
@@ -205,10 +204,11 @@ class GetLinkDetailServiceTest :
                 val invalidLinkId = RandomFixture.randomId()
                 val getDetail =
                     suspend {
-                        getLinkDetailService.getLinkDetail(viewerId = user.id!!, linkId = invalidLinkId)
+                        getLinkDetailService.getPublicLinkDetail(invalidLinkId)
                     }
 
                 Then("예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = user.id!!, linkId = invalidLinkId) shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         getDetail()
                     }
@@ -224,10 +224,11 @@ class GetLinkDetailServiceTest :
                     )
                 val getDetail =
                     suspend {
-                        getLinkDetailService.getLinkDetail(viewerId = user.id!!, linkId = link.id!!)
+                        getLinkDetailService.getPublicLinkDetail(link.id!!)
                     }
 
                 Then("예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = user.id!!, linkId = link.id!!) shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         getDetail()
                     }
@@ -291,18 +292,18 @@ class GetLinkDetailServiceTest :
             When("비회원이 공개 링크 상세를 조회하면") {
                 Then("익명과 같은 공개 상세가 보인다") {
                     val linkId = sharedLink.id!!
-                    val response = getLinkDetailService.getLinkDetail(viewerId = outsider.id!!, linkId = linkId)
-                    response shouldBe getLinkDetailService.getLinkDetail(viewerId = null, linkId = linkId)
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = outsider.id!!, linkId = linkId) shouldBe null
                     val stored = linkRepository.findById(linkId)!!.let { it.title to it.url }
-                    val detail = (response as PublicLinkDetailResponse)
+                    val detail = getLinkDetailService.getPublicLinkDetail(linkId)
                     (detail.title to detail.url) shouldBe stored
                 }
             }
 
             When("비회원이 비공개 링크 상세를 조회하면") {
-                val getDetail = suspend { getLinkDetailService.getLinkDetail(viewerId = outsider.id!!, linkId = privateLink.id!!) }
+                val getDetail = suspend { getLinkDetailService.getPublicLinkDetail(privateLink.id!!) }
 
                 Then("찾을 수 없는 링크와 같은 예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = outsider.id!!, linkId = privateLink.id!!) shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) { getDetail() }
                 }
             }

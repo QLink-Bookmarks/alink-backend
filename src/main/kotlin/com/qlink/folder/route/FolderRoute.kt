@@ -49,13 +49,12 @@ fun Route.folderRoutes() {
     authenticate(optional = true) {
         get<FolderResources.ById>(getFolderDocs()) { resource ->
             val viewerId = call.principal<JwtPrincipal>()?.userId
-            val response =
-                getFolderService.getFolder(
-                    folderId = resource.id,
-                    viewerId = viewerId,
-                )
-
-            call.respondSuccess(HttpStatusCode.OK, response)
+            val member = viewerId?.let { getFolderService.getMemberFolderOrNull(folderId = resource.id, viewerId = it) }
+            if (member != null) {
+                call.respondSuccess(HttpStatusCode.OK, member)
+            } else {
+                call.respondSuccess(HttpStatusCode.OK, getFolderService.getPublicFolder(resource.id))
+            }
         }
     }
 

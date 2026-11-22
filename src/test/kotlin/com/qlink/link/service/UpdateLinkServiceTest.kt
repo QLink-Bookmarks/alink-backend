@@ -8,7 +8,6 @@ import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
-import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import com.qlink.link.repository.LinkRepository
@@ -92,7 +91,7 @@ class UpdateLinkServiceTest :
                         .contents
                         .single()
                         .title shouldBe title
-                    val guestDetail = linkDetail.getLinkDetail(viewerId = null, linkId = linkId) as PublicLinkDetailResponse
+                    val guestDetail = linkDetail.getPublicLinkDetail(linkId)
                     guestDetail.todos.single().title shouldBe
                         todoRepository.findAllByLinkId(linkId).single().title
 

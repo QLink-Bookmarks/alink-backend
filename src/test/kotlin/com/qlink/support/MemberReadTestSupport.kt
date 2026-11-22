@@ -1,16 +1,15 @@
 package com.qlink.support
 
 import com.qlink.common.scroll.ScrollRequest
-import com.qlink.link.dto.GetLinkDetailResponse
-import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.service.GetLinkDetailService
 import com.qlink.link.service.GetLinksService
 import com.qlink.todo.service.GetTodosService
+import io.kotest.matchers.nulls.shouldNotBeNull
 
 suspend fun GetLinkDetailService.getMemberLinkDetail(
     loginId: Long,
     linkId: Long,
-) = getLinkDetail(viewerId = loginId, linkId = linkId) as GetLinkDetailResponse
+) = getMemberLinkDetailOrNull(viewerId = loginId, linkId = linkId).shouldNotBeNull()
 
 suspend fun GetLinksService.getMemberLinks(
     loginId: Long,
@@ -20,7 +19,7 @@ suspend fun GetLinksService.getMemberLinks(
     orderKey: String? = null,
     order: String? = null,
     scrollRequest: ScrollRequest,
-) = getLinks(
+) = getMemberLinksOrNull(
     viewerId = loginId,
     query = query,
     folderId = folderId,
@@ -28,7 +27,7 @@ suspend fun GetLinksService.getMemberLinks(
     orderKey = orderKey,
     order = order,
     scrollRequest = scrollRequest,
-).withItems<GetLinksContentResponse>()
+).shouldNotBeNull()
 
 suspend fun GetTodosService.getMemberTodos(
     loginId: Long,

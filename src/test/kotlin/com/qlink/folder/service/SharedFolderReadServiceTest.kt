@@ -139,9 +139,10 @@ class SharedFolderReadServiceTest :
                         )
                 }
 
-                val get = suspend { getLinkDetailService.getLinkDetail(member.id!!, link.id!!) }
+                val get = suspend { getLinkDetailService.getPublicLinkDetail(link.id!!) }
 
                 Then("찾을 수 없는 링크와 같은 예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = member.id!!, linkId = link.id!!) shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         get()
                     }

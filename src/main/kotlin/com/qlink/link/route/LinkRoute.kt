@@ -82,29 +82,46 @@ fun Route.linkRoutes() {
                         ?.takeIf { filterCount == 1 }
                         ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER)
                 }
-            val response =
-                getLinksService.getLinks(
-                    viewerId = viewerId,
-                    query = resource.query,
-                    folderId = resource.folderId,
-                    isFavorite = resource.isFavorite,
-                    isPublic = isPublic,
-                    orderKey = resource.orderKey,
-                    order = resource.order,
-                    scrollRequest = ScrollRequest(cursor = resource.cursor, size = resource.size),
-                )
-
-            call.respondSuccess(HttpStatusCode.OK, response)
+            val scrollRequest = ScrollRequest(cursor = resource.cursor, size = resource.size)
+            val member =
+                viewerId?.let {
+                    getLinksService.getMemberLinksOrNull(
+                        viewerId = it,
+                        query = resource.query,
+                        folderId = resource.folderId,
+                        isFavorite = resource.isFavorite,
+                        isPublic = isPublic,
+                        orderKey = resource.orderKey,
+                        order = resource.order,
+                        scrollRequest = scrollRequest,
+                    )
+                }
+            if (member != null) {
+                call.respondSuccess(HttpStatusCode.OK, member)
+            } else {
+                val folderId = resource.folderId ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
+                val public =
+                    getLinksService.getPublicLinks(
+                        folderId = folderId,
+                        query = resource.query,
+                        isFavorite = resource.isFavorite,
+                        isPublic = isPublic,
+                        orderKey = resource.orderKey,
+                        order = resource.order,
+                        scrollRequest = scrollRequest,
+                    )
+                call.respondSuccess(HttpStatusCode.OK, public)
+            }
         }
 
         get<LinkResources.ById>(getLinkDetailDocs()) { resource ->
-            val response =
-                getLinkDetailService.getLinkDetail(
-                    linkId = resource.id,
-                    viewerId = call.principal<JwtPrincipal>()?.userId,
-                )
-
-            call.respondSuccess(HttpStatusCode.OK, response)
+            val viewerId = call.principal<JwtPrincipal>()?.userId
+            val member = viewerId?.let { getLinkDetailService.getMemberLinkDetailOrNull(viewerId = it, linkId = resource.id) }
+            if (member != null) {
+                call.respondSuccess(HttpStatusCode.OK, member)
+            } else {
+                call.respondSuccess(HttpStatusCode.OK, getLinkDetailService.getPublicLinkDetail(resource.id))
+            }
         }
     }
 
