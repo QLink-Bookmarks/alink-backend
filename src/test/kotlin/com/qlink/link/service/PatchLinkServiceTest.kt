@@ -21,7 +21,6 @@ import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
-import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -30,7 +29,6 @@ import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
-import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -58,7 +56,6 @@ class PatchLinkServiceTest :
         val notificationRepository = koinGet<NotificationRepository>()
         val scheduleTodoNotificationService = koinGet<ScheduleTodoNotificationService>()
         val publicLinks = koinGet<GetLinksService>()
-        val publicTodos = koinGet<GetTodosService>()
 
         Given("공개 폴더 두 개와 개인 비공개 폴더") {
             lateinit var source: Folder
@@ -132,7 +129,6 @@ class PatchLinkServiceTest :
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
                     publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    publicTodos.getPublicTodos(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
@@ -170,7 +166,6 @@ class PatchLinkServiceTest :
                     patch(privateTarget.id).isPublic shouldBe false
                     linkRepository.findById(id)!!.turnsPublicAt shouldBe null
                     publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    publicTodos.getPublicTodos(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     patch(0).isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }

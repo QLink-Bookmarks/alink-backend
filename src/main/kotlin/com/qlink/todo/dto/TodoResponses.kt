@@ -58,10 +58,3 @@ data class PublicLinkTodoResponse(
     val title: String,
     val isCompleted: Boolean,
 )
-
-@Serializable
-data class PublicFolderTodoResponse(
-    val linkId: Long,
-    val title: String,
-    val isCompleted: Boolean,
-)

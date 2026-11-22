@@ -2,10 +2,10 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.dto.PublicFolderResponse
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
 import com.qlink.folder.repository.FolderRepository
@@ -29,12 +29,10 @@ import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
-import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
 import com.qlink.todo.repository.TodoRepository
-import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -61,7 +59,6 @@ class UpdateFolderServiceTest :
         val copyLinkService = koinGet<CopyLinkService>()
         val foldersService = koinGet<GetFolderService>()
         val publicLinks = koinGet<GetLinksService>()
-        val publicTodos = koinGet<GetTodosService>()
         val todoRepository = koinGet<TodoRepository>()
         val tx = koinGet<TransactionRunner>()
 
@@ -373,13 +370,9 @@ class UpdateFolderServiceTest :
                             shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
                                 publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                             }
-                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
-                                publicTodos.getPublicTodos(folderId, null, null, ScrollRequest())
-                            }
                             val next = setPublic(folder, true)
                             tx.readOnly { linkRepository.findById(linkId)!!.isPublishedIn(next != null) } shouldBe false
                             publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
-                            publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -425,13 +418,9 @@ class UpdateFolderServiceTest :
                                     )
                                 }
                                 tx.readOnly { folderRepository.findById(folderId)?.turnsPublicAt } shouldBe null
-                                shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
-                                    publicTodos.getPublicTodos(folderId, null, null, ScrollRequest())
-                                }
                                 val next = setPublic(folder, true)
                                 tx.readOnly { linkRepository.findById(linkId)!!.isPublishedIn(next != null) } shouldBe false
                                 publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
-                                publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                             }
                         }.await()
                 }
@@ -501,7 +490,6 @@ class UpdateFolderServiceTest :
                             }
                             setPublic(folder, true) shouldNotBe null
                             publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
-                            publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -727,7 +715,7 @@ class UpdateFolderServiceTest :
                     stored.ownerId shouldBe recipientId
                     stored.turnsPublicAt shouldNotBe null
                     stored.turnsPublicAt shouldBe folder.turnsPublicAt
-                    (foldersService.getFolder(folderId = folder.id!!, viewerId = null) as ReadResult.Guest).data.name shouldBe folder.name
+                    (foldersService.getFolder(folderId = folder.id!!, viewerId = null) as PublicFolderResponse).name shouldBe folder.name
                 }
             }
         }

@@ -2,8 +2,8 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadResult
 import com.qlink.folder.domain.Folder
+import com.qlink.folder.dto.PublicFolderResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.FolderFixture
@@ -36,7 +36,7 @@ class GetPublicFolderServiceTest :
 
             When("공개 폴더를 읽으면") {
                 Then("저장된 ID, 이름과 nullable 이모지만 포함한다") {
-                    val response = (service.getFolder(folderId = folder.id!!, viewerId = null) as ReadResult.Guest).data
+                    val response = (service.getFolder(folderId = folder.id!!, viewerId = null) as PublicFolderResponse)
                     val stored = folders.findById(folder.id!!)!!
 
                     response.name shouldBe stored.name

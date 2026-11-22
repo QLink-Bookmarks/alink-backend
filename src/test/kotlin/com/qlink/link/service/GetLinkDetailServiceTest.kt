@@ -7,7 +7,6 @@ import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -15,6 +14,7 @@ import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.dto.LinkContentResponse
+import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentFailureCode
@@ -294,7 +294,7 @@ class GetLinkDetailServiceTest :
                     val response = getLinkDetailService.getLinkDetail(viewerId = outsider.id!!, linkId = linkId)
                     response shouldBe getLinkDetailService.getLinkDetail(viewerId = null, linkId = linkId)
                     val stored = linkRepository.findById(linkId)!!.let { it.title to it.url }
-                    val detail = (response as ReadResult.Guest).data
+                    val detail = (response as PublicLinkDetailResponse)
                     (detail.title to detail.url) shouldBe stored
                 }
             }
@@ -308,14 +308,15 @@ class GetLinkDetailServiceTest :
             }
 
             When("게스트가 같은 공개 링크를 조회하면") {
-                Then("공개 목록에는 ID, 제목, 원문 URL만 들어간다") {
+                Then("공개 목록에는 원문 표시 필드만 들어간다") {
                     val result = getPublicFolderLinksService.getPublicLinks(sharedLink.folderId!!, null, null, ScrollRequest())
                     val stored = linkRepository.findById(sharedLink.id!!).shouldNotBeNull()
                     val item = result.contents.single()
 
                     item.title shouldBe stored.title
                     item.url shouldBe stored.url
-                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe setOf("id", "title", "url")
+                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe
+                        setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
                 }
             }
         }

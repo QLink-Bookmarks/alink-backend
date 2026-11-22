@@ -1,11 +1,9 @@
 package com.qlink.todo.repository
 
-import com.qlink.common.search.SortDirection
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.domain.TodoSort
 import com.qlink.todo.domain.TodoStatus
 import com.qlink.todo.dto.LinkDetailTodoQuery
-import com.qlink.todo.dto.PublicTodoQuery
 import com.qlink.todo.dto.SearchTodosQuery
 import com.qlink.todo.dto.TodoReminderFilter
 import com.qlink.todo.dto.TodoSearchCursor
@@ -23,13 +21,6 @@ interface TodoRepository {
     suspend fun findAllByIds(todoIds: List<Long>): List<Todo>
 
     suspend fun findAllByLinkId(linkId: Long): List<Todo>
-
-    suspend fun findPublicByFolderId(
-        folderId: Long,
-        direction: SortDirection,
-        cursorId: Long?,
-        limit: Int,
-    ): List<PublicTodoQuery>
 
     suspend fun findAllWithReminderBetween(
         startInclusive: Instant,
@@ -51,7 +42,6 @@ interface TodoRepository {
         isCompleted: Boolean?,
         reminderAt: TodoReminderFilter?,
         now: Instant,
-        folderId: Long? = null,
     ): List<SearchTodosQuery>
 
     suspend fun update(todo: Todo): Todo

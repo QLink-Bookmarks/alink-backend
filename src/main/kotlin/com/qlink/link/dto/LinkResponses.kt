@@ -21,6 +21,9 @@ data class CopyLinkResponse(
 )
 
 @Serializable
+sealed interface LinkDetailResponse
+
+@Serializable
 data class GetLinkDetailResponse(
     val id: Long,
     val url: String,
@@ -43,13 +46,16 @@ data class GetLinkDetailResponse(
     val content: LinkContentResponse?,
     val isPublic: Boolean,
     val isOwner: Boolean,
-)
+) : LinkDetailResponse
 
 @Serializable
 data class LinkContentResponse(
     val excerpt: String?,
     val isPending: Boolean,
 )
+
+@Serializable
+sealed interface LinkListItemResponse
 
 @Serializable
 data class GetLinksContentResponse(
@@ -72,7 +78,7 @@ data class GetLinksContentResponse(
     val matchedFields: List<MatchedField>,
     val contentSnippet: SnippetResponse?,
     val isPublic: Boolean,
-)
+) : LinkListItemResponse
 
 @Serializable
 data class SnippetResponse(
@@ -117,7 +123,11 @@ data class PublicFolderLinkResponse(
     val id: Long,
     val title: String,
     val url: String,
-)
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
+) : LinkListItemResponse
 
 @Serializable
 data class PublicLinkDetailResponse(
@@ -127,5 +137,14 @@ data class PublicLinkDetailResponse(
     val url: String,
     val folderName: String,
     val folderEmoji: String?,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val content: PublicLinkContentResponse,
     val todos: List<PublicLinkTodoResponse>,
+) : LinkDetailResponse
+
+@Serializable
+data class PublicLinkContentResponse(
+    val excerpt: String?,
 )

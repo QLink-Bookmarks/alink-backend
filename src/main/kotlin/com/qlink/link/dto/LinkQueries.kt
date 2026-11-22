@@ -7,6 +7,7 @@ import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
 import com.qlink.link.repository.table.Links
+import com.qlink.linkcontent.repository.table.LinkContents
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.ResultRow
 import kotlin.time.Instant
@@ -19,6 +20,10 @@ data class PublicLinkDetailQuery(
     val url: String,
     val folderName: String,
     val folderEmoji: String?,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
     val todos: List<PublicLinkTodoQuery>,
 )
 
@@ -32,6 +37,10 @@ data class PublicLinkQuery(
     val createdAt: Instant,
     val title: String,
     val url: String,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
 )
 
 data class PublicLinkCursor(
@@ -45,6 +54,10 @@ fun ResultRow.toPublicLinkQuery(): PublicLinkQuery =
         createdAt = this[Links.createdAt].toKotlinInstant(),
         title = this[Links.title],
         url = this[Links.url],
+        thumbnailUrl = this[Links.thumbnailUrl],
+        faviconUrl = this[Links.faviconUrl],
+        isVideo = this[Links.isVideo],
+        contentExcerpt = this[LinkContents.excerpt],
     )
 
 data class SearchLinksQuery(
@@ -118,21 +131,6 @@ data class LinkDetailQuery(
 )
 
 typealias LinkSearchCursor = SortCursor<LinkOrderKey, LinkSearchCursorValue>
-
-@Serializable
-data class LinkSearchCursorScope(
-    val viewerId: Long,
-    val folderId: Long?,
-    val keyword: String?,
-    val isFavorite: Boolean?,
-    val isPublic: Boolean?,
-)
-
-@Serializable
-data class ScopedLinkSearchCursor(
-    val scope: LinkSearchCursorScope,
-    val cursor: LinkSearchCursor,
-)
 
 @Serializable
 data class LinkSearchCursorValue(

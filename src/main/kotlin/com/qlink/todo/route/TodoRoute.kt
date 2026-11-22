@@ -1,14 +1,10 @@
 package com.qlink.todo.route
 
 import com.qlink.auth.domain.JwtPrincipal
-import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
-import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
 import com.qlink.common.scroll.ScrollRequest
-import com.qlink.plugin.respondMissingAccessToken
 import com.qlink.todo.dto.CompleteTodoRequest
 import com.qlink.todo.dto.CreateTodoRequest
-import com.qlink.todo.dto.DEFAULT_TODO_SCROLL_SIZE
 import com.qlink.todo.dto.UpdateTodoRequest
 import com.qlink.todo.service.CompleteTodoService
 import com.qlink.todo.service.CreateTodoService
@@ -21,7 +17,6 @@ import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
@@ -36,36 +31,27 @@ fun Route.todoRoutes() {
     val getTodosService by inject<GetTodosService>()
     val getTodoCountsService by inject<GetTodoCountsService>()
 
-    authenticate(optional = true) {
+    authenticate {
         get<TodoResources>(getTodosDocs()) { resource ->
-            val viewerId = call.principal<JwtPrincipal>()?.userId
-            if (viewerId == null && (resource.folderId == null)) {
-                call.respondMissingAccessToken()
-                return@get
-            }
+            val principal = call.principal<JwtPrincipal>()!!
             val response =
                 getTodosService.getTodos(
-                    viewerId = viewerId,
-                    folderId = resource.folderId,
+                    loginId = principal.userId,
                     status = resource.status,
                     orderKey = resource.orderKey,
                     order = resource.order,
                     scrollRequest =
                         ScrollRequest(
                             cursor = resource.cursor,
-                            size = resource.size ?: if (resource.folderId == null) DEFAULT_TODO_SCROLL_SIZE else DEFAULT_SCROLL_SIZE,
+                            size = resource.size,
                         ),
                     isCompleted = resource.isCompleted,
                     reminderAt = resource.reminderAt,
                 )
-            when (response) {
-                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
-                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
-            }
-        }
-    }
 
-    authenticate {
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+
         get<TodoResources.Counts>(getTodoCountsDocs()) {
             val principal = call.principal<JwtPrincipal>()!!
             val response = getTodoCountsService.getTodoCounts(principal.userId)

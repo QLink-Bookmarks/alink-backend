@@ -8,6 +8,7 @@ import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
+import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import com.qlink.link.repository.LinkRepository
@@ -26,12 +27,10 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getMemberLinkDetail
 import com.qlink.support.getPublicLinks
-import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
 import com.qlink.todo.repository.TodoRepository
-import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -55,7 +54,6 @@ class UpdateLinkServiceTest :
         val folderRepository = koinGet<FolderRepository>()
         val todoRepository = koinGet<TodoRepository>()
         val publicLinks = koinGet<GetLinksService>()
-        val publicTodos = koinGet<GetTodosService>()
         val linkDetail = koinGet<GetLinkDetailService>()
 
         Given("비공개 링크와 액션이 있는 공개 폴더") {
@@ -94,18 +92,14 @@ class UpdateLinkServiceTest :
                         .contents
                         .single()
                         .title shouldBe title
-                    publicTodos
-                        .getPublicTodos(folder.id!!, null, null, ScrollRequest())
-                        .contents
-                        .single()
-                        .title shouldBe
+                    val guestDetail = linkDetail.getLinkDetail(viewerId = null, linkId = linkId) as PublicLinkDetailResponse
+                    guestDetail.todos.single().title shouldBe
                         todoRepository.findAllByLinkId(linkId).single().title
 
                     setPrivacy(false).isPublic shouldBe false
                     linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
                     linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
                     publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    publicTodos.getPublicTodos(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 

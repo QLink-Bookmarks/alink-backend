@@ -4,16 +4,17 @@ import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.AiSummaryResponse
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
-import com.qlink.common.docs.optionalReadAuth
-import com.qlink.common.docs.readResponseSchema
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ApiResponse
 import com.qlink.common.response.EmptySuccessResponse
 import com.qlink.common.response.ErrorDetail
+import com.qlink.common.scroll.ScrollResponse
 import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CopyLinkResponse
 import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkResponse
+import com.qlink.link.dto.GetLinkDetailResponse
+import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.LinkPrivacyResponse
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkResponse
@@ -148,16 +149,18 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
     {
         summary = "링크 상세 조회 API"
         description =
-            "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
-            "isOwner는 로그인한 사용자가 링크를 소유하면 true예요. 외부 열람자에게는 공개 링크와 연결된 액션의 최소 정보만 반환해요."
-        optionalReadAuth()
+            "로그인은 선택이에요. 소유자와 멤버의 응답에서 본문 기록이 없으면 content가 null이고, 수집 중이면 content.isPending이 true예요. " +
+            "로그인한 사용자가 링크를 소유하면 isOwner가 true예요. " +
+            "외부 열람 응답은 원문과 폴더 정보, thumbnailUrl, faviconUrl, isVideo, content.excerpt 및 액션 제목·완료 여부를 제공해요. " +
+            "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
+        protected = false
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }
         response {
             code(HttpStatusCode.OK) {
                 description = "링크 상세 조회 성공"
-                body(readResponseSchema("Link"))
+                body<ApiResponse<GetLinkDetailResponse>>()
             }
             authErrorResponse()
             code(HttpStatusCode.BadRequest) {
@@ -179,8 +182,10 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
             "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
             "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
-            "외부 열람은 folderId와 created_at 정렬을 지원하며 공개된 링크만 반환해요. 전체 개인 목록은 인증이 필요해요."
-        optionalReadAuth()
+            "공개 폴더 열람에는 로그인이 선택이에요. 외부 열람은 folderId와 created_at 정렬을 지원해요. 전체 개인 목록은 인증이 필요해요. " +
+            "외부 열람 목록 항목은 id, title, url, thumbnailUrl, faviconUrl, isVideo, contentExcerpt를 제공해요. " +
+            "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
+        protected = false
         request {
             queryParameter<String?>("query") { description = "검색어 (1자면 본문 미검색, %·_·역슬래시는 글자 그대로)" }
             queryParameter<Long?>("folderId") { description = "폴더 ID 필터" }
@@ -203,15 +208,14 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             }
             queryParameter<String?>("cursor") {
                 description =
-                    "현재 권한 범위와 공개 필터에 해당하는 페이지네이션 커서. " +
-                    "다른 범위나 공개 필터의 커서는 400 COMMON_CURSOR_MALFORMED (COM_400_0004)을 반환해요."
+                    "같은 정렬에서 다음 페이지를 읽는 커서. 요청한 권한과 필터가 적용된 결과에서 경계 이후를 읽어요."
             }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 15" }
         }
         response {
             code(HttpStatusCode.OK) {
                 description = "링크 검색 성공"
-                body(readResponseSchema("Links"))
+                body<ApiResponse<ScrollResponse<GetLinksContentResponse>>>()
             }
             code(HttpStatusCode.BadRequest) {
                 description = "링크 검색 요청이 올바르지 않음"

@@ -2,34 +2,30 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.Folder
-import com.qlink.folder.dto.PublicFolderCursor
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkOrderKey
+import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
 import com.qlink.support.BaseServiceTest
-import com.qlink.support.assertPublicCursorHidesIds
 import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.PublicFolderFixture
 import com.qlink.support.fixture.RandomFixture
-import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
-import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
-import com.qlink.todo.repository.TodoRepository
-import com.qlink.todo.service.GetTodosService
+import com.qlink.support.toPublicListItem
+import com.qlink.support.withItems
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -43,19 +39,15 @@ import kotlin.time.Duration.Companion.days
 class GetPublicFolderLinksServiceTest :
     BaseServiceTest({
         val service = koinGet<GetLinksService>()
-        val todoService = koinGet<GetTodosService>()
         val folders = koinGet<FolderRepository>()
         val links = koinGet<LinkRepository>()
-        val todos = koinGet<TodoRepository>()
         val users = koinGet<UserRepository>()
-        val codec = koinGet<PublicFolderCursorCodec>()
         val setFolderPrivacy = koinGet<SetFolderPrivacyService>()
 
         Given("활성 공개 폴더에 생성 시각이 같은 링크와 다른 시각의 링크가 있을 때") {
             lateinit var folder: Folder
             lateinit var other: Folder
             lateinit var savedLinks: List<Link>
-            var todoId = 0L
             val size = 1
 
             beforeTest {
@@ -78,25 +70,25 @@ class GetPublicFolderLinksServiceTest :
                             ),
                         )
                     }
-                val attached = savedLinks.first()
-                todoId = todos.insert(TodoFixture.createRandomTodoOf(linkId = attached.id!!, ownerId = ownerId)).id!!
-                todos.insert(TodoFixture.createRandomTodoOf(linkId = attached.id, ownerId = ownerId))
             }
 
             When("대상 폴더의 링크를 조회하면") {
-                Then("현재 소속 공개 링크의 ID, 제목, 원문 URL만 반환한다") {
+                Then("현재 소속 공개 링크의 원문 표시 필드만 반환한다") {
                     val result = service.getPublicLinks(folder.id!!, null, null, ScrollRequest())
                     val stored = savedLinks.map { links.findById(it.id!!)!! }
 
                     result.contents.toSet() shouldBe
-                        stored.map { PublicFolderLinkResponse(id = it.id!!, title = it.title, url = it.url) }.toSet()
-                    result.contents.forEach { Json.encodeToJsonElement(it).jsonObject.keys shouldBe setOf("id", "title", "url") }
+                        stored.map { it.toPublicListItem() }.toSet()
+                    result.contents.forEach {
+                        Json.encodeToJsonElement(it).jsonObject.keys shouldBe
+                            setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
+                    }
                     result.hasNext shouldBe false
                 }
             }
 
             When("회원과 외부인이 공개 필터로 각각 조회하면") {
-                Then("페이지 경계 전에 필터링하고 커서를 해당 권한과 필터에 묶는다") {
+                Then("각 요청의 공개 필터와 권한을 페이지 경계 전에 적용한다") {
                     val folderId = folder.id!!
 
                     suspend fun read(
@@ -116,45 +108,46 @@ class GetPublicFolderLinksServiceTest :
                     )
 
                     val ownerId = folder.ownerId
-                    val ownerPage = (read(viewerId = ownerId, isPublic = true) as ReadResult.Member).data
+                    val ownerPage = read(viewerId = ownerId, isPublic = true).withItems<GetLinksContentResponse>()
                     val ownerCursor = ownerPage.nextCursor.shouldNotBeNull()
-                    val ownerNext = (read(viewerId = ownerId, isPublic = true, cursor = ownerCursor) as ReadResult.Member).data
+                    val ownerNext = read(viewerId = ownerId, isPublic = true, cursor = ownerCursor).withItems<GetLinksContentResponse>()
                     val publicIds = savedLinks.map { it.id }.toSet()
                     (ownerPage.contents + ownerNext.contents).forEach {
                         (it.id in publicIds) shouldBe true
                         it.isPublic shouldBe (links.findById(it.id)?.turnsPublicAt != null)
                     }
-                    val private = (read(viewerId = ownerId, isPublic = false) as ReadResult.Member).data
+                    val private = read(viewerId = ownerId, isPublic = false).withItems<GetLinksContentResponse>()
                     private.hasNext shouldBe false
                     private.contents.single().isPublic shouldBe false
                     val query = savedLinks.first().title
-                    val matching = (read(viewerId = ownerId, isPublic = true, query = query) as ReadResult.Member).data
+                    val matching = read(viewerId = ownerId, isPublic = true, query = query).withItems<GetLinksContentResponse>()
                     matching.contents.single().id shouldBe savedLinks.first().id
-                    val excluded = (read(viewerId = ownerId, isPublic = false, query = query) as ReadResult.Member).data
+                    val excluded = read(viewerId = ownerId, isPublic = false, query = query).withItems<GetLinksContentResponse>()
                     excluded.isEmpty shouldBe true
 
-                    val guest = (read(viewerId = null, isPublic = true) as ReadResult.Guest).data
+                    val guest = read(viewerId = null, isPublic = true).withItems<PublicFolderLinkResponse>()
                     guest.contents.single().id shouldBe ownerPage.contents.single().id
                     val guestCursor = guest.nextCursor.shouldNotBeNull()
-                    val guestNext = (read(viewerId = null, isPublic = true, cursor = guestCursor) as ReadResult.Guest).data
+                    val guestNext = read(viewerId = null, isPublic = true, cursor = guestCursor).withItems<PublicFolderLinkResponse>()
                     guestNext.contents.single().id shouldBe ownerNext.contents.single().id
-                    val empty = (read(viewerId = null, isPublic = false) as ReadResult.Guest).data
+                    val empty = read(viewerId = null, isPublic = false).withItems<PublicFolderLinkResponse>()
                     empty.contents shouldBe emptyList()
                     empty.isEmpty shouldBe true
                     empty.hasNext shouldBe false
                     empty.nextCursor shouldBe null
 
-                    for (filter in listOf(null, false)) {
-                        shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                            read(viewerId = ownerId, isPublic = filter, cursor = ownerCursor)
-                        }
-                        shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                            read(viewerId = null, isPublic = filter, cursor = guestCursor)
-                        }
-                    }
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        read(viewerId = null, isPublic = true, cursor = ownerCursor)
-                    }
+                    val guestWithMemberCursor =
+                        read(
+                            viewerId = null,
+                            isPublic = true,
+                            cursor = ownerCursor,
+                        ).withItems<PublicFolderLinkResponse>()
+                    guestWithMemberCursor shouldBe guestNext
+                    read(viewerId = null, isPublic = false, cursor = guestCursor).contents shouldBe emptyList()
+                    read(viewerId = ownerId, isPublic = false, cursor = ownerCursor)
+                        .withItems<GetLinksContentResponse>()
+                        .contents
+                        .all { !it.isPublic } shouldBe true
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
                         read(viewerId = ownerId, isPublic = true, cursor = ownerCursor + RandomFixture.randomId())
                     }
@@ -205,9 +198,8 @@ class GetPublicFolderLinksServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
                         read(id = savedLinks.first().id!!, folderId = folder.id, isFavorite = true)
                     }
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
-                        read(id = savedLinks.first().id!!, folderId = folder.id, isPublic = true)
-                    }
+                    val filtered = read(id = savedLinks.first().id!!, folderId = folder.id, isPublic = true)
+                    filtered.withItems<GetLinksContentResponse>().contents.all { it.isPublic } shouldBe true
                 }
             }
 
@@ -224,7 +216,7 @@ class GetPublicFolderLinksServiceTest :
                     links.findById(moved.id)?.folderId shouldBe other.id
                     links.findById(deleted.id) shouldBe null
                     result.contents shouldBe
-                        listOf(PublicFolderLinkResponse(id = retained.id!!, title = retained.title, url = retained.url))
+                        listOf(retained.toPublicListItem())
                 }
             }
 
@@ -273,35 +265,23 @@ class GetPublicFolderLinksServiceTest :
                             )
 
                         (first.contents + second.contents + third.contents) shouldBe
-                            expected.map { PublicFolderLinkResponse(id = it.id!!, title = it.title, url = it.url) }
+                            expected.map { it.toPublicListItem() }
                         third.hasNext shouldBe false
                         third.nextCursor shouldBe null
                     }
                 }
             }
 
-            When("다른 공개 폴더나 액션 목록의 커서를 링크 목록에 쓰면") {
-                val read: suspend (Long, String) -> Unit = { folderId, cursor ->
-                    service.getPublicLinks(folderId, null, null, ScrollRequest(cursor = cursor, size = size))
-                }
+            When("다른 공개 폴더의 조회에 받은 커서의 경계를 수정해서 쓰면") {
+                Then("요청한 폴더에서 현재 공개된 링크만 반환한다") {
+                    val first = service.getPublicLinks(folder.id!!, null, null, ScrollRequest(size = size))
+                    val cursor = Base64CursorCodec.decode<LinkSearchCursor>(first.nextCursor.shouldNotBeNull())
+                    val private = links.insert(LinkFixture.createRandomLinkOf(ownerId = folder.ownerId, folderId = other.id))
+                    val modified = cursor.copy(value = cursor.value.copy(id = private.id, createdAt = Clock.System.now()))
+                    val page = service.getPublicLinks(other.id!!, null, null, ScrollRequest(cursor = Base64CursorCodec.encode(modified)))
 
-                Then("두 경우 모두 커서를 해석할 수 없다") {
-                    val folderId = folder.id!!
-                    val linkCursor = service.getPublicLinks(folderId, null, null, ScrollRequest(size = size)).nextCursor.shouldNotBeNull()
-                    val todoCursor =
-                        todoService
-                            .getPublicTodos(
-                                folderId,
-                                null,
-                                null,
-                                ScrollRequest(size = size),
-                            ).nextCursor
-                            .shouldNotBeNull()
-
-                    shouldThrowWithMessage<BusinessException>(
-                        ErrorCode.COMMON_CURSOR_MALFORMED.message,
-                    ) { read(other.id!!, linkCursor) }
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) { read(folderId, todoCursor) }
+                    val visible = links.findAllByFolderIds(listOf(other.id!!)).single { it.turnsPublicAt != null }
+                    page.contents shouldBe listOf(visible.toPublicListItem())
                 }
             }
 
@@ -313,24 +293,22 @@ class GetPublicFolderLinksServiceTest :
                 Then("필수 커서 값이 없다고 응답한다") {
                     val first = savedLinks.first()
                     val cursor =
-                        PublicFolderCursor(
-                            folderId = folder.id!!,
-                            collection = "links",
+                        LinkSearchCursor(
+                            orderKey = LinkOrderKey.CREATED_AT,
                             direction = SortDirection.DESC,
-                            id = first.id,
-                            createdAt = first.createdAt,
+                            value = LinkSearchCursorValue(id = first.id, createdAt = first.createdAt),
                         )
 
-                    for (incomplete in listOf(cursor.copy(createdAt = null), cursor.copy(id = null))) {
+                    for (incomplete in listOf(cursor.value.copy(createdAt = null), cursor.value.copy(id = null))) {
                         shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_FIELD_MISSING.message) {
-                            read(codec.encode(incomplete))
+                            read(Base64CursorCodec.encode(cursor.copy(value = incomplete)))
                         }
                     }
                 }
             }
 
             When("발급된 커서로 다음 링크를 조회하면") {
-                Then("저장소의 다음 링크를 읽되 행과 커서에서 내부 ID를 확인할 수 없다") {
+                Then("다음 공개 링크를 읽고 커서는 정렬과 페이지 경계만 담는다") {
                     val folderId = folder.id!!
                     val first = service.getPublicLinks(folderId, null, null, ScrollRequest(size = size))
                     val cursor = first.nextCursor.shouldNotBeNull()
@@ -341,9 +319,19 @@ class GetPublicFolderLinksServiceTest :
                             .sortedWith(compareByDescending<Link> { it.createdAt }.thenByDescending { it.id })[size]
 
                     second.contents shouldBe
-                        listOf(PublicFolderLinkResponse(id = expected.id!!, title = expected.title, url = expected.url))
-                    Json.encodeToJsonElement(second.contents.single()).jsonObject.keys shouldBe setOf("id", "title", "url")
-                    assertPublicCursorHidesIds(cursor = cursor, ids = listOf(folder.id!!, todoId) + savedLinks.map { it.id!! })
+                        listOf(expected.toPublicListItem())
+                    Json.encodeToJsonElement(second.contents.single()).jsonObject.keys shouldBe
+                        setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
+                    val boundary =
+                        Json
+                            .parseToJsonElement(
+                                java.util.Base64
+                                    .getDecoder()
+                                    .decode(cursor)
+                                    .decodeToString(),
+                            ).jsonObject
+                    boundary.keys shouldBe setOf("orderKey", "direction", "value")
+                    boundary.getValue("value").jsonObject.keys shouldBe setOf("id", "createdAt")
                 }
             }
         }

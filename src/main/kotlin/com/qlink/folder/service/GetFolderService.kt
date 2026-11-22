@@ -3,9 +3,9 @@ package com.qlink.folder.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireTrue
-import com.qlink.common.response.ReadResult
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.FolderSort
+import com.qlink.folder.dto.FolderReadResponse
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.dto.PublicFolderResponse
 import com.qlink.folder.dto.toFoldersContentResponse
@@ -19,7 +19,7 @@ class GetFolderService(
     suspend fun getFolder(
         folderId: Long,
         viewerId: Long?,
-    ): ReadResult<GetFoldersContentResponse, PublicFolderResponse> =
+    ): FolderReadResponse =
         tx.required {
             val folder = folderAccessValidator.lockForRead(folderId)
             if (viewerId != null && folderAccessValidator.canReadAsMember(folder, viewerId)) {
@@ -33,10 +33,10 @@ class GetFolderService(
                             size = 1,
                             folderId = folderId,
                         ).singleOrNull() ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
-                ReadResult.Member(detail.toFoldersContentResponse())
+                detail.toFoldersContentResponse()
             } else {
                 folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
-                ReadResult.Guest(PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji))
+                PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji)
             }
         }
 }

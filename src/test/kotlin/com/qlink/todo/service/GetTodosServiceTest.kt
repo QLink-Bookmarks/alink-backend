@@ -775,8 +775,6 @@ class GetTodosServiceTest :
                                 }
                             },
                         userRepository = userRepository,
-                        folderAccessValidator = koinGet(),
-                        cursorCodec = koinGet(),
                     )
                 val actual =
                     racingService.getMemberTodos(

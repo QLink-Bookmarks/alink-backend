@@ -16,7 +16,6 @@ import com.qlink.folder.repository.FolderRepository
 import com.qlink.folderinvite.repository.table.FolderInvites
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
-import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
 import com.qlink.notification.domain.Notification
@@ -34,6 +33,7 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
+import com.qlink.support.toPublicListItem
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
@@ -126,7 +126,7 @@ class DeleteFolderServiceTest :
                     links.findById(privateLink.id!!)!!.turnsPublicAt shouldBe null
                     links.findById(publicLink.id!!)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
                     publicLinks.getPublicLinks(target.id!!, null, null, ScrollRequest()).contents shouldBe
-                        listOf(PublicFolderLinkResponse(id = publicLink.id!!, title = publicLink.title, url = publicLink.url))
+                        listOf(publicLink.toPublicListItem())
                 }
             }
 

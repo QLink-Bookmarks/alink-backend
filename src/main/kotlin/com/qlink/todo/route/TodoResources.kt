@@ -1,5 +1,6 @@
 package com.qlink.todo.route
 
+import com.qlink.todo.dto.DEFAULT_TODO_SCROLL_SIZE
 import io.ktor.resources.Resource
 
 @Resource("/todos")
@@ -8,10 +9,9 @@ class TodoResources(
     val orderKey: String? = null,
     val order: String? = null,
     val cursor: String? = null,
-    val size: Int? = null,
+    val size: Int = DEFAULT_TODO_SCROLL_SIZE,
     val isCompleted: Boolean? = null,
     val reminderAt: String? = null,
-    val folderId: Long? = null,
 ) {
     @Resource("counts")
     class Counts(

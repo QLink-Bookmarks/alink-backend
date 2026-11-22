@@ -4,16 +4,7 @@ import com.qlink.common.docs.examples
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ApiResponse
 import com.qlink.common.response.ErrorDetail
-import com.qlink.common.scroll.ScrollResponse
 import com.qlink.config.DocumentationConfig
-import com.qlink.folder.dto.GetFoldersContentResponse
-import com.qlink.folder.dto.PublicFolderResponse
-import com.qlink.link.dto.GetLinkDetailResponse
-import com.qlink.link.dto.GetLinksContentResponse
-import com.qlink.link.dto.PublicFolderLinkResponse
-import com.qlink.link.dto.PublicLinkDetailResponse
-import com.qlink.todo.dto.GetTodosContentResponse
-import com.qlink.todo.dto.PublicFolderTodoResponse
 import io.github.smiley4.ktoropenapi.OpenApi
 import io.github.smiley4.ktoropenapi.config.AuthScheme
 import io.github.smiley4.ktoropenapi.config.AuthType
@@ -31,7 +22,6 @@ import io.ktor.server.routing.routing
 import io.swagger.v3.oas.models.media.StringSchema
 import io.swagger.v3.oas.models.parameters.HeaderParameter
 import io.swagger.v3.oas.models.parameters.Parameter
-import io.swagger.v3.oas.models.security.SecurityRequirement
 import org.koin.ktor.ext.inject
 
 private const val BEARER_AUTH_SCHEME = "bearerAuth"
@@ -64,14 +54,6 @@ fun Application.configureDocs() {
         openApiVersion = OpenApiVersion.V3_0
         schemas {
             generator = SchemaGenerator.kotlinx()
-            schema<ApiResponse<GetFoldersContentResponse>>("MemberFolder")
-            schema<ApiResponse<PublicFolderResponse>>("GuestFolder")
-            schema<ApiResponse<GetLinkDetailResponse>>("MemberLink")
-            schema<ApiResponse<PublicLinkDetailResponse>>("GuestLink")
-            schema<ApiResponse<ScrollResponse<GetLinksContentResponse>>>("MemberLinks")
-            schema<ApiResponse<ScrollResponse<PublicFolderLinkResponse>>>("GuestLinks")
-            schema<ApiResponse<ScrollResponse<GetTodosContentResponse>>>("MemberTodos")
-            schema<ApiResponse<ScrollResponse<PublicFolderTodoResponse>>>("GuestTodos")
         }
         tags {
             apiTags.values.toSet().forEach { tag ->
@@ -109,9 +91,6 @@ fun Application.configureDocs() {
                 ?.flatMap { it.readOperations() }
                 ?.forEach {
                     it.addParametersItem(requesterHeaderParameter())
-                    if (it.extensions?.remove("x-optional-auth") == true) {
-                        it.security = listOf(SecurityRequirement(), SecurityRequirement().addList(BEARER_AUTH_SCHEME))
-                    }
                 }
         }
     }

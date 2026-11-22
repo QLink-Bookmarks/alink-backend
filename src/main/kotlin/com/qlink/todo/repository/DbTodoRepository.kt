@@ -2,20 +2,17 @@ package com.qlink.todo.repository
 
 import com.qlink.common.search.SortDirection
 import com.qlink.common.search.longLiteral
-import com.qlink.folder.repository.table.Folders
 import com.qlink.link.repository.table.Links
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.domain.TodoOrderKey
 import com.qlink.todo.domain.TodoSort
 import com.qlink.todo.domain.TodoStatus
 import com.qlink.todo.dto.LinkDetailTodoQuery
-import com.qlink.todo.dto.PublicTodoQuery
 import com.qlink.todo.dto.SearchTodosQuery
 import com.qlink.todo.dto.TodoReminderFilter
 import com.qlink.todo.dto.TodoSearchCursor
 import com.qlink.todo.dto.TodoSearchCursorValue
 import com.qlink.todo.dto.toLinkDetailTodoQuery
-import com.qlink.todo.dto.toPublicTodoQuery
 import com.qlink.todo.dto.toSearchTodosQuery
 import com.qlink.todo.repository.table.Todos
 import com.qlink.todo.repository.table.fromDomain
@@ -98,29 +95,6 @@ class DbTodoRepository : TodoRepository {
             .orderBy(Todos.id to SortOrder.ASC)
             .map { it.toTodoDomain() }
 
-    override suspend fun findPublicByFolderId(
-        folderId: Long,
-        direction: SortDirection,
-        cursorId: Long?,
-        limit: Int,
-    ): List<PublicTodoQuery> {
-        val completed = Todos.completedAt.isNotNull().alias("is_completed")
-        val query =
-            Todos
-                .join(otherTable = Links, joinType = JoinType.INNER, onColumn = Todos.linkId, otherColumn = Links.id)
-                .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
-                .select(Todos.id, Todos.linkId, Todos.title, completed)
-                .where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
-        if (cursorId != null) {
-            query.andWhere { beyond(expression = Todos.id, cursorValue = longLiteral(cursorId), direction = direction) }
-        }
-
-        return query
-            .orderBy(Todos.id to direction.sortOrder())
-            .limit(limit)
-            .map { it.toPublicTodoQuery(completed) }
-    }
-
     override suspend fun findAllWithReminderBetween(
         startInclusive: Instant,
         endExclusive: Instant,
@@ -174,7 +148,6 @@ class DbTodoRepository : TodoRepository {
         isCompleted: Boolean?,
         reminderAt: TodoReminderFilter?,
         now: Instant,
-        folderId: Long?,
     ): List<SearchTodosQuery> {
         val joined =
             Todos.join(
@@ -202,7 +175,6 @@ class DbTodoRepository : TodoRepository {
                 Links.faviconUrl,
             ).where { Todos.ownerId eq ownerId }
             .apply {
-                folderId?.let { andWhere { Links.folderId eq it } }
                 status?.let { filter ->
                     andWhere { filter.condition(nowValue) }
                 }

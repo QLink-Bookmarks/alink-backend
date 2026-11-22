@@ -5,7 +5,6 @@ import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.domain.JwtPrincipal
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.link.dto.CopyLinkRequest
@@ -94,10 +93,8 @@ fun Route.linkRoutes() {
                     order = resource.order,
                     scrollRequest = ScrollRequest(cursor = resource.cursor, size = resource.size),
                 )
-            when (response) {
-                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
-                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
-            }
+
+            call.respondSuccess(HttpStatusCode.OK, response)
         }
 
         get<LinkResources.ById>(getLinkDetailDocs()) { resource ->
@@ -106,10 +103,8 @@ fun Route.linkRoutes() {
                     linkId = resource.id,
                     viewerId = call.principal<JwtPrincipal>()?.userId,
                 )
-            when (response) {
-                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
-                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
-            }
+
+            call.respondSuccess(HttpStatusCode.OK, response)
         }
     }
 

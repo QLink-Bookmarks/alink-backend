@@ -192,7 +192,7 @@ class ServerTest :
             val folderPath = "/api/folders/$folder"
             val detailPath = "/api/links/$publicLink"
             val linksPath = "/api/links?folderId=$folder&size=1"
-            val todosPath = "/api/todos?folderId=$folder&size=1"
+            val todosPath = "/api/todos?size=1"
             try {
                 testApplication {
                     environment { this.config = config }
@@ -216,7 +216,20 @@ class ServerTest :
 
                     val guestDetail = client.get(detailPath).readData()
                     client.get(detailPath) { bearerAuth(token(outsider)) }.readData() shouldBe guestDetail
-                    guestDetail.keys shouldBe setOf("id", "folderId", "title", "url", "folderName", "folderEmoji", "todos")
+                    guestDetail.keys shouldBe
+                        setOf(
+                            "id",
+                            "folderId",
+                            "title",
+                            "url",
+                            "folderName",
+                            "folderEmoji",
+                            "todos",
+                            "thumbnailUrl",
+                            "faviconUrl",
+                            "isVideo",
+                            "content",
+                        )
                     val action =
                         guestDetail
                             .getValue("todos")
@@ -236,7 +249,7 @@ class ServerTest :
                             .jsonArray
                             .single()
                             .jsonObject
-                    listedLink.keys shouldBe setOf("id", "title", "url")
+                    listedLink.keys shouldBe setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
                     listedLink.getValue("id").jsonPrimitive.long shouldBe publicLink
                     val memberLinks = client.get(linksPath) { bearerAuth(token(member)) }.readData()
                     memberLinks.getValue("hasNext").jsonPrimitive.content shouldBe "true"
@@ -284,20 +297,16 @@ class ServerTest :
                             bearerAuth(token(member))
                             url.parameters.append("cursor", previousCursor)
                         }
-                    wrongCursor.status shouldBe HttpStatusCode.BadRequest
-                    apiErrorCode(wrongCursor.bodyAsText()) shouldBe ErrorCode.COMMON_CURSOR_MALFORMED.code
+                    wrongCursor.readData().getValue("contents").jsonArray.map { it.jsonObject }.all {
+                        it.getValue("id").jsonPrimitive.long ==
+                            publicLink
+                    } shouldBe
+                        true
 
-                    val guestTodos = client.get(todosPath).readData()
-                    client.get(todosPath) { bearerAuth(token(outsider)) }.readData() shouldBe guestTodos
-                    guestTodos.getValue("hasNext").jsonPrimitive.content shouldBe "false"
-                    val listedTodo =
-                        guestTodos
-                            .getValue("contents")
-                            .jsonArray
-                            .single()
-                            .jsonObject
-                    listedTodo.keys shouldBe setOf("linkId", "title", "isCompleted")
-                    listedTodo.getValue("linkId").jsonPrimitive.long shouldBe publicLink
+                    val anonymousTodos = client.get(todosPath)
+                    anonymousTodos.status shouldBe HttpStatusCode.Unauthorized
+                    anonymousTodos.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
+                    client.get(todosPath) { bearerAuth(token(outsider)) }.readContents().isEmpty() shouldBe true
                     client
                         .get(todosPath) { bearerAuth(token(member)) }
                         .readData()
@@ -359,18 +368,7 @@ class ServerTest :
                         .getValue("400")
                         .toString()
                         .contains("COM_400_0004") shouldBe true
-                    val apiSchemas =
-                        api
-                            .getValue("components")
-                            .jsonObject
-                            .getValue("schemas")
-                            .jsonObject
-                    for ((path, schemaName) in listOf(
-                        "/api/folders/{id}" to "Folder",
-                        "/api/links/{id}" to "Link",
-                        "/api/links" to "Links",
-                        "/api/todos" to "Todos",
-                    )) {
+                    for (path in listOf("/api/folders/{id}", "/api/links/{id}", "/api/links")) {
                         val operation =
                             apiPaths
                                 .getValue(path)
@@ -378,27 +376,25 @@ class ServerTest :
                                 .getValue("get")
                                 .jsonObject
                         operation
-                            .getValue("security")
-                            .jsonArray
-                            .first()
+                            .getValue("description")
+                            .jsonPrimitive.content
+                            .contains("선택이에요") shouldBe true
+                        operation.containsKey("x-optional-auth") shouldBe false
+                        operation
+                            .getValue("responses")
                             .jsonObject
-                            .isEmpty() shouldBe true
-                        val schema =
-                            operation
-                                .getValue("responses")
-                                .jsonObject
-                                .getValue("200")
-                                .jsonObject
-                                .getValue("content")
-                                .jsonObject
-                                .getValue("application/json")
-                                .jsonObject
-                                .getValue("schema")
-                                .jsonObject
-                        schema.getValue("anyOf").jsonArray.size shouldBe 2
-                        apiSchemas.containsKey("Member$schemaName") shouldBe true
-                        apiSchemas.containsKey("Guest$schemaName") shouldBe true
+                            .getValue("200")
+                            .toString()
+                            .contains("anyOf") shouldBe false
                     }
+                    val todosOperation =
+                        apiPaths
+                            .getValue("/api/todos")
+                            .jsonObject
+                            .getValue("get")
+                            .jsonObject
+                    todosOperation.getValue("security").toString().contains("bearerAuth") shouldBe true
+                    todosOperation.getValue("parameters").toString().contains("folderId") shouldBe false
 
                     val oldRoute = client.get("/api/public-folders/$folder")
                     oldRoute.status shouldBe HttpStatusCode.NotFound
@@ -507,8 +503,16 @@ class ServerTest :
                         client.get(privatePath).status shouldBe HttpStatusCode.NotFound
                         client.get("/api/links?folderId=$folder").readContents().map { it.getValue("id").jsonPrimitive.long } shouldBe
                             listOf(publicLink)
-                        client.get("/api/todos?folderId=$folder").readContents().map { it.getValue("title").jsonPrimitive.content } shouldBe
-                            listOf(publicTodo.title)
+                        client.get("/api/todos").status shouldBe HttpStatusCode.Unauthorized
+                        client
+                            .get(detailPath)
+                            .readData()
+                            .getValue("todos")
+                            .jsonArray
+                            .single()
+                            .jsonObject
+                            .getValue("title") shouldBe
+                            JsonPrimitive(publicTodo.title)
                     }
 
                     assertPrivateAiLink()
@@ -538,11 +542,7 @@ class ServerTest :
                         .readData()
                         .getValue("contents")
                         .jsonArray.size shouldBe 0
-                    client
-                        .get(todosPath)
-                        .readData()
-                        .getValue("contents")
-                        .jsonArray.size shouldBe 0
+                    client.get(todosPath).status shouldBe HttpStatusCode.Unauthorized
                 }
             } finally {
                 ServiceTestEnvironment.start()
@@ -598,31 +598,22 @@ class ServerTest :
                         val folderId = folder.id!!
                         val folderPath = "/api/folders/$folderId"
                         val linksPath = "/api/links?folderId=$folderId"
-                        val todosPath = "/api/todos?folderId=$folderId"
+                        val todosPath = "/api/todos"
                         val memberLinks = client.get(linksPath) { bearerAuth(memberToken) }.readContents()
                         val memberActions = client.get(todosPath) { bearerAuth(memberToken) }.readContents()
                         memberLinks.size shouldBe 2
                         memberLinks.all { "todoCounts" in it } shouldBe true
-                        memberActions.single().containsKey("reminderAt") shouldBe true
-                        val memberLinkId =
-                            memberActions
-                                .single()
-                                .getValue("linkId")
-                                .jsonPrimitive.long
-                        val memberActionId =
-                            memberActions
-                                .single()
-                                .getValue("id")
-                                .jsonPrimitive.long
+                        val folderLinkIds = memberLinks.map { it.getValue("id").jsonPrimitive.long }.toSet()
+                        val memberAction = memberActions.single { it.getValue("linkId").jsonPrimitive.long in folderLinkIds }
+                        memberAction.containsKey("reminderAt") shouldBe true
+                        val memberLinkId = memberAction.getValue("linkId").jsonPrimitive.long
+                        val memberActionId = memberAction.getValue("id").jsonPrimitive.long
                         val ownerLinks = client.get(linksPath) { bearerAuth(ownerToken) }.readContents()
                         val ownerActions = client.get(todosPath) { bearerAuth(ownerToken) }.readContents()
                         ownerLinks.size shouldBe 2
-                        ownerActions.single().containsKey("reminderAt") shouldBe true
-                        val ownerLinkId =
-                            ownerActions
-                                .single()
-                                .getValue("linkId")
-                                .jsonPrimitive.long
+                        val ownerAction = ownerActions.single { it.getValue("linkId").jsonPrimitive.long in folderLinkIds }
+                        ownerAction.containsKey("reminderAt") shouldBe true
+                        val ownerLinkId = ownerAction.getValue("linkId").jsonPrimitive.long
 
                         val ownedLinkPath = "/api/links/$memberLinkId"
                         val beforeOwnedDetail = client.get(ownedLinkPath) { bearerAuth(memberToken) }.readData()
@@ -644,21 +635,15 @@ class ServerTest :
                         if (folder.isPublished) {
                             client.get(folderPath) { bearerAuth(memberToken) }.readData() shouldBe client.get(folderPath).readData()
                             val guestLinks = client.get(linksPath).readContents()
-                            val guestActions = client.get(todosPath).readContents()
                             client.get(linksPath) { bearerAuth(memberToken) }.readContents() shouldBe guestLinks
-                            client.get(todosPath) { bearerAuth(memberToken) }.readContents() shouldBe guestActions
-                            guestLinks.single().keys shouldBe setOf("id", "title", "url")
+                            guestLinks.single().keys shouldBe
+                                setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
                             guestLinks
                                 .single()
                                 .getValue("id")
                                 .jsonPrimitive.long shouldBe ownerLinkId
-                            guestActions.single().keys shouldBe setOf("linkId", "title", "isCompleted")
-                            guestActions
-                                .single()
-                                .getValue("linkId")
-                                .jsonPrimitive.long shouldBe ownerLinkId
                         } else {
-                            for (path in listOf(folderPath, linksPath, todosPath)) {
+                            for (path in listOf(folderPath, linksPath)) {
                                 val denied = client.get(path) { bearerAuth(memberToken) }
                                 denied.status shouldBe HttpStatusCode.NotFound
                                 denied.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
@@ -669,6 +654,8 @@ class ServerTest :
 
                         client.get(linksPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerLinks
                         client.get(todosPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerActions
+                        client.get(todosPath) { bearerAuth(memberToken) }.readContents() shouldBe memberActions
+                        client.get(todosPath).status shouldBe HttpStatusCode.Unauthorized
                         val ownedDetail = client.get(ownedLinkPath) { bearerAuth(memberToken) }.readData()
                         ownedDetail shouldBe beforeOwnedDetail
                         ownedDetail.getValue("id").jsonPrimitive.long shouldBe memberLinkId

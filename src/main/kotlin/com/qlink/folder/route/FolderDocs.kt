@@ -2,8 +2,6 @@ package com.qlink.folder.route
 
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
-import com.qlink.common.docs.optionalReadAuth
-import com.qlink.common.docs.readResponseSchema
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ApiResponse
 import com.qlink.common.response.EmptySuccessResponse
@@ -49,11 +47,12 @@ internal fun setFolderPrivacyDocs(): RouteConfig.() -> Unit =
 internal fun getFolderDocs(): RouteConfig.() -> Unit =
     {
         summary = "폴더 상세 조회 API"
-        description = "소유자와 멤버에게 폴더 정보를 반환해요. 공개 폴더에 접근하는 외부 열람자에게는 폴더 ID, 이름, 이모지를 반환해요."
-        optionalReadAuth()
+        description =
+            "로그인은 선택이에요. 소유자와 멤버에게 폴더 정보를, 공개 폴더의 외부 열람자에게 id, name, emoji를 반환해요."
+        protected = false
         request { pathParameter<Long>("id") { description = "폴더 ID" } }
         response {
-            code(HttpStatusCode.OK) { body(readResponseSchema("Folder")) }
+            code(HttpStatusCode.OK) { body<ApiResponse<GetFoldersContentResponse>>() }
             authErrorResponse()
             code(HttpStatusCode.BadRequest) {
                 body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }

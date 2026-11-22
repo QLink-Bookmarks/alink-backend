@@ -9,10 +9,6 @@ import com.qlink.common.search.SortDirection
 class PublicFolderSort private constructor(
     val direction: SortDirection,
 ) {
-    fun validateCursor(direction: SortDirection) {
-        (this.direction == direction).requireTrue(ErrorCode.COMMON_CURSOR_ORDER_MISMATCH)
-    }
-
     companion object {
         fun from(
             orderKey: String?,

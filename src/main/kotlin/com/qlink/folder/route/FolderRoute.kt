@@ -1,7 +1,6 @@
 package com.qlink.folder.route
 
 import com.qlink.auth.domain.JwtPrincipal
-import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.dto.AcceptFolderInvitationRequest
@@ -50,10 +49,13 @@ fun Route.folderRoutes() {
     authenticate(optional = true) {
         get<FolderResources.ById>(getFolderDocs()) { resource ->
             val viewerId = call.principal<JwtPrincipal>()?.userId
-            when (val response = getFolderService.getFolder(folderId = resource.id, viewerId = viewerId)) {
-                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
-                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
-            }
+            val response =
+                getFolderService.getFolder(
+                    folderId = resource.id,
+                    viewerId = viewerId,
+                )
+
+            call.respondSuccess(HttpStatusCode.OK, response)
         }
     }
 

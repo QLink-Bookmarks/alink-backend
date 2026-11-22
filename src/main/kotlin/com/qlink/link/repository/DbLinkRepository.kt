@@ -94,8 +94,21 @@ class DbLinkRepository : LinkRepository {
             Links
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
                 .join(otherTable = Todos, joinType = JoinType.LEFT, additionalConstraint = { Links.id eq Todos.linkId })
-                .select(Links.id, Folders.id, Links.title, Links.url, folderName, Folders.emoji, Todos.title, Todos.completedAt)
-                .where { (Links.id eq linkId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
+                .joinCollectedContent()
+                .select(
+                    Links.id,
+                    Folders.id,
+                    Links.title,
+                    Links.url,
+                    folderName,
+                    Folders.emoji,
+                    Links.thumbnailUrl,
+                    Links.faviconUrl,
+                    Links.isVideo,
+                    LinkContents.excerpt,
+                    Todos.title,
+                    Todos.completedAt,
+                ).where { (Links.id eq linkId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
                 .orderBy(Todos.id to SortOrder.DESC)
                 .toList()
         val row = rows.firstOrNull() ?: return null
@@ -106,6 +119,10 @@ class DbLinkRepository : LinkRepository {
             url = row[Links.url],
             folderName = row[folderName],
             folderEmoji = row[Folders.emoji],
+            thumbnailUrl = row[Links.thumbnailUrl],
+            faviconUrl = row[Links.faviconUrl],
+            isVideo = row[Links.isVideo],
+            contentExcerpt = row[LinkContents.excerpt],
             todos =
                 rows.mapNotNull { todo ->
                     todo.getOrNull(Todos.title)?.let {
@@ -125,8 +142,17 @@ class DbLinkRepository : LinkRepository {
         val query =
             Links
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
-                .select(Links.id, Links.createdAt, Links.title, Links.url)
-                .where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
+                .joinCollectedContent()
+                .select(
+                    Links.id,
+                    Links.createdAt,
+                    Links.title,
+                    Links.url,
+                    Links.thumbnailUrl,
+                    Links.faviconUrl,
+                    Links.isVideo,
+                    LinkContents.excerpt,
+                ).where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
         if (cursor != null) {
             val position = LinkSearchCursorValue(id = cursor.id, createdAt = cursor.createdAt)
             val keys = createdAtSortKeys(order)

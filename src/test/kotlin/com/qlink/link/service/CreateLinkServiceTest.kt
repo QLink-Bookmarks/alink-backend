@@ -28,12 +28,10 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
-import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.repository.TodoRepository
-import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -64,7 +62,6 @@ class CreateLinkServiceTest :
         val previewFillSignal = koinGet<LinkPreviewFillSignal>()
         val tx = koinGet<TransactionRunner>()
         val publicLinks = koinGet<GetLinksService>()
-        val publicTodos = koinGet<GetTodosService>()
 
         suspend fun <T> withCommittedUser(block: suspend (User) -> T): T =
             CoroutineScope(Dispatchers.IO)
@@ -135,7 +132,6 @@ class CreateLinkServiceTest :
                     linkRepository.findById(result.id)!!.turnsPublicAt shouldBe null
                     todoRepository.findAllByLinkId(result.id).size shouldBe 1
                     publicLinks.getPublicLinks(publicFolder.id!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
-                    publicTodos.getPublicTodos(publicFolder.id!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
                 }
             }
 

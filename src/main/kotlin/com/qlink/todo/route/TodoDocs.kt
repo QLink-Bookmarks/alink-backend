@@ -2,17 +2,17 @@ package com.qlink.todo.route
 
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
-import com.qlink.common.docs.optionalReadAuth
-import com.qlink.common.docs.readResponseSchema
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ApiResponse
 import com.qlink.common.response.EmptySuccessResponse
 import com.qlink.common.response.ErrorDetail
+import com.qlink.common.scroll.ScrollResponse
 import com.qlink.todo.dto.CompleteTodoRequest
 import com.qlink.todo.dto.CompleteTodoResponse
 import com.qlink.todo.dto.CreateTodoRequest
 import com.qlink.todo.dto.CreateTodoResponse
 import com.qlink.todo.dto.GetTodoCountsResponse
+import com.qlink.todo.dto.GetTodosContentResponse
 import com.qlink.todo.dto.UpdateTodoRequest
 import com.qlink.todo.dto.UpdateTodoResponse
 import io.github.smiley4.ktoropenapi.config.RouteConfig
@@ -24,11 +24,8 @@ internal fun getTodosDocs(): RouteConfig.() -> Unit =
         description =
             "같은 정렬 값이면 id를 같은 방향으로 이어 정렬해요. " +
             "reminder_at 정렬에서 알림 없는 액션, completed_at 정렬에서 미완료 액션은 방향과 무관하게 맨 뒤예요. " +
-            "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
-            "외부 열람은 folderId와 created_at 정렬을 지원하며 공개 링크의 액션만 반환해요. 전체 개인 목록은 인증이 필요해요."
-        optionalReadAuth()
+            "status는 isCompleted·reminderAt과 함께 쓸 수 없어요."
         request {
-            queryParameter<Long?>("folderId") { description = "폴더 ID 필터" }
             queryParameter<String?>("status") {
                 description = "상태 필터 (active: 미완료이면서 기간지남 아님 / overdue: 미완료이면서 알림 시각 지남 / completed: 완료)"
             }
@@ -40,20 +37,19 @@ internal fun getTodosDocs(): RouteConfig.() -> Unit =
                 description = "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc)도 받아요"
             }
             queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
-            queryParameter<Int?>("size") { description = "페이지 크기, 기본값: 개인 전체 50, 폴더 범위 15" }
+            queryParameter<Int>("size") { description = "페이지 크기, 기본값: 50" }
             queryParameter<Boolean?>("isCompleted") { description = "완료 여부 필터" }
             queryParameter<String?>("reminderAt") { description = "알림 필터 (overdue / upcoming)" }
         }
         response {
             code(HttpStatusCode.OK) {
                 description = "액션 목록 조회 성공"
-                body(readResponseSchema("Todos"))
+                body<ApiResponse<ScrollResponse<GetTodosContentResponse>>>()
             }
             code(HttpStatusCode.BadRequest) {
                 description = "액션 목록 조회 요청이 올바르지 않음"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
-                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.COMMON_INVALID_SORT_ORDER,
                         ErrorCode.COMMON_INVALID_FILTER,
                         ErrorCode.COMMON_CURSOR_MALFORMED,
@@ -66,7 +62,7 @@ internal fun getTodosDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.NotFound) {
                 description = "액션 목록 조회에 필요한 리소스 조회 실패"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.TODO_OWNER_NOT_FOUND, ErrorCode.FOLDER_NOT_FOUND)
+                    examples(ErrorCode.TODO_OWNER_NOT_FOUND)
                 }
             }
         }
