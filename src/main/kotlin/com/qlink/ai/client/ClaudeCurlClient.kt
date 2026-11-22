@@ -187,20 +187,22 @@ class ClaudeCurlClient(
     ) {
         fun summaryText(sourceUrl: String): String {
             validateClaudeStopReason(stopReason)
+            val types = content.map { it.type.requiredString() }
             val fetchIndex =
-                content.indices.singleOrNull { content[it].type == "server_tool_use" && content[it].name.stringOrNull() == "web_fetch" }
+                content.indices.singleOrNull { types[it] == "server_tool_use" && content[it].name.requiredString() == "web_fetch" }
                     ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             val fetch = content[fetchIndex]
             val fetchId =
-                fetch.id.stringOrNull()?.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+                fetch.id.requiredString().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             val requested = (fetch.input as? JsonObject)?.get("url").stringOrNull()
             if (requested != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
 
             val resultIndex =
-                content.indices.singleOrNull { content[it].type == "web_fetch_tool_result" }
+                types.indices.singleOrNull { types[it] == "web_fetch_tool_result" }
                     ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             val resultBlock = content[resultIndex]
-            if (resultIndex <= fetchIndex || resultBlock.toolUseId.stringOrNull() != fetchId) {
+            val resultId = resultBlock.toolUseId.requiredString()
+            if (resultIndex <= fetchIndex || resultId != fetchId) {
                 throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             }
             val resultContent = resultBlock.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
@@ -213,11 +215,19 @@ class ClaudeCurlClient(
             if (result.type != "web_fetch_result") throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             val resultUrl = result.url.stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
             if (resultUrl != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+            val document = result.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+            val source = document["source"] as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+            validateClaudeDocument(
+                documentType = document["type"].stringOrNull(),
+                sourceType = source["type"].stringOrNull(),
+                mediaType = source["media_type"].stringOrNull(),
+                data = source["data"].stringOrNull(),
+            )
 
             val last =
-                content.last().takeIf { resultIndex < content.lastIndex && it.type == "text" }
+                content.last().takeIf { resultIndex < content.lastIndex && types.last() == "text" }
                     ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
-            val text = last.text.stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+            val text = last.text.requiredString()
             return text.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
         }
 
@@ -241,7 +251,7 @@ class ClaudeCurlClient(
 
     @Serializable
     private data class ContentBlock(
-        val type: String,
+        val type: JsonElement? = null,
         val name: JsonElement? = null,
         val id: JsonElement? = null,
         val input: JsonElement? = null,
@@ -254,6 +264,7 @@ class ClaudeCurlClient(
     private data class FetchResult(
         val type: String,
         val url: JsonElement? = null,
+        val content: JsonElement? = null,
     )
 
     @Serializable
@@ -268,6 +279,8 @@ class ClaudeCurlClient(
         val json = Json { ignoreUnknownKeys = true }
 
         fun JsonElement?.stringOrNull(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+        fun JsonElement?.requiredString(): String = stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
 
         fun JsonPrimitive?.tokenCount(default: Long? = null): Long =
             (if (this == null || this == JsonNull) default else takeUnless { it.isString }?.longOrNull)

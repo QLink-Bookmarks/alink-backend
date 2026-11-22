@@ -33,6 +33,23 @@ internal fun validateClaudeStopReason(stopReason: String?) {
     }
 }
 
+internal fun validateClaudeDocument(
+    documentType: String?,
+    sourceType: String?,
+    mediaType: String?,
+    data: String?,
+) {
+    val expectedMediaType =
+        when (sourceType) {
+            "text" -> "text/plain"
+            "base64" -> "application/pdf"
+            else -> throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        }
+    if (documentType != "document" || mediaType != expectedMediaType || data.isNullOrBlank()) {
+        throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+    }
+}
+
 internal fun claudeTotalTokens(counts: List<Long>): Int {
     if (counts.any { it !in 0..Int.MAX_VALUE.toLong() }) throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
     return counts.sum().takeIf { it <= Int.MAX_VALUE }?.toInt() ?: throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)

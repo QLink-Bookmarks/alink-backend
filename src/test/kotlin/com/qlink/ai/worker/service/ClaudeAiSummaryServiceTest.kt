@@ -84,6 +84,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -893,6 +894,36 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
+                When("Claude가 원문 문서를 text/plain으로 가져오면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        job = enqueue()
+                        http.messagesBody =
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(linkId = job.linkId, folderId = null),
+                                editContent = { blocks ->
+                                    blocks.editFetchDocument { document ->
+                                        val source =
+                                            buildJsonObject {
+                                                put("type", "text")
+                                                put("media_type", "text/plain")
+                                                put("data", ClaudeSummaryFixture.PAGE_MARKER)
+                                            }
+                                        JsonObject(document + ("source" to source))
+                                    }
+                                },
+                            )
+                    }
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                    Then("성공 결과 뒤의 요약과 사용량을 저장한다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                        links.findById(job.linkId)!!.summary shouldBe fixture.summary
+                        recordedUsage(job)!!.tokens shouldBe 26
+                    }
+                }
+
                 When("Claude 요약 작업이 대기 중 만료되어 복구 대상이 되면") {
                     lateinit var job: AiJob
                     beforeTest {
@@ -1049,6 +1080,40 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
+                val malformedBlocks: Map<String, (JsonArray) -> List<JsonElement>> =
+                    linkedMapOf(
+                        "가져오기 호출 ID 누락" to { blocks -> blocks.editBlock(1) { JsonObject(it - "id") } },
+                        "숫자 가져오기 호출 ID" to { blocks -> blocks.editBlock(1) { JsonObject(it + ("id" to JsonPrimitive(3))) } },
+                        "가져오기 결과의 호출 ID 누락" to { blocks -> blocks.editBlock(2) { JsonObject(it - "tool_use_id") } },
+                        "숫자 가져오기 결과 ID" to { blocks ->
+                            blocks.editBlock(2) { JsonObject(it + ("tool_use_id" to JsonPrimitive(3))) }
+                        },
+                        "중간 블록 종류 누락" to { blocks -> blocks.dropLast(1) + buildJsonObject {} + blocks.last() },
+                        "숫자 중간 블록 종류" to { blocks ->
+                            blocks.dropLast(1) + buildJsonObject { put("type", 13) } + blocks.last()
+                        },
+                        "숫자 이름의 두 번째 서버 도구" to { blocks ->
+                            val invalidCall = JsonObject(blocks[1].jsonObject + ("name" to JsonPrimitive(13)))
+                            blocks.dropLast(1) + invalidCall + blocks.last()
+                        },
+                    )
+                val invalidDocuments: Map<String, (JsonArray) -> List<JsonElement>> =
+                    linkedMapOf(
+                        "결과의 원문 문서 누락" to { blocks -> blocks.editFetchResult { JsonObject(it - "content") } },
+                        "원문 문서의 source 누락" to { blocks -> blocks.editFetchDocument { JsonObject(it - "source") } },
+                        "원문 문서에 잘못된 미디어 유형" to { blocks ->
+                            blocks.editFetchDocument { document ->
+                                val source = document.getValue("source").jsonObject + ("media_type" to JsonPrimitive("text/plain"))
+                                JsonObject(document + ("source" to JsonObject(source)))
+                            }
+                        },
+                        "원문 문서의 빈 데이터" to { blocks ->
+                            blocks.editFetchDocument { document ->
+                                val source = document.getValue("source").jsonObject + ("data" to JsonPrimitive(""))
+                                JsonObject(document + ("source" to JsonObject(source)))
+                            }
+                        },
+                    )
                 val invalidMessages: Map<String, (AiJob) -> String> =
                     linkedMapOf(
                         "다른 URL" to {
@@ -1178,7 +1243,11 @@ class ClaudeAiSummaryServiceTest :
                         "링크 ID 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(null, null)) },
                         "링크 ID 불일치" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId + 1, null)) },
                     )
-                invalidMessages.forEach { (scenario, body) ->
+                val invalidWireShapes =
+                    (malformedBlocks + invalidDocuments).mapValues { (_, edit) ->
+                        { job: AiJob -> fixture.messagesResponse(finalText = fixture.summaryJson(job.linkId, null), editContent = edit) }
+                    }
+                (invalidMessages + invalidWireShapes).forEach { (scenario, body) ->
                     When("Claude 응답이 '$scenario'이면") {
                         lateinit var job: AiJob
                         beforeTest {
@@ -1232,6 +1301,14 @@ class ClaudeAiSummaryServiceTest :
                                         ErrorCode.AI_SUMMARY_USAGE_INVALID
                                     }
 
+                                    in malformedBlocks -> {
+                                        ErrorCode.AI_SUMMARY_RESPONSE_INVALID
+                                    }
+
+                                    in invalidDocuments -> {
+                                        ErrorCode.AI_SUMMARY_FETCH_FAILED
+                                    }
+
                                     else -> {
                                         ErrorCode.AI_SUMMARY_LINK_MISMATCH
                                     }
@@ -1259,6 +1336,21 @@ private val unknownClaudeBlock =
     buildJsonObject {
         put("type", "future_block")
         put("content", JsonArray(emptyList()))
+    }
+
+private fun JsonArray.editBlock(
+    index: Int,
+    edit: (JsonObject) -> JsonObject,
+): List<JsonElement> = mapIndexed { position, block -> if (position == index) edit(block.jsonObject) else block }
+
+private fun JsonArray.editFetchResult(edit: (JsonObject) -> JsonObject): List<JsonElement> =
+    editBlock(2) { block ->
+        JsonObject(block + ("content" to edit(block.getValue("content").jsonObject)))
+    }
+
+private fun JsonArray.editFetchDocument(edit: (JsonObject) -> JsonObject): List<JsonElement> =
+    editFetchResult { result ->
+        JsonObject(result + ("content" to edit(result.getValue("content").jsonObject)))
     }
 
 private fun verifyMessagesRequest(

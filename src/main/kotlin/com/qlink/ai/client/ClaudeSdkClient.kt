@@ -7,7 +7,6 @@ import com.anthropic.errors.AnthropicServiceException
 import com.anthropic.models.ErrorType
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
-import com.anthropic.models.messages.ServerToolUseBlock
 import com.anthropic.models.messages.Usage
 import com.anthropic.models.models.ModelListParams
 import com.qlink.ai.domain.AiProviderType
@@ -109,8 +108,34 @@ class ClaudeSdkClient(
         validateClaudeStopReason(stopReason().getOrNull()?.asString())
 
         val blocks = content()
+        blocks.forEach { block ->
+            val valid =
+                when (
+                    block
+                        .type()
+                        ._value()
+                        .asString()
+                        .getOrNull()
+                ) {
+                    "server_tool_use" -> block.isServerToolUse()
+                    "web_fetch_tool_result" -> block.isWebFetchToolResult()
+                    "text" -> block.isText()
+                    null -> false
+                    else -> true
+                }
+            if (!valid) throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+        }
         val fetchIndex =
-            blocks.indices.singleOrNull { blocks[it].serverToolUse().getOrNull()?.name() == ServerToolUseBlock.Name.WEB_FETCH }
+            blocks.indices.singleOrNull { index ->
+                val tool = blocks[index].serverToolUse().getOrNull() ?: return@singleOrNull false
+                val name =
+                    tool
+                        .name()
+                        ._value()
+                        .asString()
+                        .getOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+                name == "web_fetch"
+            }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         val fetch = blocks[fetchIndex].asServerToolUse()
         val fetchId = fetch.id().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
@@ -137,6 +162,18 @@ class ClaudeSdkClient(
                 ?.takeIf { it._type().asString().getOrNull() == "web_fetch_result" }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         if (result.url() != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        readResponse(ErrorCode.AI_SUMMARY_FETCH_FAILED) {
+            val document = result.content()
+            val source = document.source()
+            val pdf = source.base64().getOrNull()
+            val text = source.text().getOrNull()
+            validateClaudeDocument(
+                documentType = document._type().asString().getOrNull(),
+                sourceType = (pdf?._type() ?: text?._type())?.asString()?.getOrNull(),
+                mediaType = (pdf?._mediaType() ?: text?._mediaType())?.asString()?.getOrNull(),
+                data = pdf?.data() ?: text?.data(),
+            )
+        }
 
         return blocks
             .lastOrNull()
