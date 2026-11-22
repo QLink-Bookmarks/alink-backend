@@ -66,7 +66,7 @@ class PatchLinkServiceTest :
                 privateTarget = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 publicLink =
                     linkRepository.insert(
-                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, isPublic = source.isPublic),
+                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, isPublic = source.isPublished),
                     )
                 privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id))
                 for (link in listOf(publicLink, privateLink)) {
@@ -85,8 +85,8 @@ class PatchLinkServiceTest :
                         )
                     val stored = linkRepository.findById(id)!!
 
-                    response.isPublic shouldBe true
-                    stored.isPublic shouldBe source.isPublic
+                    response.turnsPublicAt shouldNotBe null
+                    (stored.turnsPublicAt != null) shouldBe source.isPublished
                     stored.folderId shouldBe privateLink.folderId
                     stored.memo shouldBe privateLink.memo
                 }
@@ -104,7 +104,7 @@ class PatchLinkServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { patch() }
                     val stored = linkRepository.findById(publicLink.id!!)!!
                     stored.folderId shouldBe publicLink.folderId
-                    stored.isPublic shouldBe publicLink.isPublic
+                    stored.turnsPublicAt shouldBe publicLink.turnsPublicAt
                     stored.memo shouldBe publicLink.memo
                 }
             }
@@ -119,9 +119,9 @@ class PatchLinkServiceTest :
                             LinkFixture.createPatchLinkRequest(folderId = publicTarget.id),
                         )
 
-                    response.isPublic shouldBe false
+                    response.turnsPublicAt shouldBe null
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
-                    linkRepository.findById(id)!!.isPublic shouldBe false
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe null
                 }
             }
 
@@ -136,13 +136,13 @@ class PatchLinkServiceTest :
                             LinkFixture.createPatchLinkRequest(folderId = folderId, memo = RandomFixture.randomSentenceWithMax(50)),
                         )
 
-                    patch(null).isPublic shouldBe true
-                    linkRepository.findById(id)!!.isPublic shouldBe source.isPublic
-                    patch(publicTarget.id).isPublic shouldBe true
-                    linkRepository.findById(id)!!.isPublic shouldBe publicTarget.isPublic
-                    patch(privateTarget.id).isPublic shouldBe false
-                    linkRepository.findById(id)!!.isPublic shouldBe false
-                    patch(0).isPublic shouldBe false
+                    patch(null).turnsPublicAt shouldNotBe null
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
+                    patch(publicTarget.id).turnsPublicAt shouldNotBe null
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
+                    patch(privateTarget.id).turnsPublicAt shouldBe null
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe null
+                    patch(0).turnsPublicAt shouldBe null
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }
             }

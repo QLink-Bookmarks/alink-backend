@@ -67,8 +67,13 @@ class Link(
                 publishedAtIn(sourceIsPublic) ?: now
             }
 
-            false -> null
-            null -> publishedAtIn(sourceIsPublic && targetIsPublic)
+            false -> {
+                null
+            }
+
+            null -> {
+                publishedAtIn(sourceIsPublic && targetIsPublic)
+            }
         }
 
     fun validateOwner(ownerId: Long) {

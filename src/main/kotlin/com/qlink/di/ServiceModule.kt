@@ -36,7 +36,6 @@ import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
-import com.qlink.folder.service.GetFolderPrivacyService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -317,13 +316,6 @@ fun serviceModule() =
                 folderMemberRepository = get(),
                 userRepository = get(),
                 linkRepository = get(),
-            )
-        }
-
-        single {
-            GetFolderPrivacyService(
-                tx = get(),
-                folderRepository = get(),
             )
         }
 

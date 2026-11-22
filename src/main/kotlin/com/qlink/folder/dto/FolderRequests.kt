@@ -27,3 +27,9 @@ data class UpdateFolderRequest(
 data class TransferFolderOwnerRequest(
     val ownerId: Long,
 )
+
+@Serializable
+data class SetFolderPrivacyRequest(
+    @Serializable(with = StrictBooleanSerializer::class)
+    val isPublic: Boolean,
+)

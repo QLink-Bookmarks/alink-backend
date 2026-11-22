@@ -69,7 +69,7 @@ class DeleteFolderServiceTest :
                 val userId = users.insert(UserFixture.createRandomValidUser()).id!!
                 folder = folders.insert(FolderFixture.createValidUnsharedFolder(userId).setPublic(true))
                 publicLink =
-                    links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, isPublic = folder.isPublic))
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, isPublic = folder.isPublished))
                 privateLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id))
             }
 
@@ -83,7 +83,7 @@ class DeleteFolderServiceTest :
                     shouldNotThrow<BusinessException> { delete() }
                     val stored = links.findById(publicLink.id!!)!!
                     stored.folderId shouldBe null
-                    stored.isPublic shouldBe false
+                    stored.turnsPublicAt shouldBe null
                 }
             }
 
@@ -106,8 +106,8 @@ class DeleteFolderServiceTest :
                 Then("두 링크 모두 옮기고 목적지에서 이전에 공개했던 링크만 보여준다") {
                     shouldNotThrow<BusinessException> { delete() }
                     links.findById(privateLink.id!!)!!.folderId shouldBe target.id
-                    links.findById(privateLink.id!!)!!.isPublic shouldBe false
-                    links.findById(publicLink.id!!)!!.isPublic shouldBe target.isPublic
+                    links.findById(privateLink.id!!)!!.turnsPublicAt shouldBe null
+                    links.findById(publicLink.id!!)!!.turnsPublicAt shouldBe publicLink.turnsPublicAt
                 }
             }
 
@@ -128,8 +128,8 @@ class DeleteFolderServiceTest :
                     shouldNotThrow<BusinessException> { delete() }
                     val stored = links.findById(publicLink.id!!)!!
                     stored.folderId shouldBe target.id
-                    stored.isPublic shouldBe false
-                    stored.isPublicIn(folders.findById(target.id!!)?.isPublic == true) shouldBe false
+                    stored.turnsPublicAt shouldBe null
+                    stored.isPublishedIn(folders.findById(target.id!!)?.isPublished == true) shouldBe false
                 }
             }
         }

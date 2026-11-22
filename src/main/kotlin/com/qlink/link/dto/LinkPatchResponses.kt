@@ -4,6 +4,7 @@ package com.qlink.link.dto
 
 import com.qlink.todo.dto.LinkDetailTodoQuery
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 @Serializable
 data class PatchLinkResponse(
@@ -11,5 +12,5 @@ data class PatchLinkResponse(
     val memo: String?,
     val tags: List<String>,
     val todos: List<LinkDetailTodoQuery>,
-    val isPublic: Boolean,
+    val turnsPublicAt: Instant?,
 )

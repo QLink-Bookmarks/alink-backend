@@ -93,13 +93,13 @@ class CreateLinkServiceTest :
             When("공개값 생략으로 원문을 저장하면") {
                 Then("공개 폴더에서만 공개된다") {
                     for ((folderId, expectedVisibility) in listOf(
-                        publicFolder.id to publicFolder.isPublic,
+                        publicFolder.id to publicFolder.isPublished,
                         privateFolder.id to false,
                         null to false,
                     )) {
                         val result = createLinkService.createLink(writerId, LinkFixture.createValidLinkRequest(folderId = folderId))
 
-                        linkRepository.findById(result.id)!!.isPublic shouldBe expectedVisibility
+                        (linkRepository.findById(result.id)!!.turnsPublicAt != null) shouldBe expectedVisibility
                     }
                 }
             }
@@ -119,7 +119,7 @@ class CreateLinkServiceTest :
 
                 Then("링크와 액션은 저장되고 익명 목록은 비어 있다") {
                     val result = create()
-                    linkRepository.findById(result.id)!!.isPublic shouldBe false
+                    linkRepository.findById(result.id)!!.turnsPublicAt shouldBe null
                     todoRepository.findAllByLinkId(result.id).size shouldBe 1
                 }
             }
