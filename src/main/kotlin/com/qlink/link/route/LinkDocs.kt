@@ -15,11 +15,14 @@ import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkResponse
 import com.qlink.link.dto.GetLinkDetailResponse
 import com.qlink.link.dto.GetLinksContentResponse
+import com.qlink.link.dto.LinkPrivacyResponse
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkResponse
 import com.qlink.link.dto.SetLinkFavoriteRequest
+import com.qlink.link.dto.SetLinkPrivacyRequest
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
+import io.github.smiley4.ktoropenapi.config.ResponsesConfig
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
 
@@ -57,6 +60,7 @@ internal fun createLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
+            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 생성 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -145,8 +149,11 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
     {
         summary = "링크 상세 조회 API"
         description =
-            "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
-            "본문 전체와 수집 상태는 내보내지 않아요."
+            "로그인은 선택이에요. 소유자와 멤버의 응답에서 본문 기록이 없으면 content가 null이고, 수집 중이면 content.isPending이 true예요. " +
+            "로그인한 사용자가 링크를 소유하면 isOwner가 true예요. " +
+            "외부 열람 응답은 원문과 폴더 정보, thumbnailUrl, faviconUrl, isVideo, content.excerpt를 제공하고 todos는 null이에요. " +
+            "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
+        protected = false
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }
@@ -156,11 +163,8 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
                 body<ApiResponse<GetLinkDetailResponse>>()
             }
             authErrorResponse()
-            code(HttpStatusCode.Forbidden) {
-                description = "링크 상세 조회 권한 검증 실패"
-                body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.LINK_DIFFERENT_OWNER, ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
-                }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
             }
             code(HttpStatusCode.NotFound) {
                 description = "링크 상세 조회 대상 리소스 조회 실패"
@@ -177,7 +181,12 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
         description =
             "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
             "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
-            "이 기능 이전에 발급된 검색 커서는 COMMON_CURSOR_FIELD_MISSING으로 거절돼요."
+            "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
+            "공개 폴더 열람에는 로그인이 선택이에요. 외부 열람은 folderId와 created_at·title 정렬(asc / desc)을 지원해요. " +
+            "전체 개인 목록은 인증이 필요해요. " +
+            "외부 열람 목록 항목은 id, title, url, thumbnailUrl, faviconUrl, isVideo, contentExcerpt를 제공해요. " +
+            "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
+        protected = false
         request {
             queryParameter<String?>("query") { description = "검색어 (1자면 본문 미검색, %·_·역슬래시는 글자 그대로)" }
             queryParameter<Long?>("folderId") { description = "폴더 ID 필터" }
@@ -190,9 +199,18 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             queryParameter<String?>("order") {
                 description =
                     "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc) / earliest(= created_at asc) / " +
-                    "laxico(= title asc) / similar(= similarity desc)도 받아요"
+                    "laxico(= title asc) / similar(= similarity desc)도 받아요. 외부 열람의 제목 정렬은 orderKey=title로 지정해요"
             }
-            queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
+            queryParameter<Boolean?>("isPublic") {
+                description =
+                    "공개 필터. 소문자 true 또는 false를 한 번만 보내요. " +
+                    "공개 폴더의 외부 열람자가 false를 지정하면 빈 목록을 반환해요. " +
+                    "잘못된 값이나 중복 값은 400 COMMON_INVALID_FILTER (COM_400_0003)을 반환해요."
+            }
+            queryParameter<String?>("cursor") {
+                description =
+                    "같은 정렬에서 다음 페이지를 읽는 커서. 요청한 권한과 필터가 적용된 결과에서 경계 이후를 읽어요."
+            }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 15" }
         }
         response {
@@ -204,6 +222,8 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
                 description = "링크 검색 요청이 올바르지 않음"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
+                        ErrorCode.COMMON_INVALID_FILTER,
                         ErrorCode.COMMON_INVALID_SORT_ORDER,
                         ErrorCode.COMMON_CURSOR_MALFORMED,
                         ErrorCode.COMMON_CURSOR_ORDER_MISMATCH,
@@ -215,7 +235,7 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.NotFound) {
                 description = "링크 검색에 필요한 리소스 조회 실패"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.LINK_OWNER_NOT_FOUND)
+                    examples(ErrorCode.LINK_OWNER_NOT_FOUND, ErrorCode.FOLDER_NOT_FOUND)
                 }
             }
         }
@@ -322,6 +342,40 @@ internal fun patchLinkDocs(): RouteConfig.() -> Unit =
                     )
                 }
             }
+        }
+    }
+
+private fun ResponsesConfig.linkPublicationErrorResponse() {
+    code(HttpStatusCode.UnprocessableEntity) {
+        description = "전체 공개 폴더의 링크만 공개 가능"
+        body<ApiResponse<ErrorDetail>> {
+            examples(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
+        }
+    }
+}
+
+internal fun setLinkPrivacyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "링크 공개 설정 API"
+        request {
+            pathParameter<Long>("id") { description = "링크 ID" }
+            body<SetLinkPrivacyRequest>()
+        }
+        response {
+            code(HttpStatusCode.OK) {
+                body<ApiResponse<LinkPrivacyResponse>>()
+            }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            authErrorResponse()
+            code(HttpStatusCode.Forbidden) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.LINK_DIFFERENT_OWNER) }
+            }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.LINK_OWNER_NOT_FOUND, ErrorCode.LINK_NOT_FOUND) }
+            }
+            linkPublicationErrorResponse()
         }
     }
 

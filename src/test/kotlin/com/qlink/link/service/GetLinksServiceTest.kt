@@ -32,6 +32,8 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getMemberLinkDetail
+import com.qlink.support.getMemberLinks
 import com.qlink.support.koinGet
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.domain.User
@@ -148,7 +150,7 @@ class GetLinksServiceTest :
             order: String = "latest",
             cursor: String? = null,
             size: Int = 20,
-        ) = getLinksService.getLinks(
+        ) = getLinksService.getMemberLinks(
             loginId = ownerId,
             query = query,
             folderId = null,
@@ -221,7 +223,7 @@ class GetLinksServiceTest :
                     todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = secondLinkId, ownerId = user.id!!, title = "todo-2"))
                     todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = secondLinkId, ownerId = user.id!!, title = "todo-3"))
                     val response =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "검색 대상",
                             folderId = null,
@@ -263,7 +265,7 @@ class GetLinksServiceTest :
                     TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = user.id!!, reminderAt = now - 1.hours, completedAt = now),
                 ).forEach { todoRepository.insert(it) }
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = user.id!!,
                         query = link.title,
                         folderId = null,
@@ -302,7 +304,7 @@ class GetLinksServiceTest :
                         )
 
                     val response =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "default order",
                             folderId = null,
@@ -360,7 +362,7 @@ class GetLinksServiceTest :
                         todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = second.id!!, ownerId = user.id!!, reminderAt = null))
                     }
                     val firstPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "folder search",
                             folderId = folder.id,
@@ -368,7 +370,7 @@ class GetLinksServiceTest :
                             scrollRequest = ScrollRequest(size = 2),
                         )
                     val secondPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "folder search",
                             folderId = folder.id,
@@ -424,7 +426,7 @@ class GetLinksServiceTest :
                         )
 
                     val firstPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "earliest search",
                             folderId = null,
@@ -432,7 +434,7 @@ class GetLinksServiceTest :
                             scrollRequest = ScrollRequest(size = 2),
                         )
                     val secondPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "earliest search",
                             folderId = null,
@@ -470,7 +472,7 @@ class GetLinksServiceTest :
                     )
 
                     val firstPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "alpha search",
                             folderId = null,
@@ -478,7 +480,7 @@ class GetLinksServiceTest :
                             scrollRequest = ScrollRequest(size = 2),
                         )
                     val secondPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "alpha search",
                             folderId = null,
@@ -512,7 +514,7 @@ class GetLinksServiceTest :
                             ),
                         )
                     val response =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "카카오",
                             folderId = null,
@@ -552,7 +554,7 @@ class GetLinksServiceTest :
                     )
 
                     val firstPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "카카오",
                             folderId = null,
@@ -560,7 +562,7 @@ class GetLinksServiceTest :
                             scrollRequest = ScrollRequest(size = 2),
                         )
                     val secondPage =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "카카오",
                             folderId = null,
@@ -592,7 +594,7 @@ class GetLinksServiceTest :
                     ),
                 )
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = user.id!!,
                         query = "favorite filter",
                         folderId = null,
@@ -625,7 +627,7 @@ class GetLinksServiceTest :
                         ),
                     )
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = user.id!!,
                         query = "non favorite filter",
                         folderId = null,
@@ -659,7 +661,7 @@ class GetLinksServiceTest :
                         ),
                     )
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = user.id!!,
                         query = "no favorite filter",
                         folderId = null,
@@ -686,7 +688,7 @@ class GetLinksServiceTest :
                     }
 
                     val response =
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "default size search",
                             folderId = null,
@@ -703,7 +705,7 @@ class GetLinksServiceTest :
             When("cursor가 잘못되면") {
                 val getLinks =
                     suspend {
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = user.id!!,
                             query = "anything",
                             folderId = null,
@@ -722,7 +724,7 @@ class GetLinksServiceTest :
             When("로그인 사용자가 없으면") {
                 val getLinks =
                     suspend {
-                        getLinksService.getLinks(
+                        getLinksService.getMemberLinks(
                             loginId = RandomFixture.randomId(),
                             query = "anything",
                             folderId = null,
@@ -770,7 +772,7 @@ class GetLinksServiceTest :
             When("목록을 조회하면") {
                 val linkId = sharedLink.id!!
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = member.id!!,
                         query = null,
                         folderId = null,
@@ -815,7 +817,7 @@ class GetLinksServiceTest :
                 order: String,
                 cursor: String? = null,
                 size: Int = 10,
-            ) = getLinksService.getLinks(
+            ) = getLinksService.getMemberLinks(
                 loginId = user.id!!,
                 query = null,
                 folderId = null,
@@ -1128,7 +1130,7 @@ class GetLinksServiceTest :
             When("소문자 검색어로 찾으면") {
                 val ids = listOf(lowerTitled.id!!, upperTitled.id!!)
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = ownerId,
                         query = CASE_KEYWORD,
                         folderId = null,
@@ -1146,7 +1148,7 @@ class GetLinksServiceTest :
                 val lowerId = lowerTitled.id!!
                 val upperId = upperTitled.id!!
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = ownerId,
                         query = CASE_KEYWORD,
                         folderId = null,
@@ -1183,7 +1185,7 @@ class GetLinksServiceTest :
             When("제목 끝과 URL 앞을 이은 검색어로 검색하면") {
                 val linkId = crossing.id!!
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = ownerId,
                         query = "${SEARCH_KEYWORD}끝 https",
                         folderId = null,
@@ -1249,7 +1251,7 @@ class GetLinksServiceTest :
                 val results =
                     listOf("뷁a_b", "뷁50%", "뷁c\\d").associateWith { query ->
                         getLinksService
-                            .getLinks(
+                            .getMemberLinks(
                                 loginId = ownerId,
                                 query = query,
                                 folderId = null,
@@ -1304,7 +1306,7 @@ class GetLinksServiceTest :
             When("비멤버가 검색하면") {
                 val linkId = foreignLink.id!!
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = searcherId,
                         query = SEARCH_KEYWORD,
                         folderId = null,
@@ -1341,7 +1343,7 @@ class GetLinksServiceTest :
                 val loginId = ownerId
                 val (collectedId, pendingId, withoutRowId) = linkIds
                 val response =
-                    getLinksService.getLinks(
+                    getLinksService.getMemberLinks(
                         loginId = loginId,
                         query = null,
                         folderId = null,
@@ -1359,7 +1361,7 @@ class GetLinksServiceTest :
                     val byId = response.contents.associateBy { it.id }
                     byId.getValue(collectedId).contentExcerpt shouldBe storedExcerpt
                     byId.getValue(collectedId).contentExcerpt shouldBe
-                        getLinkDetailService.getLinkDetail(loginId, collectedId).content?.excerpt
+                        getLinkDetailService.getMemberLinkDetail(loginId, collectedId).content?.excerpt
                     byId.getValue(pendingId).contentExcerpt shouldBe null
                     byId.getValue(withoutRowId).contentExcerpt shouldBe null
                 }
@@ -1382,7 +1384,7 @@ class GetLinksServiceTest :
             cursor: String? = null,
             size: Int = 50,
             query: String? = null,
-        ) = getLinksService.getLinks(
+        ) = getLinksService.getMemberLinks(
             loginId = ownerId,
             query = query,
             folderId = null,

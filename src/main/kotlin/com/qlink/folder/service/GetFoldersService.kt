@@ -14,6 +14,7 @@ import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
 import com.qlink.folder.dto.GetFoldersContentResponse
 import com.qlink.folder.dto.SearchFoldersQuery
+import com.qlink.folder.dto.toFoldersContentResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.user.repository.UserRepository
 
@@ -48,20 +49,7 @@ class GetFoldersService(
 
             ScrollResponse(
                 isEmpty = contents.isEmpty(),
-                contents =
-                    contents.map { folder ->
-                        GetFoldersContentResponse(
-                            id = folder.id,
-                            ownerId = folder.ownerId,
-                            ownerNickname = folder.ownerNickname,
-                            name = folder.name,
-                            emoji = folder.emoji,
-                            isShared = folder.sharedAt != null,
-                            shareCounts = folder.shareCounts,
-                            linkCounts = folder.linkCounts,
-                            myLinkCounts = folder.myLinkCounts,
-                        )
-                    },
+                contents = contents.map { it.toFoldersContentResponse() },
                 nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, sort = sort) },
                 hasNext = hasNext,
             )

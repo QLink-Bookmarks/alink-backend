@@ -28,12 +28,13 @@ class CreateFolderService(
             folderRepository.existsByOwnerIdAndName(loginId, request.name).requireFalse(ErrorCode.FOLDER_DUPLICATE_NAME)
 
             val folder =
-                Folder.create(
-                    ownerId = loginId,
-                    name = request.name,
-                    emoji = request.emoji,
-                    sharedAt = request.sharedAtOrNull(),
-                )
+                Folder
+                    .create(
+                        ownerId = loginId,
+                        name = request.name,
+                        emoji = request.emoji,
+                        sharedAt = request.sharedAtOrNull(),
+                    ).setPublic(isPublic = request.isPublic, now = Clock.System.now())
             val created = folderRepository.insert(folder)
 
             if (created.sharedAt != null) {

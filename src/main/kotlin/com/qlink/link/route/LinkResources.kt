@@ -11,6 +11,7 @@ class LinkResources(
     val order: String? = null,
     val cursor: String? = null,
     val size: Int = 15,
+    val isPublic: List<String> = emptyList(),
 ) {
     @Resource("ai")
     class Ai(
@@ -22,6 +23,11 @@ class LinkResources(
         val parent: LinkResources = LinkResources(),
         val id: Long,
     ) {
+        @Resource("privacy")
+        class Privacy(
+            val parent: ById,
+        )
+
         @Resource("favorite")
         class Favorite(
             val parent: ById,

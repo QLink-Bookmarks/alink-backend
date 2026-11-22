@@ -17,6 +17,7 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.SourceType
 import com.qlink.link.repository.LinkRepository
@@ -32,7 +33,9 @@ import com.qlink.support.fixture.ImportRequestFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
+import com.qlink.support.runWhileFolderLocked
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrow
@@ -91,6 +94,43 @@ class CreateImportServiceTest :
             TransactionManager.current().exec(
                 "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
             ) { it.takeIf { row -> row.next() }?.getInt(1) } ?: 0
+
+        Given("이미 공개한 가져오기 대상 폴더") {
+            val setFolderPrivacy = koinGet<SetFolderPrivacyService>()
+
+            When("폴더 철회가 기존 폴더로 가져오는 요청과 경합하면") {
+                Then("철회 이후 저장된 링크는 폴더가 재공개되어도 비공개로 남는다") {
+                    withCommittedUser { owner ->
+                        val ownerId = owner.id!!
+                        val folder =
+                            tx.required { folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication()) }
+                        val folderId = folder.id!!
+                        val selection = ImportRequestFixture.createFolderRequest(folderId = folderId, name = folder.name)
+                        val request =
+                            ImportRequestFixture.createImportRequest(
+                                folders = listOf(selection),
+                                links = ImportRequestFixture.createLinkRequestsIn(folder = selection, count = 1),
+                            )
+
+                        runWhileFolderLocked(
+                            tx = tx,
+                            holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folderId)) },
+                            afterWaiting = {
+                                setFolderPrivacy.setPrivacy(loginId = ownerId, folderId = folderId, isPublic = false).isPublic shouldBe
+                                    false
+                            },
+                            action = { createImportService.createImport(ownerId, request) },
+                        )
+
+                        val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).single() }
+                        stored.sourceType shouldBe SourceType.IMPORT
+                        stored.turnsPublicAt shouldBe null
+                        setFolderPrivacy.setPrivacy(loginId = ownerId, folderId = folderId, isPublic = true).isPublic shouldBe true
+                        tx.readOnly { linkRepository.findById(stored.id!!)?.turnsPublicAt } shouldBe null
+                    }
+                }
+            }
+        }
 
         Given("폴더·링크가 있는 로그인 사용자") {
             lateinit var user: User
@@ -233,6 +273,46 @@ class CreateImportServiceTest :
                     linkRepository.findAllByFolderIds(listOf(existingFolder.id!!)).map { it.url } shouldContainExactly listOf(link.url)
                     folderRepository.findById(existingFolder.id!!)?.createdAt shouldBe existingFolder.createdAt
                     folderRepository.findAllByOwnerId(user.id!!).map { it.id } shouldContainExactly listOf(existingFolder.id)
+                }
+            }
+
+            When("공개 폴더와 비공개 폴더로 새 링크를 가져오면") {
+                lateinit var publicFolder: Folder
+                lateinit var duplicate: Link
+                lateinit var request: CreateImportRequest
+                val originalCreatedAt = RandomFixture.randomPastInstant()
+
+                beforeTest {
+                    publicFolder =
+                        folderRepository.insert(
+                            FolderFixture.createValidUnsharedFolder(user.id!!).withPublication(),
+                        )
+                    duplicate = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
+                    val publicTarget = ImportRequestFixture.createFolderRequest(folderId = publicFolder.id)
+                    val privateTarget = ImportRequestFixture.createFolderRequest(folderId = existingFolder.id)
+                    request =
+                        ImportRequestFixture.createImportRequest(
+                            folders = listOf(publicTarget, privateTarget),
+                            links =
+                                listOf(
+                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key, createdAt = originalCreatedAt),
+                                    ImportRequestFixture.createLinkRequest(folderKey = privateTarget.key),
+                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key, url = duplicate.url),
+                                ),
+                        )
+                }
+
+                Then("공개 폴더의 새 링크만 공개되고 건너뛴 링크는 이전 상태를 유지한다") {
+                    val result = createImportService.createImport(user.id!!, request)
+                    val rows = bookmarkImportRepository.findLinksByImportId(result.id).map { linkRepository.findById(it.linkId)!! }
+
+                    rows.size shouldBe 2
+                    val publicLink = rows.single { it.folderId == publicFolder.id }
+                    publicLink.createdAt shouldBe originalCreatedAt
+                    (publicLink.turnsPublicAt!! >= publicFolder.turnsPublicAt!!) shouldBe true
+                    (publicLink.turnsPublicAt!! > publicLink.createdAt!!) shouldBe true
+                    rows.single { it.folderId == existingFolder.id }.turnsPublicAt shouldBe null
+                    linkRepository.findById(duplicate.id!!)!!.turnsPublicAt shouldBe null
                 }
             }
 

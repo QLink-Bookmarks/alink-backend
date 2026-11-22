@@ -14,6 +14,7 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.image.service.PreviewImageUrlResolver
@@ -80,8 +81,11 @@ class UpdateLinkAiSummaryService(
                 val provider =
                     aiProviderRepository.findById(userProvider.providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
                 AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
-                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
-                val fixedFolder = request.folderId?.let { findWritableFolder(loginId, it) }
+                val fixedFolder =
+                    request.folderId?.let {
+                        val locked = folderRepository.findAllByIdsForKeyShare(listOf(it)).singleOrNull()
+                        folderAccessValidator.validateWritable(locked, loginId)
+                    }
                 val now = Clock.System.now()
                 val link =
                     request.id
@@ -107,9 +111,11 @@ class UpdateLinkAiSummaryService(
                                             isVideo = request.isVideo,
                                             previewPublicBaseUrl = urlResolver.publicBaseUrl,
                                             previewEnvironment = urlResolver.environment,
+                                            turnsPublicAt = it.publishedAtIn(fixedFolder?.isPublished != false),
                                         ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
                                 ).also { resetContentForUrlChange(savedLink = it, now = now) }
-                        } ?: createAiPendingLink(loginId, request).also { createContent(link = it, now = now) }
+                        } ?: createAiPendingLink(loginId = loginId, request = request, folder = fixedFolder, now = now)
+                        .also { createContent(link = it, now = now) }
                 val createdTodos =
                     request.todos.orEmpty().map { todoRequest ->
                         todoRepository.insert(
@@ -217,10 +223,10 @@ class UpdateLinkAiSummaryService(
     private suspend fun createAiPendingLink(
         loginId: Long,
         request: AiSummaryRequest,
-    ): Link {
-        val folder = request.folderId?.let { findWritableFolder(loginId, it) }
-
-        return linkRepository.insert(
+        folder: Folder?,
+        now: Instant,
+    ): Link =
+        linkRepository.insert(
             Link.createFromRequest(
                 ownerId = loginId,
                 folderId = folder?.id,
@@ -236,20 +242,20 @@ class UpdateLinkAiSummaryService(
                 status = LinkStatus.G,
                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                 previewEnvironment = urlResolver.environment,
+                turnsPublicAt =
+                    Link.resolveNewVisibility(
+                        folderIsPublic = folder?.isPublished == true,
+                        isPublic = null,
+                        now = now,
+                    ),
             ),
         )
-    }
 
     private fun pendingTitle(url: String): String {
         val host = runCatching { URI(url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: url
 
         return "AI 생성 대기 중 - $host"
     }
-
-    private suspend fun findWritableFolder(
-        ownerId: Long,
-        folderId: Long,
-    ) = folderAccessValidator.validateWritable(folderId, ownerId)
 
     private suspend fun findPromptFoldersJson(ownerId: Long): String =
         buildJsonArray {

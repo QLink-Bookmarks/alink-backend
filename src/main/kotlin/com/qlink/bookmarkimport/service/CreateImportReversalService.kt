@@ -73,6 +73,9 @@ class CreateImportReversalService(
             return reversal.bookmarkImport
         }
 
+        if (reversal.folderIds.isNotEmpty()) {
+            folderRepository.findAllByIdsForUpdate(reversal.folderIds)
+        }
         linkRepository.detachFolders(reversal.folderIds)
         linkRepository.deleteAllByIds(reversal.linkIds)
         folderRepository.deleteAllByIds(reversal.folderIds)

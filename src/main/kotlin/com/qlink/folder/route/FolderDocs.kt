@@ -13,13 +13,55 @@ import com.qlink.folder.dto.CreateFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderInvitationResponse
 import com.qlink.folder.dto.CreateFolderRequest
 import com.qlink.folder.dto.CreateFolderResponse
+import com.qlink.folder.dto.FolderPrivacyResponse
 import com.qlink.folder.dto.GetFolderMembersResponse
 import com.qlink.folder.dto.GetFoldersContentResponse
+import com.qlink.folder.dto.SetFolderPrivacyRequest
 import com.qlink.folder.dto.TransferFolderOwnerRequest
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
+
+internal fun setFolderPrivacyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "폴더 공개 설정 API"
+        request {
+            pathParameter<Long>("id") { description = "폴더 ID" }
+            body<SetFolderPrivacyRequest>()
+        }
+        response {
+            code(HttpStatusCode.OK) {
+                body<ApiResponse<FolderPrivacyResponse>>()
+            }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            authErrorResponse()
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_OWNER_NOT_FOUND, ErrorCode.FOLDER_NOT_FOUND) }
+            }
+        }
+    }
+
+internal fun getFolderDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "폴더 상세 조회 API"
+        description =
+            "로그인은 선택이에요. 소유자와 멤버에게 폴더 정보를, 공개 폴더의 외부 열람자에게 id, name, emoji, myLinkCounts(0)를 반환해요."
+        protected = false
+        request { pathParameter<Long>("id") { description = "폴더 ID" } }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<GetFoldersContentResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_NOT_FOUND) }
+            }
+        }
+    }
 
 internal fun getFoldersDocs(): RouteConfig.() -> Unit =
     {
@@ -78,6 +120,7 @@ internal fun createFolderDocs(): RouteConfig.() -> Unit =
                 description = "폴더 생성 요청 유효성 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.FOLDER_NAME_BLANK,
                         ErrorCode.FOLDER_NAME_OVER_MAX,
                         ErrorCode.FOLDER_EMOJI_OVER_MAX,

@@ -17,6 +17,11 @@ class FolderResources(
         val onDelete: String? = null,
         val targetFolderId: Long? = null,
     ) {
+        @Resource("privacy")
+        class Privacy(
+            val parent: ById,
+        )
+
         @Resource("owner")
         class Owner(
             val parent: ById,

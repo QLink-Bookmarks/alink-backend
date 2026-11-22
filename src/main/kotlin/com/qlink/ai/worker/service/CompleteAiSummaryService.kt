@@ -37,7 +37,6 @@ class CompleteAiSummaryService(
         val applied =
             tx.required {
                 val snapshot = completion.snapshot
-                // Discover the owner only; all decisions use the subsequently locked facts.
                 val observedLink = linkRepository.findById(snapshot.linkId) ?: return@required null
                 val folders =
                     folderRepository.findAllByIdsForUpdate(
@@ -51,7 +50,6 @@ class CompleteAiSummaryService(
                             userId = observedLink.ownerId,
                         )
                     }
-                // Never acquire another folder lock after taking the link lock.
                 val link = linkRepository.findByIdForUpdate(snapshot.linkId) ?: return@required null
                 val job = aiJobRepository.findById(snapshot.jobId) ?: return@required null
                 val folderId =
@@ -113,6 +111,7 @@ class CompleteAiSummaryService(
                     tags = summarizedLink.tags,
                     status = summarizedLink.status,
                     workModelId = summarizedLink.workModelId,
+                    clearPublication = link.hasFolderChangedSince(folderId) && (link.folderId == null || candidate?.isPublished != true),
                 )
                 val todos =
                     response.todos.map {
@@ -131,7 +130,6 @@ class CompleteAiSummaryService(
                 )
             } ?: return AiSummaryCompletionResult()
 
-        // A scheduling failure after commit must not turn a successful AI result into a failed job.
         return try {
             applied.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
             rescheduleOtherTodos(linkId = completion.snapshot.linkId, createdTodos = applied.createdTodos)

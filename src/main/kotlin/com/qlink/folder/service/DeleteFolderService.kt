@@ -44,8 +44,6 @@ class DeleteFolderService(
                 discoveredSource.validateOwner(loginId)
                 val options = FolderDeletionOptions.from(onDelete = onDelete, targetFolderId = targetFolderId)
 
-                // Discover before locking so move always locks both folders in the same order.
-                // Only these locked rows supply the facts used for the actual mutation.
                 val folders =
                     folderRepository
                         .findAllByIdsForUpdate(
@@ -81,7 +79,12 @@ class DeleteFolderService(
                         ids = todos.map { it.id!! },
                     )
                 val now = Clock.System.now()
-                linkRepository.assignFolderByIds(linkIds = plan.moveLinkIds, folderId = options.targetFolderId, now = now)
+                linkRepository.assignFolderByIds(
+                    linkIds = plan.moveLinkIds,
+                    folderId = options.targetFolderId,
+                    now = now,
+                    preservePublication = source.isPublished && folders[options.targetFolderId]?.isPublished == true,
+                )
                 linkRepository.assignFolderByIds(linkIds = plan.detachLinkIds, folderId = null, now = now)
                 linkRepository.deleteAllByIds(plan.deleteLinkIds)
                 folderRepository.deleteById(folderId)
