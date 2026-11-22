@@ -4,7 +4,6 @@ import com.anthropic.backends.AnthropicBackend
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.OkHttpClient
 import com.anthropic.core.http.HttpClient
-import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.ClaudeCurlClient
 import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.config.ClaudeConfig
@@ -33,7 +32,7 @@ internal fun Module.registerClaude(config: ApplicationConfig) {
 
         single(named<ClaudeSdkClient>()) { Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher() } onClose { it?.close() }
 
-        single<AiClient>(named("claude")) {
+        single {
             ClaudeSdkClient(
                 client = get(),
                 config = get(),
@@ -44,7 +43,7 @@ internal fun Module.registerClaude(config: ApplicationConfig) {
     } else {
         single(named<ClaudeCurlClient>()) { KtorHttpClient(CIO) { configureClaudeCurl() } } onClose { it?.close() }
 
-        single<AiClient>(named("claude")) {
+        single {
             ClaudeCurlClient(
                 httpClient = get(named<ClaudeCurlClient>()),
                 config = get(),

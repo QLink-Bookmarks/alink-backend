@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.classic.spi.ThrowableProxyUtil
 import ch.qos.logback.core.read.ListAppender
+import com.anthropic.client.AnthropicClient
 import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.AiSummarySpec
@@ -39,6 +40,7 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.config.AbbreviatedSqlLogger
+import com.qlink.config.ClaudeConfig
 import com.qlink.config.MonitoringConfig
 import com.qlink.di.externalModule
 import com.qlink.di.repositoryModule
@@ -68,7 +70,7 @@ import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
-import io.kotest.matchers.types.shouldBeInstanceOf
+import io.kotest.matchers.types.shouldBeSameInstanceAs
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.config.ApplicationConfigValue
@@ -77,6 +79,8 @@ import io.ktor.server.config.MapApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -104,6 +108,7 @@ import org.slf4j.LoggerFactory
 import java.net.URI
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.ExecutorService
 import kotlin.time.Duration.Companion.minutes
 import com.anthropic.core.http.HttpClient as AnthropicTransport
 import io.ktor.client.HttpClient as KtorTransport
@@ -334,15 +339,19 @@ class ClaudeAiSummaryServiceTest :
                     Then("운영 라우터가 Claude를 실행하고 저장소의 같은 공급자와 모델이 활성을 유지한다") {
                         val router = app.koin.get<AiClientRouter>()
                         router.isExecutable(AiProviderType.CLAUDE) shouldBe true
-                        val adapter = router.requireSupported(AiProviderType.CLAUDE)
-                        adapter shouldBe app.koin.get<AiClient>(named("claude"))
-                        app.koin.getAll<AiClient>().filter { it.providerType == AiProviderType.CLAUDE } shouldBe listOf(adapter)
+                        val selected = router.requireSupported(AiProviderType.CLAUDE)
+                        app.koin.get<ClaudeConfig>().useSdk shouldBe useSdk
+                        app.koin.getAll<AiClient>().none { it.providerType == AiProviderType.CLAUDE } shouldBe true
                         if (useSdk) {
-                            adapter.shouldBeInstanceOf<ClaudeSdkClient>()
+                            selected shouldBeSameInstanceAs app.koin.get<ClaudeSdkClient>()
+                            app.koin.getOrNull<ClaudeCurlClient>() shouldBe null
                             app.koin.getOrNull<KtorTransport>(named<ClaudeCurlClient>()) shouldBe null
                         } else {
-                            adapter.shouldBeInstanceOf<ClaudeCurlClient>()
+                            selected shouldBeSameInstanceAs app.koin.get<ClaudeCurlClient>()
+                            app.koin.getOrNull<ClaudeSdkClient>() shouldBe null
+                            app.koin.getOrNull<AnthropicClient>() shouldBe null
                             app.koin.getOrNull<AnthropicTransport>() shouldBe null
+                            app.koin.getOrNull<ExecutorCoroutineDispatcher>(named<ClaudeSdkClient>()) shouldBe null
                         }
 
                         val first = activateProvider()
@@ -354,6 +363,52 @@ class ClaudeAiSummaryServiceTest :
                             .single()
                             .isActive shouldBe true
                         models.findById(model.id!!)!!.isActive shouldBe true
+                    }
+                }
+
+                When("선택한 Claude 전송을 사용한 Koin이 종료되면") {
+                    Then("활성 전송과 SDK 실행기를 닫는다") {
+                        var transportClosed = false
+                        val production =
+                            koinApplication {
+                                val sdkFixture =
+                                    module {
+                                        single<AnthropicTransport> {
+                                            object : AnthropicTransport by http.transport {
+                                                override fun close() {
+                                                    http.transport.close()
+                                                    transportClosed = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                modules(externalModule(config = config, s3Config = s3Config))
+                                if (useSdk) {
+                                    modules(sdkFixture)
+                                }
+                            }
+                        val koin = production.koin
+                        if (useSdk) {
+                            val dispatcher =
+                                try {
+                                    koin.get<ClaudeSdkClient>()
+                                    koin.get<ExecutorCoroutineDispatcher>(named<ClaudeSdkClient>()).executor as ExecutorService
+                                } finally {
+                                    production.close()
+                                }
+                            transportClosed shouldBe true
+                            dispatcher.isShutdown shouldBe true
+                        } else {
+                            val transportJob =
+                                try {
+                                    koin.get<ClaudeCurlClient>()
+                                    koin.get<KtorTransport>(named<ClaudeCurlClient>()).coroutineContext[Job]!!
+                                } finally {
+                                    production.close()
+                                }
+                            withTimeout(5_000) { transportJob.join() }
+                            transportJob.isCompleted shouldBe true
+                        }
                     }
                 }
 
@@ -734,7 +789,13 @@ class ClaudeAiSummaryServiceTest :
                                     requestedUrl = requestedUrl,
                                 )
                         }
-                        val action = suspend { app.koin.get<AiClient>(named("claude")).summarize(request!!) }
+                        val action =
+                            suspend {
+                                app.koin
+                                    .get<AiClientRouter>()
+                                    .requireSupported(AiProviderType.CLAUDE)
+                                    .summarize(request!!)
+                            }
                         Then("외부 요청 없이 원문 주소 오류를 반환한다") {
                             shouldThrowWithMessage<BusinessException>(ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID.message) { action() }
                             http.requests shouldBe emptyList()
