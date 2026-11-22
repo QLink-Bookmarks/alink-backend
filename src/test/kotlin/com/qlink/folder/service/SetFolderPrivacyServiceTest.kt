@@ -12,6 +12,7 @@ import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -20,7 +21,7 @@ import io.kotest.matchers.shouldNotBe
 
 class SetFolderPrivacyServiceTest :
     BaseServiceTest({
-        val service = koinGet<UpdateFolderService>()
+        val service = koinGet<SetFolderPrivacyService>()
         val folders = koinGet<FolderRepository>()
         val members = koinGet<FolderMemberRepository>()
         val users = koinGet<UserRepository>()
@@ -38,7 +39,10 @@ class SetFolderPrivacyServiceTest :
                 memberId = users.insert(UserFixture.createRandomValidUser()).id!!
                 outsiderId = users.insert(UserFixture.createRandomValidUser()).id!!
                 private = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId))
-                shared = folders.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(published))
+                shared =
+                    folders.insert(
+                        FolderFixture.createSharedFolderOf(ownerId).withPublication(published),
+                    )
                 members.insertIfAbsent(FolderMemberFixture.createMember(folderId = shared.id!!, userId = memberId))
             }
 

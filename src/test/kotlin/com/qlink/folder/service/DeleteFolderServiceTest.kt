@@ -28,6 +28,7 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
@@ -67,7 +68,10 @@ class DeleteFolderServiceTest :
 
             beforeTest {
                 val userId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(userId).setPublic(true))
+                folder =
+                    folders.insert(
+                        FolderFixture.createValidUnsharedFolder(userId).withPublication(),
+                    )
                 publicLink =
                     links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, isPublic = folder.isPublished))
                 privateLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id))
@@ -91,7 +95,12 @@ class DeleteFolderServiceTest :
                 lateinit var target: Folder
                 beforeTest {
                     target =
-                        folders.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId).setPublic(true))
+                        folders.insert(
+                            FolderFixture
+                                .createValidUnsharedFolder(
+                                    folder.ownerId,
+                                ).withPublication(),
+                        )
                 }
                 val delete =
                     suspend {

@@ -44,3 +44,5 @@ object FolderFixture {
         createdAt: Instant = RandomFixture.randomPastInstant(),
     ): Folder = Folder.createImported(ownerId = ownerId, name = name, createdAt = createdAt)
 }
+
+fun Folder.withPublication(isPublic: Boolean = true): Folder = setPublic(isPublic = isPublic, now = RandomFixture.randomPastInstant())

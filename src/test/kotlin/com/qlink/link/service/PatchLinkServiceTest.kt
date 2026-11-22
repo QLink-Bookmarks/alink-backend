@@ -17,6 +17,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -60,9 +61,14 @@ class PatchLinkServiceTest :
 
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                source =
+                    folderRepository.insert(
+                        FolderFixture.createValidUnsharedFolder(ownerId).withPublication(),
+                    )
                 publicTarget =
-                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
+                    folderRepository.insert(
+                        FolderFixture.createValidUnsharedFolder(ownerId).withPublication(),
+                    )
                 privateTarget = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 publicLink =
                     linkRepository.insert(

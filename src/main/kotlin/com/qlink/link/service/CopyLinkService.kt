@@ -76,6 +76,7 @@ class CopyLinkService(
                                 Link.resolveNewVisibility(
                                     folderIsPublic = target?.isPublished == true,
                                     isPublic = link.isPublishedIn(source.isPublished) && target?.isPublished == true,
+                                    now = Clock.System.now(),
                                 ),
                         ),
                     )
