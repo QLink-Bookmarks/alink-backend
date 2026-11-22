@@ -1,6 +1,7 @@
 package com.qlink.ai.client
 
 import com.anthropic.client.AnthropicClient
+import com.anthropic.core.JsonObject
 import com.anthropic.errors.AnthropicInvalidDataException
 import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.AnthropicServiceException
@@ -8,7 +9,6 @@ import com.anthropic.models.ErrorType
 import com.anthropic.models.messages.ContentBlock
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
-import com.anthropic.models.messages.ServerToolUseBlock
 import com.anthropic.models.messages.Usage
 import com.anthropic.models.models.ModelListParams
 import com.qlink.ai.domain.AiProviderType
@@ -73,7 +73,7 @@ class ClaudeSdkClient(
                 .build()
         val message = exchange { client.messages().create(params) }
 
-        val text = readResponse { message.summaryText(source.toString()) }
+        val text = readResponse { message.summaryText() }
         val usedTokens = readResponse(ErrorCode.AI_SUMMARY_USAGE_INVALID) { message.usage().totalTokens() }
         return parseClaudeSummary(text = text, usedTokens = usedTokens)
     }
@@ -111,78 +111,20 @@ class ClaudeSdkClient(
             throw BusinessException(errorCode)
         }
 
-    private fun Message.summaryText(sourceUrl: String): String {
-        validateClaudeStopReason(stopReason().getOrNull()?.asString())
-
-        val blocks = content()
-        blocks.forEach { block ->
-            val type = block.type()
-            val valid =
-                when (type.value()) {
-                    ContentBlock.Type.Value.SERVER_TOOL_USE -> block.isServerToolUse()
-                    ContentBlock.Type.Value.WEB_FETCH_TOOL_RESULT -> block.isWebFetchToolResult()
-                    ContentBlock.Type.Value.TEXT -> block.isText()
-                    ContentBlock.Type.Value._UNKNOWN -> type._value().asString().isPresent
-                    else -> true
-                }
-            if (!valid) {
-                throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+    private fun Message.summaryText(): String {
+        val blocks: List<ContentBlock?> = content()
+        val invalidBlock =
+            blocks.any { block ->
+                val raw = block?._json()?.getOrNull()
+                block == null || (raw != null && raw !is JsonObject)
             }
+        if (invalidBlock) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
         }
-        val (fetchIndex, fetchBlock) =
-            blocks.withIndex().singleOrNull { (_, block) ->
-                val tool = block.serverToolUse().getOrNull()
-                tool?.name()?.asString() == ServerToolUseBlock.Name.WEB_FETCH.asString()
-            } ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val fetch = fetchBlock.asServerToolUse()
-        val fetchId = fetch.id().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val requested =
-            fetch
-                ._input()
-                .asObject()
-                .getOrNull()
-                ?.get("url")
-                ?.asString()
-                ?.getOrNull()
-        if (requested != sourceUrl) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-        }
-
-        val (resultIndex, resultBlock) =
-            blocks.withIndex().singleOrNull { (_, block) -> block.isWebFetchToolResult() }
-                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val fetchResult = resultBlock.asWebFetchToolResult()
-        if (resultIndex <= fetchIndex || fetchResult.toolUseId() != fetchId) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        }
-        val result =
-            fetchResult
-                .content()
-                .webFetchBlock()
-                .getOrNull()
-                ?.takeIf { it._type().asString().getOrNull() == "web_fetch_result" }
-                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        if (result.url() != sourceUrl) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-        }
-        readResponse(ErrorCode.AI_SUMMARY_FETCH_FAILED) {
-            val document = result.content()
-            val source = document.source()
-            val pdf = source.base64().getOrNull()
-            val text = source.text().getOrNull()
-            validateClaudeDocument(
-                documentType = document._type().asString().getOrNull(),
-                sourceType = (pdf?._type() ?: text?._type())?.asString()?.getOrNull(),
-                mediaType = (pdf?._mediaType() ?: text?._mediaType())?.asString()?.getOrNull(),
-                data = pdf?.data() ?: text?.data(),
-            )
-        }
-
+        validateClaudeStopReason(stopReason().getOrNull()?.asString())
         return blocks
-            .lastOrNull()
-            ?.takeIf { resultIndex < blocks.lastIndex }
-            ?.text()
-            ?.getOrNull()
+            .lastOrNull { it?.isText() == true }
+            ?.asText()
             ?.text()
             ?.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
     }

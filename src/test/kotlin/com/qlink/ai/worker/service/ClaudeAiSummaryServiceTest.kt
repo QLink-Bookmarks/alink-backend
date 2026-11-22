@@ -1166,7 +1166,7 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
-                val malformedBlocks: Map<String, (JsonArray) -> List<JsonElement>> =
+                val ignoredBlocks: Map<String, (JsonArray) -> List<JsonElement>> =
                     linkedMapOf(
                         "가져오기 호출 ID 누락" to { blocks -> blocks.editBlock(1) { JsonObject(it - "id") } },
                         "숫자 가져오기 호출 ID" to { blocks -> blocks.editBlock(1) { JsonObject(it + ("id" to JsonPrimitive(3))) } },
@@ -1183,7 +1183,7 @@ class ClaudeAiSummaryServiceTest :
                             blocks.dropLast(1) + invalidCall + blocks.last()
                         },
                     )
-                val invalidDocuments: Map<String, (JsonArray) -> List<JsonElement>> =
+                val ignoredDocuments: Map<String, (JsonArray) -> List<JsonElement>> =
                     linkedMapOf(
                         "결과의 원문 문서 누락" to { blocks -> blocks.editFetchResult { JsonObject(it - "content") } },
                         "원문 문서의 source 누락" to { blocks -> blocks.editFetchDocument { JsonObject(it - "source") } },
@@ -1200,9 +1200,9 @@ class ClaudeAiSummaryServiceTest :
                             }
                         },
                     )
-                val invalidMessages: Map<String, (AiJob) -> String> =
+                val messagesWithIgnoredBlocks: Map<String, (AiJob) -> String> =
                     linkedMapOf(
-                        "다른 URL" to {
+                        "가져오기 요청의 URL 불일치" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchUrl = otherUrl)
                         },
                         "가져온 결과의 URL 불일치" to {
@@ -1280,6 +1280,134 @@ class ClaudeAiSummaryServiceTest :
                                 editContent = { blocks -> blocks + unknownClaudeBlock },
                             )
                         },
+                        "요약 텍스트만 있는 응답" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> listOf(blocks.last()) },
+                            )
+                        },
+                        "최종 텍스트 뒤의 도구와 thinking 블록" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    val thinking =
+                                        buildJsonObject {
+                                            put("type", "thinking")
+                                            put("thinking", RandomFixture.randomSentenceWithMax(30))
+                                            put("signature", RandomFixture.randomSentenceWithMax(30))
+                                        }
+                                    blocks + blocks[1] + blocks[2] + thinking
+                                },
+                            )
+                        },
+                        "서로 다른 링크 ID의 요약 텍스트 두 개" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> listOf(blocks[0], blocks.last()) },
+                            )
+                        },
+                    )
+                val ignoredWireShapes =
+                    (ignoredBlocks + ignoredDocuments).mapValues { (_, edit) ->
+                        { job: AiJob -> fixture.messagesResponse(finalText = fixture.summaryJson(job.linkId, null), editContent = edit) }
+                    }
+                (messagesWithIgnoredBlocks + ignoredWireShapes).forEach { (scenario, body) ->
+                    When("Claude 응답이 '$scenario'이면") {
+                        lateinit var job: AiJob
+                        beforeTest {
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
+                            job = enqueue()
+                            http.messagesBody = body(job)
+                        }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("마지막 요약 텍스트와 액션·사용량을 저장한다") {
+                            shouldNotThrow<BusinessException> { action() }
+                            appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.C
+                                it.response shouldBe fixture.summaryJson(job.linkId, null)
+                                it.responseModelId shouldBe model.id
+                            }
+                            links.findById(job.linkId)!!.let {
+                                it.status shouldBe LinkStatus.A
+                                it.title shouldBe fixture.title
+                                it.summary shouldBe fixture.summary
+                                it.tags shouldBe listOf(fixture.tag)
+                            }
+                            todos.findAllByLinkId(job.linkId).map { it.title }.toSet() shouldBe
+                                setOf(fixture.scheduledAction, fixture.unscheduledAction)
+                            recordedUsage(job)!!.let {
+                                it.requests shouldBe 1
+                                it.tokens shouldBe 26
+                            }
+                        }
+                    }
+                }
+
+                val invalidMessages: Map<String, (AiJob) -> String> =
+                    linkedMapOf(
+                        "정상 텍스트 뒤 최종 텍스트 필드 누락" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> blocks + buildJsonObject { put("type", "text") } },
+                            )
+                        },
+                        "정상 텍스트 뒤 최종 텍스트 필드 타입 오류" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    blocks +
+                                        buildJsonObject {
+                                            put("type", "text")
+                                            put("text", JsonArray(emptyList()))
+                                        }
+                                },
+                            )
+                        },
+                        "정상 텍스트 뒤 빈 최종 텍스트" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    blocks +
+                                        buildJsonObject {
+                                            put("type", "text")
+                                            put("text", " ")
+                                        }
+                                },
+                            )
+                        },
+                        "도구 블록만 있는 응답" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> blocks.drop(1).dropLast(1) },
+                            )
+                        },
+                        "내용 블록이 빈 응답" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { emptyList() },
+                            )
+                        },
+                        "내용 블록 배열의 null 항목" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> blocks + JsonNull },
+                            )
+                        },
+                        "내용 블록 배열의 숫자 항목" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> listOf(JsonPrimitive(RandomFixture.randomId())) + blocks },
+                            )
+                        },
+                        "내용 블록 배열의 배열 항목" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> blocks.dropLast(1) + listOf(JsonArray(emptyList()), blocks.last()) },
+                            )
+                        },
                         "최종 텍스트의 잘못된 필드 형식" to {
                             fixture.messagesResponse(
                                 finalText = fixture.summaryJson(it.linkId, null),
@@ -1296,10 +1424,21 @@ class ClaudeAiSummaryServiceTest :
                         "refusal" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "refusal")
                         },
+                        "최종 텍스트와 사용량이 잘못된 refusal" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                stopReason = "refusal",
+                                editContent = { blocks -> blocks + buildJsonObject { put("type", "text") } },
+                                editUsage = { JsonNull },
+                            )
+                        },
                         "max_tokens" to
                             { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "max_tokens") },
                         "pause_turn" to
                             { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "pause_turn") },
+                        "tool_use 종료" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "tool_use")
+                        },
                         "깨진 JSON" to { fixture.messagesResponse(finalText = "{${ClaudeSummaryFixture.PAGE_MARKER}") },
                         "깨진 SDK 응답" to { "{${ClaudeSummaryFixture.PAGE_MARKER}" },
                         "잘못된 토큰 사용량" to {
@@ -1326,14 +1465,16 @@ class ClaudeAiSummaryServiceTest :
                         "null 사용량" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), editUsage = { JsonNull })
                         },
+                        "깨진 최종 JSON과 누락된 사용량" to {
+                            fixture.messagesResponse(
+                                finalText = "{${ClaudeSummaryFixture.PAGE_MARKER}",
+                                editUsage = { JsonNull },
+                            )
+                        },
                         "링크 ID 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(null, null)) },
                         "링크 ID 불일치" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId + 1, null)) },
                     )
-                val invalidWireShapes =
-                    (malformedBlocks + invalidDocuments).mapValues { (_, edit) ->
-                        { job: AiJob -> fixture.messagesResponse(finalText = fixture.summaryJson(job.linkId, null), editContent = edit) }
-                    }
-                (invalidMessages + invalidWireShapes).forEach { (scenario, body) ->
+                invalidMessages.forEach { (scenario, body) ->
                     When("Claude 응답이 '$scenario'이면") {
                         lateinit var job: AiJob
                         beforeTest {
@@ -1349,27 +1490,15 @@ class ClaudeAiSummaryServiceTest :
                             appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
                             val error =
                                 when (scenario) {
-                                    "다른 URL", "가져온 결과의 URL 불일치" -> {
-                                        ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH
-                                    }
-
-                                    "다른 도구 호출 ID",
-                                    "가져오기 오류",
-                                    "SDK 형식의 가져오기 오류",
-                                    "가져오기 결과 누락",
-                                    "다른 URL의 두 번째 가져오기",
-                                    "성공 뒤 max_uses_exceeded 결과",
-                                    "호출 앞의 중복 결과",
-                                    "호출 앞에만 있는 결과",
+                                    "빈 최종 텍스트",
+                                    "정상 텍스트 뒤 빈 최종 텍스트",
+                                    "도구 블록만 있는 응답",
+                                    "내용 블록이 빈 응답",
                                     -> {
-                                        ErrorCode.AI_SUMMARY_FETCH_FAILED
-                                    }
-
-                                    "빈 최종 텍스트", "최종 블록의 알 수 없는 종류" -> {
                                         ErrorCode.AI_EMPTY_RESPONSE
                                     }
 
-                                    "refusal" -> {
+                                    "refusal", "최종 텍스트와 사용량이 잘못된 refusal" -> {
                                         ErrorCode.AI_SUMMARY_REFUSED
                                     }
 
@@ -1377,24 +1506,30 @@ class ClaudeAiSummaryServiceTest :
                                         ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED
                                     }
 
-                                    "pause_turn" -> {
+                                    "pause_turn", "tool_use 종료" -> {
                                         ErrorCode.AI_SUMMARY_INCOMPLETE
                                     }
 
-                                    "깨진 JSON", "깨진 SDK 응답", "최종 텍스트의 잘못된 필드 형식" -> {
+                                    "깨진 JSON",
+                                    "깨진 SDK 응답",
+                                    "정상 텍스트 뒤 최종 텍스트 필드 누락",
+                                    "정상 텍스트 뒤 최종 텍스트 필드 타입 오류",
+                                    "최종 텍스트의 잘못된 필드 형식",
+                                    "내용 블록 배열의 null 항목",
+                                    "내용 블록 배열의 숫자 항목",
+                                    "내용 블록 배열의 배열 항목",
+                                    -> {
                                         ErrorCode.AI_SUMMARY_RESPONSE_INVALID
                                     }
 
-                                    "잘못된 토큰 사용량", "문자열 토큰", "소수 토큰", "음수 캐시 토큰", "null 사용량" -> {
+                                    "잘못된 토큰 사용량",
+                                    "문자열 토큰",
+                                    "소수 토큰",
+                                    "음수 캐시 토큰",
+                                    "null 사용량",
+                                    "깨진 최종 JSON과 누락된 사용량",
+                                    -> {
                                         ErrorCode.AI_SUMMARY_USAGE_INVALID
-                                    }
-
-                                    in malformedBlocks -> {
-                                        ErrorCode.AI_SUMMARY_RESPONSE_INVALID
-                                    }
-
-                                    in invalidDocuments -> {
-                                        ErrorCode.AI_SUMMARY_FETCH_FAILED
                                     }
 
                                     else -> {

@@ -32,7 +32,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import org.slf4j.Logger
@@ -80,7 +79,7 @@ class ClaudeCurlClient(
             } catch (_: IllegalArgumentException) {
                 throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
             }
-        val text = message.summaryText(source.toString())
+        val text = message.summaryText()
         return parseClaudeSummary(text = text, usedTokens = message.totalTokens())
     }
 
@@ -179,56 +178,10 @@ class ClaudeCurlClient(
         return error?.type == "billing_error" || error?.details?.errorCode in claudeBillingErrorCodes
     }
 
-    private fun ClaudeMessagesResponse.summaryText(sourceUrl: String): String {
+    private fun ClaudeMessagesResponse.summaryText(): String {
         validateClaudeStopReason(stopReason)
-        val types = content.map { it.type.requiredString() }
-        val fetchIndex =
-            content.indices.singleOrNull { types[it] == "server_tool_use" && content[it].name.requiredString() == "web_fetch" }
-                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val fetch = content[fetchIndex]
-        val fetchId =
-            fetch.id.requiredString().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val requested = (fetch.input as? JsonObject)?.get("url").stringOrNull()
-        if (requested != sourceUrl) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-        }
-
-        val resultIndex =
-            types.indices.singleOrNull { types[it] == "web_fetch_tool_result" }
-                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val resultBlock = content[resultIndex]
-        val resultId = resultBlock.toolUseId.requiredString()
-        if (resultIndex <= fetchIndex || resultId != fetchId) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        }
-        val resultContent = resultBlock.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val result =
-            try {
-                json.decodeFromJsonElement(ClaudeMessagesResponse.FetchResult.serializer(), resultContent)
-            } catch (_: IllegalArgumentException) {
-                throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            }
-        if (result.type != "web_fetch_result") {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        }
-        val resultUrl = result.url.stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
-        if (resultUrl != sourceUrl) {
-            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-        }
-        val document = result.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val source = document["source"] as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        validateClaudeDocument(
-            documentType = document["type"].stringOrNull(),
-            sourceType = source["type"].stringOrNull(),
-            mediaType = source["media_type"].stringOrNull(),
-            data = source["data"].stringOrNull(),
-        )
-
-        val last =
-            content.last().takeIf { resultIndex < content.lastIndex && types.last() == "text" }
-                ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
-        val text = last.text.requiredString()
-        return text.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        val lastText = content.lastOrNull { it.type.stringOrNull() == "text" } ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        return lastText.text.requiredString().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
     }
 
     private fun ClaudeMessagesResponse.totalTokens(): Int {

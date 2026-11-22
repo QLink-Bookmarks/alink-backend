@@ -32,19 +32,7 @@ internal data class ClaudeMessagesResponse(
     @Serializable
     data class ContentBlock(
         val type: JsonElement? = null,
-        val name: JsonElement? = null,
-        val id: JsonElement? = null,
-        val input: JsonElement? = null,
-        @SerialName("tool_use_id") val toolUseId: JsonElement? = null,
-        val content: JsonElement? = null,
         val text: JsonElement? = null,
-    )
-
-    @Serializable
-    data class FetchResult(
-        val type: String,
-        val url: JsonElement? = null,
-        val content: JsonElement? = null,
     )
 
     @Serializable
