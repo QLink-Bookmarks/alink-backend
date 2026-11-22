@@ -176,6 +176,7 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
         description =
             "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
             "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
+            "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
             "외부 열람은 folderId와 created_at 정렬을 지원하며 공개된 링크만 반환해요. 전체 개인 목록은 인증이 필요해요."
         optionalReadAuth()
         request {

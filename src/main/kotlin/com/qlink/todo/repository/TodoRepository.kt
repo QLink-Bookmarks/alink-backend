@@ -24,11 +24,6 @@ interface TodoRepository {
 
     suspend fun findAllByLinkId(linkId: Long): List<Todo>
 
-    suspend fun hasOwnedTodoInFolder(
-        ownerId: Long,
-        folderId: Long,
-    ): Boolean
-
     suspend fun findPublicByFolderId(
         folderId: Long,
         direction: SortDirection,

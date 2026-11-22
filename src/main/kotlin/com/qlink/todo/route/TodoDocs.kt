@@ -24,6 +24,7 @@ internal fun getTodosDocs(): RouteConfig.() -> Unit =
         description =
             "같은 정렬 값이면 id를 같은 방향으로 이어 정렬해요. " +
             "reminder_at 정렬에서 알림 없는 액션, completed_at 정렬에서 미완료 액션은 방향과 무관하게 맨 뒤예요. " +
+            "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
             "외부 열람은 folderId와 created_at 정렬을 지원하며 공개 링크의 액션만 반환해요. 전체 개인 목록은 인증이 필요해요."
         optionalReadAuth()
         request {

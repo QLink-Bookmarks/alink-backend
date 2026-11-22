@@ -88,16 +88,6 @@ import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbLinkRepository : LinkRepository {
-    override suspend fun hasOwnedLinkInFolder(
-        ownerId: Long,
-        folderId: Long,
-    ): Boolean =
-        !Links
-            .select(Links.id)
-            .where { (Links.ownerId eq ownerId) and (Links.folderId eq folderId) }
-            .limit(1)
-            .empty()
-
     override suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery? {
         val folderName = Folders.name.alias("folder_name")
         val rows =

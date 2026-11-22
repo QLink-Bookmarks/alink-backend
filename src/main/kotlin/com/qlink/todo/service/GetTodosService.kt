@@ -48,13 +48,7 @@ class GetTodosService(
     ): ReadResult<ScrollResponse<GetTodosContentResponse>, ScrollResponse<PublicFolderTodoResponse>> =
         tx.required {
             val folder = folderId?.let { folderAccessValidator.lockForRead(it) }
-            val canRead =
-                viewerId != null &&
-                    (
-                        folder == null || folderAccessValidator.canReadAsMember(folder, viewerId) ||
-                            todoRepository.hasOwnedTodoInFolder(ownerId = viewerId, folderId = folder.id!!)
-                    )
-            if (viewerId != null && canRead) {
+            if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
                 ReadResult.Member(getTodos(viewerId, status, orderKey, order, scrollRequest, isCompleted, reminderAt, folderId))
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)

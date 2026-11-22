@@ -28,11 +28,6 @@ interface LinkRepository {
 
     suspend fun findAllByFolderIdForUpdate(folderId: Long): List<Link>
 
-    suspend fun hasOwnedLinkInFolder(
-        ownerId: Long,
-        folderId: Long,
-    ): Boolean
-
     suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery?
 
     suspend fun findPublicByFolderId(

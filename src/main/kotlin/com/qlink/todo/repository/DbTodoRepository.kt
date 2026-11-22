@@ -98,17 +98,6 @@ class DbTodoRepository : TodoRepository {
             .orderBy(Todos.id to SortOrder.ASC)
             .map { it.toTodoDomain() }
 
-    override suspend fun hasOwnedTodoInFolder(
-        ownerId: Long,
-        folderId: Long,
-    ): Boolean =
-        !Todos
-            .join(otherTable = Links, joinType = JoinType.INNER, onColumn = Todos.linkId, otherColumn = Links.id)
-            .select(Todos.id)
-            .where { (Todos.ownerId eq ownerId) and (Links.folderId eq folderId) }
-            .limit(1)
-            .empty()
-
     override suspend fun findPublicByFolderId(
         folderId: Long,
         direction: SortDirection,

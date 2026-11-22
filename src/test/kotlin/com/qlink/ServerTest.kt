@@ -22,6 +22,7 @@ import com.qlink.user.repository.UserRepository
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -369,6 +370,134 @@ class ServerTest :
                 koinGet<TransactionRunner>().required { identities.forEach { cleanupUsers.deleteById(it) } }
             }
         }
+
+        "folder-scoped lists recheck the same token after folder access is lost" {
+            val config = ServiceTestEnvironment.applicationConfig()
+            val users = koinGet<UserRepository>()
+            val folders = koinGet<FolderRepository>()
+            val members = koinGet<FolderMemberRepository>()
+            val links = koinGet<LinkRepository>()
+            val todos = koinGet<TodoRepository>()
+            val tx = koinGet<TransactionRunner>()
+            val identities = tx.required { List(2) { users.insert(UserFixture.createRandomValidUser()).id!! } }
+            val (owner, member) = identities
+            val algorithm = Algorithm.HMAC256(SecurityConfig.from(config).jwtSecret)
+
+            fun token(userId: Long): String =
+                JWT
+                    .create()
+                    .withSubject(userId.toString())
+                    .withClaim("role", Role.NORMAL.name)
+                    .sign(algorithm)
+
+            val ownerToken = token(owner)
+            val memberToken = token(member)
+            val scopedFolders =
+                tx.required {
+                    listOf(owner to true, owner to false, member to true).map { (folderOwner, isPublic) ->
+                        val collaborator = if (folderOwner == owner) member else owner
+                        val folder = folders.insert(FolderFixture.createSharedFolderOf(folderOwner).setPublic(isPublic))
+                        val folderId = folder.id!!
+                        members.insertIfAbsent(FolderMemberFixture.createOwnerMember(folderId = folderId, userId = folderOwner))
+                        members.insertIfAbsent(FolderMemberFixture.createMember(folderId = folderId, userId = collaborator))
+                        for ((writer, linkVisibility) in listOf(owner to isPublic, member to false)) {
+                            val link =
+                                links.insert(
+                                    LinkFixture.createRandomLinkOf(ownerId = writer, folderId = folderId, isPublic = linkVisibility),
+                                )
+                            todos.insert(TodoFixture.createOverdueCompletedTodoOf(linkId = link.id!!, ownerId = writer))
+                        }
+                        folder
+                    }
+                }
+            try {
+                testApplication {
+                    environment { this.config = config }
+
+                    for (folder in scopedFolders) {
+                        val folderId = folder.id!!
+                        val folderPath = "/api/folders/$folderId"
+                        val linksPath = "/api/links?folderId=$folderId"
+                        val todosPath = "/api/todos?folderId=$folderId"
+                        val memberLinks = client.get(linksPath) { bearerAuth(memberToken) }.readContents()
+                        val memberActions = client.get(todosPath) { bearerAuth(memberToken) }.readContents()
+                        memberLinks.size shouldBe 2
+                        memberLinks.all { "todoCounts" in it } shouldBe true
+                        memberActions.single().containsKey("reminderAt") shouldBe true
+                        val memberLinkId =
+                            memberActions
+                                .single()
+                                .getValue("linkId")
+                                .jsonPrimitive.long
+                        val memberActionId =
+                            memberActions
+                                .single()
+                                .getValue("id")
+                                .jsonPrimitive.long
+                        val ownerLinks = client.get(linksPath) { bearerAuth(ownerToken) }.readContents()
+                        val ownerActions = client.get(todosPath) { bearerAuth(ownerToken) }.readContents()
+                        ownerLinks.size shouldBe 2
+                        ownerActions.single().containsKey("reminderAt") shouldBe true
+                        val ownerLinkId =
+                            ownerActions
+                                .single()
+                                .getValue("linkId")
+                                .jsonPrimitive.long
+
+                        val accessChange =
+                            if (folder.isOwnedBy(member)) {
+                                client.put("$folderPath/owner") {
+                                    bearerAuth(memberToken)
+                                    contentType(ContentType.Application.Json)
+                                    setBody("""{"ownerId":$owner}""")
+                                }
+                            } else {
+                                client.delete("$folderPath/members/$member") {
+                                    bearerAuth(if (folder.isPublic) ownerToken else memberToken)
+                                }
+                            }
+                        accessChange.status shouldBe HttpStatusCode.OK
+
+                        if (folder.isPublic) {
+                            client.get(folderPath) { bearerAuth(memberToken) }.readData() shouldBe client.get(folderPath).readData()
+                            val guestLinks = client.get(linksPath).readContents()
+                            val guestActions = client.get(todosPath).readContents()
+                            client.get(linksPath) { bearerAuth(memberToken) }.readContents() shouldBe guestLinks
+                            client.get(todosPath) { bearerAuth(memberToken) }.readContents() shouldBe guestActions
+                            guestLinks.single().keys shouldBe setOf("id", "title", "url")
+                            guestLinks
+                                .single()
+                                .getValue("id")
+                                .jsonPrimitive.long shouldBe ownerLinkId
+                            guestActions.single().keys shouldBe setOf("linkId", "title", "isCompleted")
+                            guestActions
+                                .single()
+                                .getValue("linkId")
+                                .jsonPrimitive.long shouldBe ownerLinkId
+                        } else {
+                            for (path in listOf(folderPath, linksPath, todosPath)) {
+                                val denied = client.get(path) { bearerAuth(memberToken) }
+                                denied.status shouldBe HttpStatusCode.NotFound
+                                denied.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                                apiErrorCode(denied.bodyAsText()) shouldBe ErrorCode.FOLDER_NOT_FOUND.code
+                                denied.bodyAsText() shouldBe client.get(path).bodyAsText()
+                            }
+                        }
+
+                        client.get(linksPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerLinks
+                        client.get(todosPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerActions
+                        val personalLinks = client.get("/api/links") { bearerAuth(memberToken) }.readContents()
+                        val personalActions = client.get("/api/todos") { bearerAuth(memberToken) }.readContents()
+                        personalLinks.any { it.getValue("id").jsonPrimitive.long == memberLinkId } shouldBe true
+                        personalActions.any { it.getValue("id").jsonPrimitive.long == memberActionId } shouldBe true
+                    }
+                }
+            } finally {
+                ServiceTestEnvironment.start()
+                val cleanupUsers = koinGet<UserRepository>()
+                koinGet<TransactionRunner>().required { identities.forEach { cleanupUsers.deleteById(it) } }
+            }
+        }
     })
 
 private fun apiErrorCode(json: String): String =
@@ -389,3 +518,5 @@ private suspend fun HttpResponse.readData(): JsonObject {
         .getValue("data")
         .jsonObject
 }
+
+private suspend fun HttpResponse.readContents(): List<JsonObject> = readData().getValue("contents").jsonArray.map { it.jsonObject }

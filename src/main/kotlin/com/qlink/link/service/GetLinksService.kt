@@ -54,13 +54,7 @@ class GetLinksService(
     ): ReadResult<ScrollResponse<GetLinksContentResponse>, ScrollResponse<PublicFolderLinkResponse>> =
         tx.required {
             val folder = folderId?.takeUnless { it == 0L }?.let { folderAccessValidator.lockForRead(it) }
-            val canRead =
-                viewerId != null &&
-                    (
-                        folder == null || folderAccessValidator.canReadAsMember(folder, viewerId) ||
-                            linkRepository.hasOwnedLinkInFolder(ownerId = viewerId, folderId = folder.id!!)
-                    )
-            if (viewerId != null && canRead) {
+            if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
                 ReadResult.Member(getLinks(viewerId, query, folderId, isFavorite, orderKey, order, scrollRequest))
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
