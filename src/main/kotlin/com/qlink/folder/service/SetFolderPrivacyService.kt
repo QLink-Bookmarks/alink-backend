@@ -11,7 +11,8 @@ import kotlin.time.Clock
 class SetFolderPrivacyService(
     private val tx: TransactionRunner,
     private val userRepository: UserRepository,
-    private val publicationWriter: FolderPublicationWriter,
+    private val folderAccessValidator: FolderAccessValidator,
+    private val saveFolderPublicationService: SaveFolderPublicationService,
 ) {
     suspend fun setPrivacy(
         loginId: Long,
@@ -20,10 +21,10 @@ class SetFolderPrivacyService(
     ): FolderPrivacyResponse =
         tx.required {
             userRepository.emptyById(loginId).requireFalse(ErrorCode.FOLDER_OWNER_NOT_FOUND)
-            val folder = publicationWriter.lock(folderId)
+            val folder = folderAccessValidator.lockForUpdate(folderId)
             folder.isOwnedBy(loginId).requireTrue(ErrorCode.FOLDER_NOT_FOUND)
             val updated = folder.setPublic(isPublic = isPublic, now = Clock.System.now())
-            val saved = if (updated === folder) folder else publicationWriter.save(previous = folder, updated = updated)
+            val saved = if (updated === folder) folder else saveFolderPublicationService.save(previous = folder, updated = updated)
             FolderPrivacyResponse(turnsPublicAt = saved.turnsPublicAt)
         }
 }

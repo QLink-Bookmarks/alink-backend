@@ -35,9 +35,9 @@ import com.qlink.folder.service.CreateFolderService
 import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
-import com.qlink.folder.service.FolderPublicationWriter
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.SaveFolderPublicationService
 import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -313,9 +313,16 @@ fun serviceModule() =
             )
         }
 
-        single { FolderPublicationWriter(folderRepository = get(), linkRepository = get()) }
+        single { SaveFolderPublicationService(tx = get(), folderRepository = get(), linkRepository = get()) }
 
-        single { SetFolderPrivacyService(tx = get(), userRepository = get(), publicationWriter = get()) }
+        single {
+            SetFolderPrivacyService(
+                tx = get(),
+                userRepository = get(),
+                folderAccessValidator = get(),
+                saveFolderPublicationService = get(),
+            )
+        }
 
         single {
             UpdateFolderService(
@@ -323,7 +330,8 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 userRepository = get(),
-                publicationWriter = get(),
+                folderAccessValidator = get(),
+                saveFolderPublicationService = get(),
             )
         }
 
