@@ -5,11 +5,7 @@ import aws.sdk.kotlin.services.lambda.LambdaClient
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
-import com.anthropic.backends.AnthropicBackend
-import com.anthropic.client.AnthropicClient
-import com.anthropic.client.okhttp.OkHttpClient
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
 import com.qlink.auth.client.AppleAuthResourceClient
@@ -20,7 +16,6 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.ClaudeConfig
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
@@ -45,15 +40,9 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.serialization.json.Json
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
-import java.util.concurrent.Executors
-import com.anthropic.core.http.HttpClient as AnthropicTransport
 
 fun externalModule(
     config: ApplicationConfig,
@@ -144,32 +133,14 @@ fun externalModule(
         )
     }
 
-    single<AnthropicTransport> {
-        OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
-    }
+    registerClaudeSdk(config)
 
-    single { ClaudeConfig(config) }
-
-    single<AnthropicClient> { get<ClaudeConfig>().client(get()) } onClose { it?.close() }
-
-    single(named<ClaudeSdkClient>()) { Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher() } onClose { it?.close() }
-
-    single {
-        ClaudeSdkClient(
-            client = get(),
-            config = get(),
-            dispatcher = get<ExecutorCoroutineDispatcher>(named<ClaudeSdkClient>()),
-            log = LoggerFactory.getLogger(ClaudeSdkClient::class.java),
-        )
-    }
-
-    single {
-        AiClientRouter(
+    single<AiClientRouter> {
+        aiClientRouter(
             clients =
                 listOf(
                     get<GeminiAiClient>(),
                     get<OpenAiClient>(),
-                    get<ClaudeSdkClient>(),
                 ),
         )
     }
