@@ -228,7 +228,7 @@ class ClaudeAiSummaryServiceTest :
                 claudeSettings =
                     MapApplicationConfig(
                         "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                        "ai.claude.baseUrl" to baseUrl,
+                        "ai.claude.sdkEndpoint" to baseUrl,
                     )
                 http = ClaudeHttpFixture()
                 app =
@@ -440,7 +440,7 @@ class ClaudeAiSummaryServiceTest :
             When("Claude SDK 주소가 허용되지 않은 HTTPS 호스트면") {
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    claudeSettings = MapApplicationConfig("ai.claude.baseUrl" to otherUrl)
+                    claudeSettings = MapApplicationConfig("ai.claude.sdkEndpoint" to otherUrl)
                     activateProvider()
                 }
                 val action = suspend { register() }
@@ -455,9 +455,13 @@ class ClaudeAiSummaryServiceTest :
             listOf(
                 "" to "",
                 "/" to "",
+                "/v1" to "",
+                "/v1/" to "",
                 "$prefix/" to prefix,
-                ":443$prefix/" to ":443$prefix",
+                "$prefix/v1" to prefix,
+                ":443$prefix/v1/" to ":443$prefix",
                 "$prefix//" to "$prefix/",
+                "$prefix//v1" to "$prefix/",
             ).forEach { (configured, expected) ->
                 When("Claude SDK 주소를 '$baseUrl$configured'로 구성하고 DB에 다른 주소를 저장하면") {
                     lateinit var job: AiJob
@@ -467,7 +471,7 @@ class ClaudeAiSummaryServiceTest :
                         claudeSettings =
                             MapApplicationConfig(
                                 "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                                "ai.claude.baseUrl" to baseUrl + configured,
+                                "ai.claude.sdkEndpoint" to baseUrl + configured,
                             )
                         app.koin.get<UpdateAiProviderService>().updateAiProvider(
                             loginId = admin.id!!,
@@ -768,7 +772,7 @@ class ClaudeAiSummaryServiceTest :
                     claudeSettings =
                         MapApplicationConfig(
                             "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                            "ai.claude.baseUrl" to "$baseUrl$prefix//",
+                            "ai.claude.sdkEndpoint" to "$baseUrl$prefix//",
                         )
                     job = enqueueDefault()
                     fallback =

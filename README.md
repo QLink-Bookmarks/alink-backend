@@ -24,6 +24,20 @@ ALink의 API 서버, 링크 수집 Lambda, AWS 인프라 구성을 관리하는 
 
 ![ALink 서버 아키텍처](.github/assets/readme/server-architecture.png)
 
+## AI SDK 구성
+
+SDK 주소는 서버 기동 구성에서 한 번 정하며, Ktor 속성이 환경 변수보다 우선합니다. 사용자별 API 키는 저장된 설정에서 읽어 해당 사용자의 키 검증 또는 요약 요청마다 별도로 전송합니다. 공유 SDK 클라이언트에는 사용자 키를 저장하지 않습니다.
+
+| 공급자 | Ktor 속성 | 환경 변수 | 기본 SDK 주소 |
+| --- | --- | --- | --- |
+| OpenAI | `ai.openai.sdkEndpoint` | `AI_OPENAI_SDK_ENDPOINT` | `https://api.openai.com/v1` |
+| Gemini | `ai.gemini.sdkEndpoint` | `AI_GEMINI_SDK_ENDPOINT` | `https://generativelanguage.googleapis.com/v1beta` |
+| Claude | `ai.claude.sdkEndpoint` | `AI_CLAUDE_SDK_ENDPOINT` | `https://api.anthropic.com` |
+
+OpenAI·Gemini SDK 설정은 #227의 SDK 전환이 적용된 환경에서 사용합니다. 두 SDK는 기본 활성 상태입니다. `ai.openai.useSdk` 또는 `AI_OPENAI_USE_SDK`, `ai.gemini.useSdk` 또는 `AI_GEMINI_USE_SDK`를 각각 `false`로 설정하면 해당 공급자는 DB에 저장된 주소를 사용하는 Ktor 클라이언트로 전환됩니다.
+
+Claude 설정 주소의 마지막 `/v1`은 SDK 초기 구성에서 한 번 제거합니다. SDK가 요청 경로에 `/v1`을 붙입니다. Claude 요약을 사용하려면 `ai.claude.maxOutputTokens` 또는 `AI_CLAUDE_MAX_OUTPUT_TOKENS`에 요청당 출력 토큰 한도를 양의 정수로 지정합니다.
+
 ## Tech Stack
 
 | 분야 | 기술 | 용도 |

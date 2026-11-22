@@ -96,7 +96,7 @@ class ClaudeSdkClient(
     }
 
     private fun validateEndpoint() {
-        if (config.baseUrl == null) throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+        if (config.sdkEndpoint == null) throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
     }
 
     private fun validApiKey(apiKey: String): String {

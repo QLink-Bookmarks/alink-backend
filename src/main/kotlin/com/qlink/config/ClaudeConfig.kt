@@ -24,10 +24,13 @@ import kotlin.jvm.optionals.getOrNull
 class ClaudeConfig(
     config: ApplicationConfig,
 ) {
-    val baseUrl: String? =
+    val sdkEndpoint: String? =
         runCatching {
-            config.optionalString("ai.claude.baseUrl") ?: System.getenv("AI_CLAUDE_BASE_URL") ?: DEFAULT_BASE_URL
-        }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)
+            config.optionalString("ai.claude.sdkEndpoint") ?: System.getenv("AI_CLAUDE_SDK_ENDPOINT") ?: DEFAULT_BASE_URL
+        }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)?.let { configured ->
+            val endpoint = configured.trimEnd('/')
+            if (endpoint.endsWith("/v1")) endpoint.removeSuffix("/v1") + "/" else configured
+        }
 
     val maxOutputTokens: Long? =
         runCatching {
@@ -59,7 +62,7 @@ class ClaudeConfig(
             ClientOptions
                 .builder()
                 .httpClient(transport)
-                .baseUrl(baseUrl ?: DEFAULT_BASE_URL)
+                .baseUrl(sdkEndpoint ?: DEFAULT_BASE_URL)
                 .putHeader("anthropic-version", "2023-06-01")
                 .maxRetries(0)
                 .timeout(Duration.ofSeconds(15))
