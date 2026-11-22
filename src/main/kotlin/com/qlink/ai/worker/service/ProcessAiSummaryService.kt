@@ -1,14 +1,14 @@
 package com.qlink.ai.worker.service
 
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.AiSummaryClientRequest
-import com.qlink.ai.client.AiSummaryClientResponse
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryExecutionResult
 import com.qlink.ai.dto.AiSummarySnapshot
@@ -27,7 +27,11 @@ import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.repository.LinkRepository
+import io.ktor.client.call.NoTransformationFoundException
+import io.ktor.serialization.JsonConvertException
+import kotlinx.serialization.SerializationException
 import org.slf4j.Logger
+import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -230,7 +234,20 @@ class ProcessAiSummaryService(
                     }
                 val result = summary.getOrNull()
                 if (result == null) {
-                    lastFailure = summary.exceptionOrNull()
+                    lastFailure =
+                        when (val failure = summary.exceptionOrNull()) {
+                            is IOException -> {
+                                BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                            }
+
+                            is JsonConvertException, is NoTransformationFoundException, is SerializationException -> {
+                                BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                            }
+
+                            else -> {
+                                failure
+                            }
+                        }
                     return@forEach
                 }
 
@@ -239,6 +256,9 @@ class ProcessAiSummaryService(
             }
         }
 
+        if (lastFailure is BusinessException) {
+            throw lastFailure
+        }
         throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
     }
 

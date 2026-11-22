@@ -296,7 +296,9 @@ object ServiceTestEnvironment {
     }
 }
 
-inline fun <reified T : Any> koinGet(koin: Koin = GlobalContext.get()): T = koin.get()
+inline fun <reified T : Any> koinGet(): T = GlobalContext.get().get()
+
+inline fun <reified T : Any> koinGet(koin: Koin): T = koin.get()
 
 suspend fun <T> TransactionRunner.rollback(
     database: Database,

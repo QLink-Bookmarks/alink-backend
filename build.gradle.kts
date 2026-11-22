@@ -124,7 +124,6 @@ dependencies {
     implementation(ktorLibs.server.netty)
 
     // Http
-    implementation(libs.anthropic.java)
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.compression)
     implementation(ktorLibs.server.contentNegotiation)

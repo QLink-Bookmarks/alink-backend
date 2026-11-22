@@ -17,7 +17,8 @@ class AiProviderServer : AutoCloseable {
         val authorization: String?,
         val googleApiKey: String?,
         val body: JsonObject?,
-        val connection: Int,
+        val remotePort: Int,
+        val query: String?,
     )
 
     data class Reply(
@@ -25,6 +26,8 @@ class AiProviderServer : AutoCloseable {
         val body: String = "",
         val location: String? = null,
         val retryAfter: String? = null,
+        val afterBodyPrefix: (() -> Unit)? = null,
+        val remainingBody: String = "",
     )
 
     private val executor = Executors.newCachedThreadPool()
@@ -46,10 +49,11 @@ class AiProviderServer : AutoCloseable {
                     Request(
                         method = exchange.requestMethod,
                         path = exchange.requestURI.path,
-                        authorization = exchange.requestHeaders.getFirst("Authorization"),
-                        googleApiKey = exchange.requestHeaders.getFirst("x-goog-api-key"),
+                        authorization = exchange.requestHeaders["Authorization"]?.singleOrNull(),
+                        googleApiKey = exchange.requestHeaders["x-goog-api-key"]?.singleOrNull(),
                         body = body.takeIf(String::isNotBlank)?.let { Json.parseToJsonElement(it).jsonObject },
-                        connection = exchange.remoteAddress.port,
+                        remotePort = exchange.remoteAddress.port,
+                        query = exchange.requestURI.rawQuery,
                     )
                 received.add(request)
                 val response = reply(request)
@@ -57,10 +61,25 @@ class AiProviderServer : AutoCloseable {
                 response.location?.let { exchange.responseHeaders.set("Location", it) }
                 response.retryAfter?.let { exchange.responseHeaders.set("Retry-After", it) }
                 val bytes = response.body.toByteArray()
+                val remaining = response.remainingBody.toByteArray()
                 writes.add(
                     try {
-                        exchange.sendResponseHeaders(response.status, if (bytes.isEmpty()) -1 else bytes.size.toLong())
-                        exchange.responseBody.use { it.write(bytes) }
+                        val contentLength =
+                            when {
+                                remaining.isNotEmpty() -> bytes.size.toLong() + remaining.size
+                                response.afterBodyPrefix != null -> bytes.size.toLong() + 1
+                                bytes.isEmpty() -> -1
+                                else -> bytes.size.toLong()
+                            }
+                        exchange.sendResponseHeaders(response.status, contentLength)
+                        exchange.responseBody.use {
+                            it.write(bytes)
+                            it.flush()
+                            response.afterBodyPrefix?.invoke()
+                            if (remaining.isNotEmpty()) {
+                                it.write(remaining)
+                            }
+                        }
                         true
                     } catch (_: IOException) {
                         false

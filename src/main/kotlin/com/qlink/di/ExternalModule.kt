@@ -5,12 +5,12 @@ import aws.sdk.kotlin.services.lambda.LambdaClient
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
-import com.anthropic.backends.AnthropicBackend
-import com.anthropic.client.okhttp.OkHttpClient
+import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.ClaudeAiClient
-import com.qlink.ai.client.GeminiAiClient
-import com.qlink.ai.client.OpenAiClient
+import com.qlink.ai.client.GeminiCurlClient
+import com.qlink.ai.client.GeminiSdkClient
+import com.qlink.ai.client.OpenAiCurlClient
+import com.qlink.ai.client.OpenAiSdkClient
 import com.qlink.auth.client.AppleAuthResourceClient
 import com.qlink.auth.client.AuthResourceClientRouter
 import com.qlink.auth.client.GoogleAuthResourceClient
@@ -19,6 +19,8 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.AiSdkConfig
+import com.qlink.config.AiSdkHttpTransport
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
@@ -44,16 +46,17 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
-import com.anthropic.core.http.HttpClient as AnthropicTransport
 
 fun externalModule(
     config: ApplicationConfig,
     s3Config: S3Config = S3Config.from(config),
 ) = module {
     val notificationConfig = NotificationConfig.from(config)
+    val aiSdkConfig = AiSdkConfig(config)
 
     single {
         val monitoringConfig = get<MonitoringConfig>()
@@ -86,13 +89,36 @@ fun externalModule(
         ApiKeyCipher(keyBase64 = keyBase64, invalidKeyErrorCode = ErrorCode.CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID)
     }
 
-    single {
-        GeminiAiClient()
-    } onClose { it?.close() }
+    single { aiSdkConfig }
 
-    single {
-        OpenAiClient()
-    } onClose { it?.close() }
+    single { AiSdkHttpTransport() } onClose { it?.close() }
+
+    single { get<AiSdkConfig>().geminiClient(get()) } onClose { it?.close() }
+
+    single { get<AiSdkConfig>().openAiClient(get()) } onClose { it?.close() }
+
+    single<AiClient>(named("gemini")) {
+        val sdkConfig = get<AiSdkConfig>()
+        if (sdkConfig.geminiEnabled) {
+            GeminiSdkClient(client = get(), transport = get(), config = sdkConfig.geminiSummary)
+        } else {
+            GeminiCurlClient(httpClient = get())
+        }
+    }
+
+    single<AiClient>(named("openai")) {
+        val sdkConfig = get<AiSdkConfig>()
+        if (sdkConfig.openAiEnabled) {
+            OpenAiSdkClient(
+                client = get(),
+                transport = get(),
+                textConfig = sdkConfig.openAiSummary,
+                webSearch = sdkConfig.openAiWebSearch,
+            )
+        } else {
+            OpenAiCurlClient(httpClient = get())
+        }
+    }
 
     single {
         KakaoAuthResourceClient(
@@ -134,24 +160,12 @@ fun externalModule(
         )
     }
 
-    single<AnthropicTransport> {
-        OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
-    }
-
-    single {
-        ClaudeAiClient(
-            transport = get(),
-            log = LoggerFactory.getLogger(ClaudeAiClient::class.java),
-        )
-    } onClose { it?.close() }
-
     single {
         AiClientRouter(
             clients =
                 listOf(
-                    get<GeminiAiClient>(),
-                    get<OpenAiClient>(),
-                    get<ClaudeAiClient>(),
+                    get<AiClient>(named("gemini")),
+                    get<AiClient>(named("openai")),
                 ),
         )
     }

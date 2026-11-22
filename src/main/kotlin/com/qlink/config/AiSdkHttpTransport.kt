@@ -1,4 +1,4 @@
-package com.qlink.ai.client
+package com.qlink.config
 
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
