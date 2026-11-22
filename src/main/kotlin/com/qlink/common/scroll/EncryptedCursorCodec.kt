@@ -11,12 +11,15 @@ class EncryptedCursorCodec(
 ) {
     inline fun <reified T> encode(value: T): String = cipher.encrypt(Json.encodeToString(value))
 
-    inline fun <reified T> decode(encoded: String): T {
-        val plaintext = cipher.decrypt(encoded) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
+    inline fun <reified T> decode(
+        encoded: String,
+        errorCode: ErrorCode,
+    ): T {
+        val plaintext = cipher.decrypt(encoded) ?: throw BusinessException(errorCode)
         return try {
             Json.decodeFromString<T>(plaintext)
         } catch (e: SerializationException) {
-            throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED, e)
+            throw BusinessException(errorCode, e)
         }
     }
 }

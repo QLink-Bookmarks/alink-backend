@@ -19,9 +19,9 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
 import com.qlink.support.getPublicTodos
-import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked

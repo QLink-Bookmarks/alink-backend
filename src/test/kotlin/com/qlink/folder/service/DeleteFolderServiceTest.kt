@@ -31,8 +31,8 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
-import com.qlink.support.getPublicLinks
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository

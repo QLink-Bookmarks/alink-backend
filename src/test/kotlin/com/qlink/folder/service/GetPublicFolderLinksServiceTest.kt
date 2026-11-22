@@ -20,12 +20,12 @@ import com.qlink.link.service.GetLinksService
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.assertPublicCursorHidesIds
 import com.qlink.support.fixture.FolderFixture
-import com.qlink.support.fixture.withPublication
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.PublicFolderFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.getPublicLinks
 import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet

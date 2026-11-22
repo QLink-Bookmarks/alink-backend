@@ -235,7 +235,11 @@ class GetLinksService(
                 (scope.isPublic == null).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
                 Base64CursorCodec.decode<LinkSearchCursor>(encoded)
             } else {
-                val scoped = encryptedCursorCodec.decode<ScopedLinkSearchCursor>(encoded)
+                val scoped =
+                    encryptedCursorCodec.decode<ScopedLinkSearchCursor>(
+                        encoded = encoded,
+                        errorCode = ErrorCode.COMMON_CURSOR_MALFORMED,
+                    )
                 (scoped.scope == scope).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
                 scoped.cursor
             }

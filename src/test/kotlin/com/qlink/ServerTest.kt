@@ -11,12 +11,12 @@ import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.repository.LinkRepository
 import com.qlink.support.ServiceTestEnvironment
 import com.qlink.support.fixture.FolderFixture
-import com.qlink.support.fixture.withPublication
 import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository

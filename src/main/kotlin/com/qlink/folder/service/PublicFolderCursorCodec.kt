@@ -18,7 +18,7 @@ class PublicFolderCursorCodec(
         sort: PublicFolderSort,
         isPublic: Boolean? = null,
     ): PublicFolderCursor {
-        val cursor = cursorCodec.decode<PublicFolderCursor>(encoded)
+        val cursor = cursorCodec.decode<PublicFolderCursor>(encoded = encoded, errorCode = ErrorCode.COMMON_CURSOR_MALFORMED)
         (cursor.folderId == folderId && cursor.collection == collection && cursor.isPublic == isPublic)
             .requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
         sort.validateCursor(cursor.direction)
