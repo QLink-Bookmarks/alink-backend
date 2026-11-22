@@ -99,6 +99,12 @@ class DbLinkRepository : LinkRepository {
             .singleOrNull()
             ?.toLinkDomain()
 
+    override suspend fun clearFolderVisibility(folderId: Long) {
+        Links.update(where = { (Links.folderId eq folderId) and (Links.isPublic eq true) }) {
+            it[isPublic] = false
+        }
+    }
+
     override suspend fun findByIdForUpdate(linkId: Long): Link? =
         Links
             .selectAll()
@@ -135,12 +141,12 @@ class DbLinkRepository : LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        publicationId: String?,
+        isPublic: Boolean,
     ) {
         if (linkIds.isEmpty()) return
         Links.update(where = { Links.id inList linkIds }) {
             it[Links.folderId] = folderId
-            it[Links.publicationId] = publicationId
+            it[Links.isPublic] = isPublic
             it[Links.updatedAt] = now.toJavaInstant()
         }
     }
@@ -215,8 +221,8 @@ class DbLinkRepository : LinkRepository {
                 Links.ownerId,
                 Links.folderId,
                 Folders.sharedAt,
-                Folders.publicId,
-                Links.publicationId,
+                Folders.isPublic,
+                Links.isPublic,
                 FolderMembers.userId,
                 folderName,
                 folderEmoji,
@@ -313,12 +319,12 @@ class DbLinkRepository : LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
-        publicationId: String?,
+        isPublic: Boolean,
     ): Link =
         Links
             .updateReturning(where = { Links.id eq linkId }) {
                 it[Links.folderId] = folderId
-                it[Links.publicationId] = publicationId
+                it[Links.isPublic] = isPublic
                 it[Links.memo] = memo
                 it[Links.tags] = tags
                 it[Links.searchText] =
@@ -341,11 +347,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
-        publicationId: String?,
+        isPublic: Boolean,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
-            it[Links.publicationId] = publicationId
+            it[Links.isPublic] = isPublic
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags
@@ -397,7 +403,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolder(folderId: Long) {
         Links.update(where = { Links.folderId eq folderId }) {
             it[Links.folderId] = null
-            it[Links.publicationId] = null
+            it[Links.isPublic] = false
             it.refreshUpdatedAt()
         }
     }
@@ -405,7 +411,7 @@ class DbLinkRepository : LinkRepository {
     override suspend fun detachFolders(folderIds: List<Long>) {
         Links.update(where = { Links.folderId inList folderIds }) {
             it[Links.folderId] = null
-            it[Links.publicationId] = null
+            it[Links.isPublic] = false
             it.refreshUpdatedAt()
         }
     }
@@ -932,7 +938,7 @@ class DbLinkRepository : LinkRepository {
             hasContent = this[hasContent],
             contentExcerpt = this[contentExcerpt],
             isContentPending = this[isContentPending],
-            isPublic = this[Folders.publicId]?.let { it == this[Links.publicationId] } == true,
+            isPublic = this.getOrNull(Folders.isPublic) == true && this[Links.isPublic],
         )
 }
 

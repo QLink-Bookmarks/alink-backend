@@ -316,6 +316,7 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 userRepository = get(),
+                linkRepository = get(),
             )
         }
 

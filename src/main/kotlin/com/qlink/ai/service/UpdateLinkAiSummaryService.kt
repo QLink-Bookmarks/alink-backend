@@ -118,10 +118,10 @@ class UpdateLinkAiSummaryService(
                                                 isVideo = request.isVideo,
                                                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                                                 previewEnvironment = urlResolver.environment,
-                                                publicationId =
-                                                    it.resolveUpdatedPublicationId(
-                                                        sourcePublicId = source?.publicId,
-                                                        targetPublicId = target?.publicId,
+                                                isPublic =
+                                                    it.resolveUpdatedVisibility(
+                                                        sourceIsPublic = source?.isPublic == true,
+                                                        targetIsPublic = target?.isPublic == true,
                                                         isPublic = request.isPublic,
                                                     ),
                                             ).copyAiStatus(status = LinkStatus.G, workModelId = requestModel.id),
@@ -254,7 +254,7 @@ class UpdateLinkAiSummaryService(
                 status = LinkStatus.G,
                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                 previewEnvironment = urlResolver.environment,
-                publicationId = Link.resolveNewPublicationId(folderPublicId = folder?.publicId, isPublic = request.isPublic),
+                isPublic = Link.resolveNewVisibility(folderIsPublic = folder?.isPublic == true, isPublic = request.isPublic),
             ),
         )
 

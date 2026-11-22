@@ -143,7 +143,7 @@ class CreateImportReversalServiceTest :
                             tx.required {
                                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                                 val committed = insertImportedItemsOf(ownerId)
-                                folderRepository.update(committed.newFolder.setPublic(FolderFixture.createPublicId()))
+                                folderRepository.update(committed.newFolder.setPublic(true))
                                 committed
                             }
                         }.await()
@@ -183,7 +183,7 @@ class CreateImportReversalServiceTest :
                                 folderRepository.findById(folderId) shouldBe null
                                 val stored = linkRepository.findById(linkId).shouldNotBeNull()
                                 stored.folderId shouldBe null
-                                stored.publicationId shouldBe null
+                                stored.isPublic shouldBe false
                             }
                         }.await()
                 }

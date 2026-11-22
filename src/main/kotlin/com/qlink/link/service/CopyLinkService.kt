@@ -71,10 +71,10 @@ class CopyLinkService(
                         link.addToFolder(
                             newOwnerId = loginId,
                             folderId = target?.id,
-                            publicationId =
-                                link.resolveUpdatedPublicationId(
-                                    sourcePublicId = source.publicId,
-                                    targetPublicId = target?.publicId,
+                            isPublic =
+                                link.resolveUpdatedVisibility(
+                                    sourceIsPublic = source.isPublic,
+                                    targetIsPublic = target?.isPublic == true,
                                     isPublic = null,
                                 ),
                         ),

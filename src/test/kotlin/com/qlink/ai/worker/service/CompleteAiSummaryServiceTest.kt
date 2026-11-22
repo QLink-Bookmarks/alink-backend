@@ -119,13 +119,13 @@ class CompleteAiSummaryServiceTest :
             }
 
             When("비공개 링크를 AI가 공개 폴더로 분류하면") {
-                lateinit var targetPublicId: String
+                var targetIsPublic = false
 
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    targetPublicId = FolderFixture.createPublicId()
-                    folderRepository.update(candidate.setPublic(targetPublicId))
-                    folderRepository.update(source.setPublic(FolderFixture.createPublicId()))
+                    targetIsPublic = true
+                    folderRepository.update(candidate.setPublic(targetIsPublic))
+                    folderRepository.update(source.setPublic(true))
                     val request = LinkFixture.createPatchLinkRequest()
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = true))
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = false))
@@ -136,19 +136,19 @@ class CompleteAiSummaryServiceTest :
                     val stored = linkRepository.findById(link.id!!)!!
 
                     stored.folderId shouldBe candidate.id
-                    stored.isPublicIn(targetPublicId) shouldBe false
+                    stored.isPublicIn(targetIsPublic) shouldBe false
                     todoRepository.findAllByLinkId(link.id!!).size shouldBe completion.response.todos.size
                 }
             }
 
             When("추천 목적지를 철회한 뒤 AI 결과를 저장하면") {
-                lateinit var oldPublicId: String
+                var wasPublic = false
 
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    oldPublicId = FolderFixture.createPublicId()
-                    folderRepository.update(candidate.setPublic(oldPublicId))
-                    folderRepository.update(source.setPublic(FolderFixture.createPublicId()))
+                    wasPublic = true
+                    folderRepository.update(candidate.setPublic(wasPublic))
+                    folderRepository.update(source.setPublic(true))
                     patchLink.patchLink(link.ownerId, link.id!!, LinkFixture.createPatchLinkRequest().copy(isPublic = true))
                     folderRepository.update(candidate)
                 }
@@ -157,7 +157,7 @@ class CompleteAiSummaryServiceTest :
                     service.complete(completion)
                     val stored = linkRepository.findById(link.id!!)!!
                     stored.folderId shouldBe candidate.id
-                    stored.publicationId shouldBe null
+                    stored.isPublic shouldBe false
                 }
             }
 

@@ -60,13 +60,13 @@ class PatchLinkServiceTest :
 
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 publicTarget =
-                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 privateTarget = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 publicLink =
                     linkRepository.insert(
-                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, publicationId = source.publicId),
+                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, isPublic = source.isPublic),
                     )
                 privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id))
                 for (link in listOf(publicLink, privateLink)) {
@@ -86,7 +86,7 @@ class PatchLinkServiceTest :
                     val stored = linkRepository.findById(id)!!
 
                     response.isPublic shouldBe true
-                    stored.publicationId shouldBe source.publicId
+                    stored.isPublic shouldBe source.isPublic
                     stored.folderId shouldBe privateLink.folderId
                     stored.memo shouldBe privateLink.memo
                 }
@@ -104,7 +104,7 @@ class PatchLinkServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { patch() }
                     val stored = linkRepository.findById(publicLink.id!!)!!
                     stored.folderId shouldBe publicLink.folderId
-                    stored.publicationId shouldBe publicLink.publicationId
+                    stored.isPublic shouldBe publicLink.isPublic
                     stored.memo shouldBe publicLink.memo
                 }
             }
@@ -121,7 +121,7 @@ class PatchLinkServiceTest :
 
                     response.isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
-                    linkRepository.findById(id)!!.publicationId shouldBe null
+                    linkRepository.findById(id)!!.isPublic shouldBe false
                 }
             }
 
@@ -137,11 +137,11 @@ class PatchLinkServiceTest :
                         )
 
                     patch(null).isPublic shouldBe true
-                    linkRepository.findById(id)!!.publicationId shouldBe source.publicId
+                    linkRepository.findById(id)!!.isPublic shouldBe source.isPublic
                     patch(publicTarget.id).isPublic shouldBe true
-                    linkRepository.findById(id)!!.publicationId shouldBe publicTarget.publicId
+                    linkRepository.findById(id)!!.isPublic shouldBe publicTarget.isPublic
                     patch(privateTarget.id).isPublic shouldBe false
-                    linkRepository.findById(id)!!.publicationId shouldBe null
+                    linkRepository.findById(id)!!.isPublic shouldBe false
                     patch(0).isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }

@@ -176,7 +176,7 @@ class DbFolderRepository : FolderRepository {
                     Folders.name,
                     Folders.emoji,
                     Folders.sharedAt,
-                    Folders.publicId,
+                    Folders.isPublic,
                     Folders.createdAt,
                     score,
                 ).where {
@@ -324,7 +324,7 @@ class DbFolderRepository : FolderRepository {
             name = this[Folders.name],
             emoji = this[Folders.emoji],
             sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
-            isPublic = this[Folders.publicId] != null,
+            isPublic = this[Folders.isPublic],
             createdAt = this[Folders.createdAt].toKotlinInstant(),
             shareCounts = 0,
             linkCounts = 0,

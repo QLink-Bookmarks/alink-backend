@@ -244,7 +244,7 @@ class CreateImportServiceTest :
                 beforeTest {
                     publicFolder =
                         folderRepository.insert(
-                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(FolderFixture.createPublicId()),
+                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(true),
                         )
                     duplicate = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                     val publicTarget = ImportRequestFixture.createFolderRequest(folderId = publicFolder.id)
@@ -266,9 +266,9 @@ class CreateImportServiceTest :
                     val rows = bookmarkImportRepository.findLinksByImportId(result.id).map { linkRepository.findById(it.linkId)!! }
 
                     rows.size shouldBe 2
-                    rows.single { it.folderId == publicFolder.id }.publicationId shouldBe publicFolder.publicId
-                    rows.single { it.folderId == existingFolder.id }.publicationId shouldBe null
-                    linkRepository.findById(duplicate.id!!)!!.publicationId shouldBe null
+                    rows.single { it.folderId == publicFolder.id }.isPublic shouldBe publicFolder.isPublic
+                    rows.single { it.folderId == existingFolder.id }.isPublic shouldBe false
+                    linkRepository.findById(duplicate.id!!)!!.isPublic shouldBe false
                 }
             }
 

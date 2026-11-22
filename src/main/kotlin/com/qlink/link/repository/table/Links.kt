@@ -41,7 +41,7 @@ object Links : Table("links") {
     val favoriteAt = timestamp("favorite_at").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
-    val publicationId = varchar("publication_id", 36).nullable()
+    val isPublic = bool("is_public").default(false)
 
     override val primaryKey = PrimaryKey(id)
 
@@ -74,13 +74,13 @@ fun ResultRow.toLinkDomain(): Link =
         favoriteAt = this[Links.favoriteAt]?.toKotlinInstant(),
         createdAt = this[Links.createdAt].toKotlinInstant(),
         updatedAt = this[Links.updatedAt].toKotlinInstant(),
-        publicationId = this[Links.publicationId],
+        isPublic = this[Links.isPublic],
     )
 
 fun UpdateBuilder<*>.fromDomain(link: Link) {
     this[Links.ownerId] = link.ownerId
     this[Links.folderId] = link.folderId
-    this[Links.publicationId] = link.publicationId
+    this[Links.isPublic] = link.isPublic
     this[Links.url] = link.url
     this[Links.title] = link.title
     this[Links.summary] = link.summary

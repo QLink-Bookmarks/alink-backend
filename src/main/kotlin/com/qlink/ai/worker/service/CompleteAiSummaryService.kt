@@ -105,10 +105,10 @@ class CompleteAiSummaryService(
                                 sourceType = link.sourceType,
                                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                                 previewEnvironment = urlResolver.environment,
-                                publicationId =
-                                    link.resolveUpdatedPublicationId(
-                                        sourcePublicId = lockedFolders.find { it.id == link.folderId }?.publicId,
-                                        targetPublicId = lockedFolders.find { it.id == folderId }?.publicId,
+                                isPublic =
+                                    link.resolveUpdatedVisibility(
+                                        sourceIsPublic = lockedFolders.find { it.id == link.folderId }?.isPublic == true,
+                                        targetIsPublic = lockedFolders.find { it.id == folderId }?.isPublic == true,
                                         isPublic = null,
                                     ),
                             ).copyAiStatus(status = LinkStatus.A, workModelId = completion.responseModelId)
@@ -120,7 +120,7 @@ class CompleteAiSummaryService(
                         tags = summarizedLink.tags,
                         status = summarizedLink.status,
                         workModelId = summarizedLink.workModelId,
-                        publicationId = summarizedLink.publicationId,
+                        isPublic = summarizedLink.isPublic,
                     )
                     val todos =
                         response.todos.map {

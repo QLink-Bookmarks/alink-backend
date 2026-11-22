@@ -42,7 +42,7 @@ class CreateLinkService(
             tx.required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
                 val folder = request.folderId?.let { folderAccessValidator.validateWritable(it, loginId) }
-                val publicationId = Link.resolveNewPublicationId(folderPublicId = folder?.publicId, isPublic = request.isPublic)
+                val isPublic = Link.resolveNewVisibility(folderIsPublic = folder?.isPublic == true, isPublic = request.isPublic)
 
                 val link =
                     Link.createFromRequest(
@@ -60,7 +60,7 @@ class CreateLinkService(
                         status = LinkStatus.C,
                         previewPublicBaseUrl = urlResolver.publicBaseUrl,
                         previewEnvironment = urlResolver.environment,
-                        publicationId = publicationId,
+                        isPublic = isPublic,
                     )
 
                 val createdLink = linkRepository.insert(link)

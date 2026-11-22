@@ -232,15 +232,15 @@ class GetLinkDetailServiceTest :
             lateinit var member: User
             lateinit var outsider: User
             lateinit var sharedLink: Link
-            lateinit var publicId: String
+            var published = false
 
             beforeTest {
                 val owner = userRepository.insert(UserFixture.createRandomValidUser())
                 member = userRepository.insert(UserFixture.createRandomValidUser())
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
-                publicId = FolderFixture.createPublicId()
+                published = true
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(publicId))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(published))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )
@@ -255,7 +255,7 @@ class GetLinkDetailServiceTest :
                             thumbnailUrl = RandomFixture.randomPreviewUrl(),
                             faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
                             isVideo = true,
-                            publicationId = publicId,
+                            isPublic = published,
                         ),
                     )
             }

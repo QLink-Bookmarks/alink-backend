@@ -99,7 +99,7 @@ class CreateImportService(
                 ImportPlanDomainService.links(
                     plan = plan,
                     savedNewFolders = savedFolders,
-                    publicIdsByFolder = existingFolders.associate { it.id!! to it.publicId },
+                    visibilityByFolder = existingFolders.associate { it.id!! to it.isPublic },
                 ),
             )
         linkContentRepository.insertAll(
