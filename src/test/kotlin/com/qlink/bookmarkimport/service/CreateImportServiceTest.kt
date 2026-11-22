@@ -240,6 +240,7 @@ class CreateImportServiceTest :
                 lateinit var publicFolder: Folder
                 lateinit var duplicate: Link
                 lateinit var request: CreateImportRequest
+                val originalCreatedAt = RandomFixture.randomPastInstant()
 
                 beforeTest {
                     publicFolder =
@@ -254,7 +255,7 @@ class CreateImportServiceTest :
                             folders = listOf(publicTarget, privateTarget),
                             links =
                                 listOf(
-                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key),
+                                    ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key, createdAt = originalCreatedAt),
                                     ImportRequestFixture.createLinkRequest(folderKey = privateTarget.key),
                                     ImportRequestFixture.createLinkRequest(folderKey = publicTarget.key, url = duplicate.url),
                                 ),
@@ -266,9 +267,12 @@ class CreateImportServiceTest :
                     val rows = bookmarkImportRepository.findLinksByImportId(result.id).map { linkRepository.findById(it.linkId)!! }
 
                     rows.size shouldBe 2
-                    rows.single { it.folderId == publicFolder.id }.isPublic shouldBe publicFolder.isPublic
-                    rows.single { it.folderId == existingFolder.id }.isPublic shouldBe false
-                    linkRepository.findById(duplicate.id!!)!!.isPublic shouldBe false
+                    val publicLink = rows.single { it.folderId == publicFolder.id }
+                    publicLink.createdAt shouldBe originalCreatedAt
+                    (publicLink.turnsPublicAt!! >= publicFolder.turnsPublicAt!!) shouldBe true
+                    (publicLink.turnsPublicAt!! > publicLink.createdAt!!) shouldBe true
+                    rows.single { it.folderId == existingFolder.id }.turnsPublicAt shouldBe null
+                    linkRepository.findById(duplicate.id!!)!!.turnsPublicAt shouldBe null
                 }
             }
 

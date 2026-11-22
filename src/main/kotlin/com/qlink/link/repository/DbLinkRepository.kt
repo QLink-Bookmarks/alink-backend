@@ -358,11 +358,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
-        isPublic: Boolean,
+        turnsPublicAt: Instant?,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
-            it[Links.isPublic] = isPublic
+            it[Links.turnsPublicAt] = turnsPublicAt?.toJavaInstant()
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags

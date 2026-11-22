@@ -1146,9 +1146,9 @@ class UpdateLinkAiSummaryServiceTest :
                     aiJobRepository.findById(publicJobId)?.linkId shouldBe created.id
                     aiJobRepository.findById(privateJobId)?.linkId shouldBe createdPrivate.id
                     aiJobRepository.findById(retriedJobId)?.linkId shouldBe retried.id
-                    linkRepository.findById(created.id)!!.isPublic shouldBe publicFolder.isPublic
-                    linkRepository.findById(createdPrivate.id)!!.isPublic shouldBe false
-                    linkRepository.findById(retried.id)!!.isPublic shouldBe false
+                    (linkRepository.findById(created.id)!!.turnsPublicAt != null) shouldBe publicFolder.isPublished
+                    linkRepository.findById(createdPrivate.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(retried.id)!!.turnsPublicAt shouldBe null
                 }
             }
 

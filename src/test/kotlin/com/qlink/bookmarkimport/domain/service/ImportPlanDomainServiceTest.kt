@@ -516,7 +516,7 @@ class ImportPlanDomainServiceTest :
             }
 
             When("저장된 새 폴더로 링크를 만들면") {
-                val created = ImportPlanDomainService.links(plan, listOf(savedNewFolder))
+                val created = ImportPlanDomainService.links(plan = plan, savedNewFolders = listOf(savedNewFolder), now = now)
 
                 Then("기존 폴더·저장된 새 폴더·미분류에 sourceType=IMPORT 링크로 만들어진다") {
                     created.map { it.folderId } shouldContainExactly listOf(existing.id, savedNewFolder.id, null)
@@ -540,7 +540,7 @@ class ImportPlanDomainServiceTest :
 
             When("저장된 링크로 행을 만들면") {
                 val savedLinks =
-                    ImportPlanDomainService.links(plan, listOf(savedNewFolder)).map {
+                    ImportPlanDomainService.links(plan = plan, savedNewFolders = listOf(savedNewFolder), now = now).map {
                         LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = it.folderId, url = it.url, title = it.title)
                     }
                 val savedRows =
