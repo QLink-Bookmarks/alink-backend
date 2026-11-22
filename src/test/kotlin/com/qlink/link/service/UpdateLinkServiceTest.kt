@@ -2,6 +2,7 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -10,6 +11,7 @@ import com.qlink.link.domain.Link
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.domain.LinkContent
@@ -22,6 +24,8 @@ import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getMemberLinkDetail
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -48,6 +52,7 @@ class UpdateLinkServiceTest :
         val tx = koinGet<TransactionRunner>()
         val folderRepository = koinGet<FolderRepository>()
         val todoRepository = koinGet<TodoRepository>()
+        val publicLinks = koinGet<GetLinksService>()
         val linkDetail = koinGet<GetLinkDetailService>()
 
         Given("비공개 링크와 액션이 있는 공개 폴더") {
@@ -67,8 +72,7 @@ class UpdateLinkServiceTest :
             }
 
             When("링크 소유자가 공개하고 공개값을 생략해 제목을 저장한 뒤 철회하면") {
-                Then("개별 공개값을 유지하며 익명 링크·액션 조회와 인증 상세에 반영한다") {
-                    val published = folder.isPublished
+                Then("개별 공개값을 유지하고 익명 링크 상세의 액션은 공개하지 않는다") {
                     val linkId = link.id!!
                     val request = LinkFixture.createUpdateLinkRequestFrom(link)
 
@@ -79,13 +83,22 @@ class UpdateLinkServiceTest :
                     val title = RandomFixture.randomSentenceWithMax(300)
                     updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).isPublic shouldBe true
                     val stored = linkRepository.findById(linkId)!!
-                    stored.isPublishedIn(published) shouldBe true
+                    stored.isPublishedIn(folder.isPublished) shouldBe true
                     stored.title shouldBe title
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+                    publicLinks
+                        .getPublicLinks(folder.id!!, null, null, ScrollRequest())
+                        .contents
+                        .single()
+                        .title shouldBe title
+                    val guestDetail = linkDetail.getPublicLinkDetail(linkId)
+                    guestDetail.todos shouldBe null
+                    todoRepository.findAllByLinkId(linkId).single().ownerId shouldBe link.ownerId
 
                     setPrivacy(false).isPublic shouldBe false
                     linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                    publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 

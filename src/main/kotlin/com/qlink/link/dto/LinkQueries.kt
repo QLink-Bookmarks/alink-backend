@@ -6,8 +6,48 @@ import com.qlink.common.search.SortCursor
 import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SourceType
+import com.qlink.link.repository.table.Links
+import com.qlink.linkcontent.repository.table.LinkContents
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.ResultRow
 import kotlin.time.Instant
+import kotlin.time.toKotlinInstant
+
+data class PublicLinkDetailQuery(
+    val id: Long,
+    val folderId: Long,
+    val title: String,
+    val url: String,
+    val folderName: String,
+    val folderEmoji: String?,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
+)
+
+data class PublicLinkQuery(
+    val id: Long,
+    val createdAt: Instant,
+    val title: String,
+    val url: String,
+    val thumbnailUrl: String?,
+    val faviconUrl: String?,
+    val isVideo: Boolean,
+    val contentExcerpt: String?,
+)
+
+fun ResultRow.toPublicLinkQuery(): PublicLinkQuery =
+    PublicLinkQuery(
+        id = this[Links.id],
+        createdAt = this[Links.createdAt].toKotlinInstant(),
+        title = this[Links.title],
+        url = this[Links.url],
+        thumbnailUrl = this[Links.thumbnailUrl],
+        faviconUrl = this[Links.faviconUrl],
+        isVideo = this[Links.isVideo],
+        contentExcerpt = this[LinkContents.excerpt],
+    )
 
 data class SearchLinksQuery(
     val id: Long,
@@ -24,6 +64,7 @@ data class SearchLinksQuery(
     val tags: List<String>,
     val createdAt: Instant,
     val favoriteAt: Instant?,
+    val turnsPublicAt: Instant?,
     val score: Double,
     val titleScore: Double,
     val urlScore: Double,
@@ -54,8 +95,6 @@ data class LinkDetailQuery(
     val id: Long,
     val ownerId: Long,
     val folderId: Long?,
-    val folderSharedAt: Instant?,
-    val folderMemberUserId: Long?,
     val folderName: String?,
     val folderEmoji: String?,
     val url: String,

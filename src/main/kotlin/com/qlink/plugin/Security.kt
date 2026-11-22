@@ -9,17 +9,20 @@ import com.qlink.common.response.respondError
 import com.qlink.config.SecurityConfig
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.AuthenticationFailedCause
 import io.ktor.server.auth.authentication
 import io.ktor.server.auth.jwt.jwt
 import org.koin.ktor.ext.inject
+
+private const val JWT_REALM = "QLINK-REST"
 
 fun Application.configureSecurity() {
     val config by inject<SecurityConfig>()
 
     authentication {
         jwt {
-            realm = "QLINK-REST"
+            realm = JWT_REALM
 
             verifier(
                 JWT
@@ -65,4 +68,9 @@ fun Application.configureSecurity() {
             }
         }
     }
+}
+
+internal suspend fun ApplicationCall.respondMissingAccessToken() {
+    response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer realm=\"$JWT_REALM\"")
+    respondError(ErrorCode.AUTH_ACCESS_TOKEN_MISSING, causeName = AuthenticationFailedCause.NoCredentials::class.simpleName)
 }

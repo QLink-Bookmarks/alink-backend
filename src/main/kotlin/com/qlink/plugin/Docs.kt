@@ -56,7 +56,7 @@ fun Application.configureDocs() {
             generator = SchemaGenerator.kotlinx()
         }
         tags {
-            apiTags.values.forEach { tag ->
+            apiTags.values.toSet().forEach { tag ->
                 tag(tag) {
                     description = tag
                 }
@@ -89,7 +89,9 @@ fun Application.configureDocs() {
             openApi.paths
                 ?.values
                 ?.flatMap { it.readOperations() }
-                ?.forEach { it.addParametersItem(requesterHeaderParameter()) }
+                ?.forEach {
+                    it.addParametersItem(requesterHeaderParameter())
+                }
         }
     }
 

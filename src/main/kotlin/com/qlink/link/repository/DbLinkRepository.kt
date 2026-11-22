@@ -29,7 +29,10 @@ import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.LinkSnippetQuery
+import com.qlink.link.dto.PublicLinkDetailQuery
+import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
+import com.qlink.link.dto.toPublicLinkQuery
 import com.qlink.link.repository.table.Links
 import com.qlink.link.repository.table.fromDomain
 import com.qlink.link.repository.table.fromDomainForInsert
@@ -81,6 +84,68 @@ import kotlin.time.toJavaInstant
 import kotlin.time.toKotlinInstant
 
 class DbLinkRepository : LinkRepository {
+    override suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery? {
+        val folderName = Folders.name.alias("folder_name")
+        val row =
+            Links
+                .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
+                .joinCollectedContent()
+                .select(
+                    Links.id,
+                    Folders.id,
+                    Links.title,
+                    Links.url,
+                    folderName,
+                    Folders.emoji,
+                    Links.thumbnailUrl,
+                    Links.faviconUrl,
+                    Links.isVideo,
+                    LinkContents.excerpt,
+                ).where { (Links.id eq linkId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
+                .singleOrNull() ?: return null
+        return PublicLinkDetailQuery(
+            id = row[Links.id],
+            folderId = row[Folders.id],
+            title = row[Links.title],
+            url = row[Links.url],
+            folderName = row[folderName],
+            folderEmoji = row[Folders.emoji],
+            thumbnailUrl = row[Links.thumbnailUrl],
+            faviconUrl = row[Links.faviconUrl],
+            isVideo = row[Links.isVideo],
+            contentExcerpt = row[LinkContents.excerpt],
+        )
+    }
+
+    override suspend fun findPublicByFolderId(
+        folderId: Long,
+        sort: LinkSort,
+        cursor: LinkSearchCursor?,
+        limit: Int,
+    ): List<PublicLinkQuery> {
+        val sortKeys = sortKeys(sort = sort, columns = SearchColumns.withoutKeyword(), hasKeyword = false)
+        return Links
+            .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
+            .joinCollectedContent()
+            .select(
+                Links.id,
+                Links.createdAt,
+                Links.title,
+                Links.url,
+                Links.thumbnailUrl,
+                Links.faviconUrl,
+                Links.isVideo,
+                LinkContents.excerpt,
+            ).where {
+                (Folders.id eq folderId) and
+                    Folders.turnsPublicAt.isNotNull() and
+                    Links.turnsPublicAt.isNotNull() and
+                    (cursor?.value?.let { keysetAfter(sortKeys, it) } ?: Op.TRUE)
+            }.orderBy(*sortKeys.map { it.expression to it.sortOrder }.toTypedArray())
+            .limit(limit)
+            .map { it.toPublicLinkQuery() }
+    }
+
     override suspend fun insert(link: Link): Link =
         Links
             .insertReturning { it.fromDomainForInsert(link) }
@@ -182,13 +247,6 @@ class DbLinkRepository : LinkRepository {
             .where { Links.ownerId eq ownerId }
             .map { it[Links.url] }
 
-    override suspend fun findCreatedAtById(linkId: Long): Instant? =
-        Links
-            .select(Links.createdAt)
-            .where { Links.id eq linkId }
-            .singleOrNull()
-            ?.let { it[Links.createdAt].toKotlinInstant() }
-
     override suspend fun findDetailById(
         linkId: Long,
         loginId: Long,
@@ -231,10 +289,8 @@ class DbLinkRepository : LinkRepository {
                 Links.id,
                 Links.ownerId,
                 Links.folderId,
-                Folders.sharedAt,
                 Folders.turnsPublicAt,
                 Links.turnsPublicAt,
-                FolderMembers.userId,
                 folderName,
                 folderEmoji,
                 Links.url,
@@ -254,7 +310,7 @@ class DbLinkRepository : LinkRepository {
                 hasContent,
                 contentExcerpt,
                 isContentPending,
-            ).where { Links.id eq linkId }
+            ).where { (Links.id eq linkId) and readableBy(loginId) }
             .singleOrNull()
             ?.let { row ->
                 row.toLinkDetailQuery(
@@ -276,6 +332,8 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         if (keyword == null) {
             return searchAll(
@@ -285,6 +343,8 @@ class DbLinkRepository : LinkRepository {
                 sort = sort,
                 cursor = cursor,
                 size = size,
+                isPublic = isPublic,
+                linkId = linkId,
             )
         }
 
@@ -297,6 +357,8 @@ class DbLinkRepository : LinkRepository {
                 sort = sort,
                 cursor = cursor,
                 size = size,
+                isPublic = isPublic,
+                linkId = linkId,
             )
         val snippets =
             findSnippets(
@@ -358,9 +420,11 @@ class DbLinkRepository : LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
+        clearPublication: Boolean,
     ) {
         Links.update(where = { Links.id eq linkId }) {
             it[Links.folderId] = folderId
+            if (clearPublication) it[Links.turnsPublicAt] = null
             it[Links.title] = title
             it[Links.summary] = summary
             it[Links.tags] = tags
@@ -444,6 +508,8 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         val columns = SearchColumns.withoutKeyword()
         val joined =
@@ -457,7 +523,14 @@ class DbLinkRepository : LinkRepository {
         return selectPage(
             joined = joined,
             columns = columns,
-            condition = accessibleWith(ownerId = ownerId, folderId = folderId, isFavorite = isFavorite),
+            condition =
+                accessibleWith(
+                    ownerId = ownerId,
+                    folderId = folderId,
+                    isFavorite = isFavorite,
+                    isPublic = isPublic,
+                    linkId = linkId,
+                ),
             sortKeys = sortKeys(sort = sort, columns = columns, hasKeyword = false),
             cursor = cursor,
             size = size,
@@ -472,9 +545,18 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         val pattern = likeQuery(keyword.value)
-        val accessible = accessibleWith(ownerId = ownerId, folderId = folderId, isFavorite = isFavorite)
+        val accessible =
+            accessibleWith(
+                ownerId = ownerId,
+                folderId = folderId,
+                isFavorite = isFavorite,
+                isPublic = isPublic,
+                linkId = linkId,
+            )
         val candidateLinkId = Links.id.alias("link_id")
         val candidateMetaHit = booleanLiteral(true).alias("meta_hit")
         val candidateContentHit = booleanLiteral(false).alias("content_hit")
@@ -605,11 +687,13 @@ class DbLinkRepository : LinkRepository {
                     Links.createdAt,
                     Links.favoriteAt,
                     LinkContents.excerpt,
+                    Folders.turnsPublicAt,
+                    Links.turnsPublicAt,
                 ) + columns.aliases,
             ).where {
                 condition and (cursor?.value?.let { keysetAfter(sortKeys, it) } ?: Op.TRUE)
             }.orderBy(*sortKeys.map { it.expression to it.sortOrder }.toTypedArray())
-            .limit(size + 1)
+            .limit((size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             .map { row ->
                 row.toSearchLinksQuery(
                     folderName = folderName,
@@ -670,17 +754,30 @@ class DbLinkRepository : LinkRepository {
                 },
             )
 
+    private fun readableBy(userId: Long): Op<Boolean> =
+        (Links.ownerId eq userId) or ((FolderMembers.userId eq userId) and Folders.sharedAt.isNotNull())
+
     private fun accessibleWith(
         ownerId: Long,
         folderId: Long?,
         isFavorite: Boolean?,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): Op<Boolean> =
         listOfNotNull(
-            (Links.ownerId eq ownerId) or ((FolderMembers.userId eq ownerId) and Folders.sharedAt.isNotNull()),
+            readableBy(ownerId),
             folderId?.let { requestedFolderId ->
                 when (requestedFolderId) {
                     0L -> Links.folderId.isNull()
                     else -> Links.folderId eq requestedFolderId
+                }
+            },
+            linkId?.let { Links.id eq it },
+            isPublic?.let { published ->
+                if (published) {
+                    Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull()
+                } else {
+                    Folders.turnsPublicAt.isNull() or Links.turnsPublicAt.isNull()
                 }
             },
             isFavorite?.let { favorite ->
@@ -712,13 +809,7 @@ class DbLinkRepository : LinkRepository {
         val orderKeys =
             when (sort.orderKey) {
                 LinkOrderKey.CREATED_AT -> {
-                    listOf(
-                        SortKey(
-                            Links.createdAt,
-                            sortOrder,
-                        ) { QueryParameter(it.createdAt!!.toJavaInstant(), Links.createdAt.columnType) },
-                        SortKey(Links.id, sortOrder) { longLiteral(it.id!!) },
-                    )
+                    createdAtSortKeys(sortOrder)
                 }
 
                 LinkOrderKey.TITLE -> {
@@ -748,6 +839,12 @@ class DbLinkRepository : LinkRepository {
 
         return if (hasKeyword) listOf(metadataKey) + orderKeys else orderKeys
     }
+
+    private fun createdAtSortKeys(sortOrder: SortOrder): List<SortKey> =
+        listOf(
+            SortKey(Links.createdAt, sortOrder) { QueryParameter(it.createdAt!!.toJavaInstant(), Links.createdAt.columnType) },
+            SortKey(Links.id, sortOrder) { longLiteral(it.id!!) },
+        )
 
     private fun SortDirection.sortOrder(): SortOrder =
         when (this) {
@@ -896,6 +993,7 @@ class DbLinkRepository : LinkRepository {
             tags = this[Links.tags],
             createdAt = this[Links.createdAt].toKotlinInstant(),
             favoriteAt = this[Links.favoriteAt]?.toKotlinInstant(),
+            turnsPublicAt = effectivePublicationAt(),
             score = this[columns.scoreAlias],
             titleScore = this[columns.titleScoreAlias],
             urlScore = this[columns.urlScoreAlias],
@@ -926,8 +1024,6 @@ class DbLinkRepository : LinkRepository {
             id = this[Links.id],
             ownerId = this[Links.ownerId],
             folderId = this[Links.folderId],
-            folderSharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
-            folderMemberUserId = this[FolderMembers.userId],
             folderName = this[folderName],
             folderEmoji = this[folderEmoji],
             url = this[Links.url],
@@ -947,8 +1043,11 @@ class DbLinkRepository : LinkRepository {
             hasContent = this[hasContent],
             contentExcerpt = this[contentExcerpt],
             isContentPending = this[isContentPending],
-            turnsPublicAt = this[Links.turnsPublicAt]?.takeIf { this.getOrNull(Folders.turnsPublicAt) != null }?.toKotlinInstant(),
+            turnsPublicAt = effectivePublicationAt(),
         )
+
+    private fun ResultRow.effectivePublicationAt(): Instant? =
+        this[Links.turnsPublicAt]?.takeIf { this.getOrNull(Folders.turnsPublicAt) != null }?.toKotlinInstant()
 }
 
 private val TAGS_TEXT = arrayToString(Links.tags, " ")

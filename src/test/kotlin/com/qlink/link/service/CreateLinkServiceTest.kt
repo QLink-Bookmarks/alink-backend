@@ -2,6 +2,7 @@ package com.qlink.link.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
@@ -11,6 +12,7 @@ import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.CreateLinkService
+import com.qlink.link.service.GetLinksService
 import com.qlink.link.worker.LinkPreviewFillSignal
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
@@ -25,6 +27,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
 import com.qlink.support.fixture.withPublication
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
@@ -58,6 +61,7 @@ class CreateLinkServiceTest :
         val linkContentRepository = koinGet<LinkContentRepository>()
         val previewFillSignal = koinGet<LinkPreviewFillSignal>()
         val tx = koinGet<TransactionRunner>()
+        val publicLinks = koinGet<GetLinksService>()
 
         suspend fun <T> withCommittedUser(block: suspend (User) -> T): T =
             CoroutineScope(Dispatchers.IO)
@@ -127,6 +131,7 @@ class CreateLinkServiceTest :
                     val result = create()
                     linkRepository.findById(result.id)!!.turnsPublicAt shouldBe null
                     todoRepository.findAllByLinkId(result.id).size shouldBe 1
+                    publicLinks.getPublicLinks(publicFolder.id!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
                 }
             }
 

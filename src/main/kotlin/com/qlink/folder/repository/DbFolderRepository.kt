@@ -60,6 +60,14 @@ class DbFolderRepository : FolderRepository {
             .singleOrNull()
             ?.toFolderDomain()
 
+    override suspend fun findByIdForShare(folderId: Long): Folder? =
+        Folders
+            .selectAll()
+            .where { Folders.id eq folderId }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForShare)
+            .singleOrNull()
+            ?.toFolderDomain()
+
     override suspend fun findAllByIds(ids: List<Long>): List<Folder> =
         Folders
             .selectAll()
@@ -135,6 +143,7 @@ class DbFolderRepository : FolderRepository {
         sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
+        folderId: Long?,
     ): List<SearchFoldersQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
         val loweredQuery = normalizedQuery?.lowercase()
@@ -178,6 +187,7 @@ class DbFolderRepository : FolderRepository {
                                 Folders.sharedAt.isNotNull()
                         )
                 }.apply {
+                    folderId?.let { andWhere { Folders.id eq it } }
                     loweredQuery?.let { keyword ->
                         andWhere { lowerText(Folders.name) like "%$keyword%" }
                     }

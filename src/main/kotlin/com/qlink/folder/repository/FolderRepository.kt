@@ -9,6 +9,8 @@ import kotlin.time.Instant
 interface FolderRepository {
     suspend fun findById(id: Long): Folder?
 
+    suspend fun findByIdForShare(folderId: Long): Folder?
+
     suspend fun findAllByIds(ids: List<Long>): List<Folder>
 
     suspend fun findAllByIdsForUpdate(ids: List<Long>): List<Folder>
@@ -40,6 +42,7 @@ interface FolderRepository {
         sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
+        folderId: Long? = null,
     ): List<SearchFoldersQuery>
 
     suspend fun update(folder: Folder): Folder

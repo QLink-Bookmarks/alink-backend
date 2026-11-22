@@ -44,6 +44,25 @@ internal fun setFolderPrivacyDocs(): RouteConfig.() -> Unit =
         }
     }
 
+internal fun getFolderDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "폴더 상세 조회 API"
+        description =
+            "로그인은 선택이에요. 소유자와 멤버에게 폴더 정보를, 공개 폴더의 외부 열람자에게 id, name, emoji, myLinkCounts(0)를 반환해요."
+        protected = false
+        request { pathParameter<Long>("id") { description = "폴더 ID" } }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<GetFoldersContentResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_NOT_FOUND) }
+            }
+        }
+    }
+
 internal fun getFoldersDocs(): RouteConfig.() -> Unit =
     {
         summary = "폴더 목록 조회 API"

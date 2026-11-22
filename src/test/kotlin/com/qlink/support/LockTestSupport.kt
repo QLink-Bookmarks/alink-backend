@@ -60,12 +60,13 @@ private suspend fun <T> runWhileLocked(
         val blockerPid = locked.await()
         val result = async { action() }
         withTimeout(10.seconds) {
-            var waiterPid = tx.readOnly { findWaitingBackend(table, blockerPid) }
-            while (waiterPid == null) {
+            var waiter = tx.readOnly { findWaitingBackend(table, blockerPid) }
+            while (waiter == null) {
                 delay(20.milliseconds)
-                waiterPid = tx.readOnly { findWaitingBackend(table, blockerPid) }
+                waiter = tx.readOnly { findWaitingBackend(table, blockerPid) }
             }
-            println("PostgreSQL lock wait on $table: backend $waiterPid blocked by backend $blockerPid")
+            val (pid, statement) = waiter
+            println("PostgreSQL lock wait on $table: backend $pid blocked by backend $blockerPid during $statement")
         }
         release.complete(Unit)
         competitor.await()
@@ -81,9 +82,9 @@ private fun backendPid(): Int =
 private fun findWaitingBackend(
     table: String,
     blockerPid: Int,
-): Int? =
+): Pair<Int, String>? =
     TransactionManager.current().exec(
-        "SELECT pid FROM pg_stat_activity " +
+        "SELECT pid, split_part(ltrim(query), ' ', 1) FROM pg_stat_activity " +
             "WHERE wait_event_type = 'Lock' AND datname = current_database() " +
             "AND $blockerPid = ANY(pg_blocking_pids(pid)) AND query ~* '\\m$table\\M'",
-    ) { it.takeIf { row -> row.next() }?.getInt(1) }
+    ) { if (it.next()) it.getInt(1) to it.getString(2) else null }
