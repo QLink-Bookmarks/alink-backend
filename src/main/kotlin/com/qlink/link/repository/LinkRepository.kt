@@ -1,13 +1,11 @@
 package com.qlink.link.repository
 
-import com.qlink.common.search.SortDirection
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkSort
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
-import com.qlink.link.dto.PublicLinkCursor
 import com.qlink.link.dto.PublicLinkDetailQuery
 import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
@@ -37,8 +35,8 @@ interface LinkRepository {
 
     suspend fun findPublicByFolderId(
         folderId: Long,
-        direction: SortDirection,
-        cursor: PublicLinkCursor?,
+        sort: LinkSort,
+        cursor: LinkSearchCursor?,
         limit: Int,
     ): List<PublicLinkQuery>
 

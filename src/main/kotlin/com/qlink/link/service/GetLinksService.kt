@@ -9,7 +9,6 @@ import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.folder.domain.PublicFolderSort
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkSort
@@ -22,7 +21,6 @@ import com.qlink.link.dto.LinkListItemResponse
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.PublicFolderLinkResponse
-import com.qlink.link.dto.PublicLinkCursor
 import com.qlink.link.dto.SearchLinksQuery
 import com.qlink.link.dto.SnippetResponse
 import com.qlink.link.dto.TodoCountsResponse
@@ -80,19 +78,14 @@ class GetLinksService(
     ): ScrollResponse<PublicFolderLinkResponse> {
         val size = scrollRequest.size
         (size > 0).requireTrue(ErrorCode.COMMON_BAD_REQUEST)
-        val sort = PublicFolderSort.from(orderKey = orderKey, order = order)
+        val sort = LinkSort.forPublicFolder(orderKey = orderKey, order = order)
         val cursor =
             scrollRequest.cursor?.let {
-                val decoded = Base64CursorCodec.decode<LinkSearchCursor>(it)
-                LinkSort.of(orderKey = "created_at", order = sort.direction.name.lowercase()).validateCursor(
-                    orderKey = decoded.orderKey,
-                    direction = decoded.direction,
-                    order = decoded.order,
-                )
-                PublicLinkCursor(
-                    id = decoded.value.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
-                    createdAt = decoded.value.createdAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
-                )
+                val decoded = decodeCursor(encoded = it, sort = sort, hasKeyword = false)
+                if (sort.orderKey == LinkOrderKey.CREATED_AT) {
+                    decoded.value.createdAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING)
+                }
+                decoded
             }
         val rows =
             if (isPublic == false) {
@@ -100,7 +93,7 @@ class GetLinksService(
             } else {
                 linkRepository.findPublicByFolderId(
                     folderId = folderId,
-                    direction = sort.direction,
+                    sort = sort,
                     cursor = cursor,
                     limit = (size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 )
@@ -109,11 +102,17 @@ class GetLinksService(
         val page = rows.take(size)
         val nextCursor =
             if (hasNext) {
+                val last = page.last()
                 Base64CursorCodec.encode(
                     LinkSearchCursor(
-                        orderKey = LinkOrderKey.CREATED_AT,
+                        orderKey = sort.orderKey,
                         direction = sort.direction,
-                        value = LinkSearchCursorValue(id = page.last().id, createdAt = page.last().createdAt),
+                        value =
+                            LinkSearchCursorValue(
+                                id = last.id,
+                                createdAt = last.createdAt.takeIf { sort.orderKey == LinkOrderKey.CREATED_AT },
+                                title = last.title.takeIf { sort.orderKey == LinkOrderKey.TITLE },
+                            ),
                     ),
                 )
             } else {
@@ -155,9 +154,7 @@ class GetLinksService(
         val keyword = SearchKeyword.of(query).takeUnless { it.isBlank }
         val cursor =
             scrollRequest.cursor?.let { encoded ->
-                val decoded = Base64CursorCodec.decode<LinkSearchCursor>(encoded)
-                sort.validateCursor(orderKey = decoded.orderKey, direction = decoded.direction, order = decoded.order)
-                validateCursorValue(value = decoded.value, orderKey = sort.orderKey, hasKeyword = keyword != null)
+                val decoded = decodeCursor(encoded = encoded, sort = sort, hasKeyword = keyword != null)
                 if (sort.orderKey == LinkOrderKey.CREATED_AT && decoded.value.createdAt == null) {
                     val anchor =
                         linkRepository
@@ -227,6 +224,17 @@ class GetLinksService(
                     ?.let { encodeCursor(query = it, sort = sort, hasKeyword = keyword != null) },
             hasNext = hasNext,
         )
+    }
+
+    private fun decodeCursor(
+        encoded: String,
+        sort: LinkSort,
+        hasKeyword: Boolean,
+    ): LinkSearchCursor {
+        val decoded = Base64CursorCodec.decode<LinkSearchCursor>(encoded)
+        sort.validateCursor(orderKey = decoded.orderKey, direction = decoded.direction, order = decoded.order)
+        validateCursorValue(value = decoded.value, orderKey = sort.orderKey, hasKeyword = hasKeyword)
+        return decoded
     }
 
     private fun validateCursorValue(

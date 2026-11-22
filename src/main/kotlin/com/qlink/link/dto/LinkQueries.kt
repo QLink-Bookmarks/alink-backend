@@ -43,11 +43,6 @@ data class PublicLinkQuery(
     val contentExcerpt: String?,
 )
 
-data class PublicLinkCursor(
-    val id: Long,
-    val createdAt: Instant,
-)
-
 fun ResultRow.toPublicLinkQuery(): PublicLinkQuery =
     PublicLinkQuery(
         id = this[Links.id],

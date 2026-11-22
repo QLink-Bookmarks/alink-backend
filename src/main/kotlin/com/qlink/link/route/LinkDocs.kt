@@ -182,7 +182,8 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
             "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
             "폴더 범위에서는 현재 폴더 소유자와 멤버만 기존 목록 응답을 받아요. " +
-            "공개 폴더 열람에는 로그인이 선택이에요. 외부 열람은 folderId와 created_at 정렬을 지원해요. 전체 개인 목록은 인증이 필요해요. " +
+            "공개 폴더 열람에는 로그인이 선택이에요. 외부 열람은 folderId와 created_at·title 정렬(asc / desc)을 지원해요. " +
+            "전체 개인 목록은 인증이 필요해요. " +
             "외부 열람 목록 항목은 id, title, url, thumbnailUrl, faviconUrl, isVideo, contentExcerpt를 제공해요. " +
             "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
         protected = false
@@ -198,7 +199,7 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             queryParameter<String?>("order") {
                 description =
                     "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc) / earliest(= created_at asc) / " +
-                    "laxico(= title asc) / similar(= similarity desc)도 받아요"
+                    "laxico(= title asc) / similar(= similarity desc)도 받아요. 외부 열람의 제목 정렬은 orderKey=title로 지정해요"
             }
             queryParameter<Boolean?>("isPublic") {
                 description =

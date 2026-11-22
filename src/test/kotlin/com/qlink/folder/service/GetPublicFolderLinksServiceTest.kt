@@ -356,6 +356,75 @@ class GetPublicFolderLinksServiceTest :
             }
         }
 
+        Given("공개 폴더에 대소문자가 섞인 제목과 제목이 같은 링크가 있을 때") {
+            lateinit var folder: Folder
+            var outsiderId: Long? = null
+
+            beforeTest {
+                val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
+                outsiderId = users.insert(UserFixture.createRandomValidUser()).id!!
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).withPublication())
+                val title = RandomFixture.randomFixedSentence(20)
+                for ((prefix, published) in listOf("Z" to true, "a" to true, "a" to true, "M" to false, "b" to true)) {
+                    links.insert(
+                        LinkFixture.createRandomLinkOf(
+                            ownerId = ownerId,
+                            folderId = folder.id,
+                            title = "$prefix $title",
+                            isPublic = published,
+                        ),
+                    )
+                }
+            }
+
+            When("외부인이 제목순으로 한 링크씩 조회하면") {
+                Then("현재 공개 행을 회원과 동일한 제목 및 ID 순서로 양방향에서 모두 읽는다") {
+                    val folderId = folder.id!!
+                    val stored = links.findAllByFolderIds(listOf(folderId)).filter { it.turnsPublicAt != null }
+                    val ascending = stored.sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+
+                    suspend fun read(
+                        viewerId: Long?,
+                        direction: SortDirection,
+                        cursor: String? = null,
+                    ) = service.getLinks(
+                        viewerId = viewerId,
+                        query = null,
+                        folderId = folderId,
+                        isFavorite = null,
+                        orderKey = "title",
+                        order = direction.name,
+                        scrollRequest = ScrollRequest(cursor = cursor, size = 1),
+                        isPublic = true,
+                    )
+
+                    for ((direction, expected) in listOf(SortDirection.ASC to ascending, SortDirection.DESC to ascending.reversed())) {
+                        val memberFirst = read(viewerId = folder.ownerId, direction = direction)
+                        for (viewerId in listOf(null, outsiderId)) {
+                            var cursor: String? = null
+                            for ((index, link) in expected.withIndex()) {
+                                val page = read(viewerId = viewerId, direction = direction, cursor = cursor)
+                                page.withItems<PublicFolderLinkResponse>().contents shouldBe listOf(link.toPublicListItem())
+                                page.hasNext shouldBe (index < expected.lastIndex)
+                                cursor = page.nextCursor
+                                if (page.hasNext) {
+                                    Base64CursorCodec.decode<LinkSearchCursor>(cursor.shouldNotBeNull()) shouldBe
+                                        LinkSearchCursor(
+                                            orderKey = LinkOrderKey.TITLE,
+                                            direction = direction,
+                                            value = LinkSearchCursorValue(id = link.id, title = link.title),
+                                        )
+                                    if (index == 0) cursor shouldBe memberFirst.nextCursor
+                                } else {
+                                    cursor shouldBe null
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Given("접근할 수 없거나 존재하지 않는 폴더 주소") {
             lateinit var folderIds: List<Long>
 

@@ -29,7 +29,6 @@ import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.LinkSnippetQuery
-import com.qlink.link.dto.PublicLinkCursor
 import com.qlink.link.dto.PublicLinkDetailQuery
 import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.PublicLinkTodoQuery
@@ -74,7 +73,6 @@ import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.core.times
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.Query
-import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertReturning
@@ -134,33 +132,29 @@ class DbLinkRepository : LinkRepository {
 
     override suspend fun findPublicByFolderId(
         folderId: Long,
-        direction: SortDirection,
-        cursor: PublicLinkCursor?,
+        sort: LinkSort,
+        cursor: LinkSearchCursor?,
         limit: Int,
     ): List<PublicLinkQuery> {
-        val order = direction.sortOrder()
-        val query =
-            Links
-                .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
-                .joinCollectedContent()
-                .select(
-                    Links.id,
-                    Links.createdAt,
-                    Links.title,
-                    Links.url,
-                    Links.thumbnailUrl,
-                    Links.faviconUrl,
-                    Links.isVideo,
-                    LinkContents.excerpt,
-                ).where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
-        if (cursor != null) {
-            val position = LinkSearchCursorValue(id = cursor.id, createdAt = cursor.createdAt)
-            val keys = createdAtSortKeys(order)
-            query.andWhere { keysetAfter(keys = keys, cursorValue = position) }
-        }
-
-        return query
-            .orderBy(Links.createdAt to order, Links.id to order)
+        val sortKeys = sortKeys(sort = sort, columns = SearchColumns.withoutKeyword(), hasKeyword = false)
+        return Links
+            .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
+            .joinCollectedContent()
+            .select(
+                Links.id,
+                Links.createdAt,
+                Links.title,
+                Links.url,
+                Links.thumbnailUrl,
+                Links.faviconUrl,
+                Links.isVideo,
+                LinkContents.excerpt,
+            ).where {
+                (Folders.id eq folderId) and
+                    Folders.turnsPublicAt.isNotNull() and
+                    Links.turnsPublicAt.isNotNull() and
+                    (cursor?.value?.let { keysetAfter(sortKeys, it) } ?: Op.TRUE)
+            }.orderBy(*sortKeys.map { it.expression to it.sortOrder }.toTypedArray())
             .limit(limit)
             .map { it.toPublicLinkQuery() }
     }
