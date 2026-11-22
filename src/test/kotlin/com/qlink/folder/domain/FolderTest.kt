@@ -414,7 +414,7 @@ class FolderTest :
             }
 
             When("공개 폴더를 비공개로 바꾸면") {
-                val updated = public.setPublic(false)
+                val updated = public.setPublic(isPublic = false, now = now)
 
                 Then("비공개 상태가 되고 다시 공개할 수 있다") {
                     updated.turnsPublicAt shouldBe null
