@@ -256,6 +256,7 @@ class ProcessAiSummaryService(
             }
         }
 
+        if (lastFailure is BusinessException) throw lastFailure
         throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
     }
 
