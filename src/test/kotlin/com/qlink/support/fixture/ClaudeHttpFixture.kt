@@ -58,6 +58,12 @@ class ClaudeHttpFixture : AutoCloseable {
 
     @Volatile var holdBody = false
 
+    @Volatile var holdRedirectBody = false
+
+    @Volatile var heldPath: String? = null
+
+    @Volatile var failKtorPipeline = false
+
     fun releaseResponses() = responseGate.countDown()
 
     private val server =
@@ -76,7 +82,8 @@ class ClaudeHttpFixture : AutoCloseable {
                             connectionPort = it.remoteAddress.port,
                         )
                     requests.add(request)
-                    if (holdResponse && !holdBody) {
+                    val hold = holdResponse && (heldPath == null || heldPath == url.rawPath)
+                    if (hold && !holdBody) {
                         heldRequests.trySend(request)
                         if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
                     }
@@ -91,7 +98,8 @@ class ClaudeHttpFixture : AutoCloseable {
                             isMessagesRequest -> nextMessageStatus.also { nextMessageStatus = null } ?: messagesStatus
                             else -> HttpStatusCode.NotFound
                         }
-                    if (status == HttpStatusCode.Found || status == HttpStatusCode.TemporaryRedirect) {
+                    val isRedirect = status == HttpStatusCode.Found || status == HttpStatusCode.TemporaryRedirect
+                    if (isRedirect) {
                         val redirect = if (isModelsRequest) modelsRedirect else messagesRedirect
                         it.responseHeaders.set("Location", redirect ?: "http://localhost:${it.localAddress.port}/redirect")
                     }
@@ -106,7 +114,7 @@ class ClaudeHttpFixture : AutoCloseable {
                         it.sendResponseHeaders(status.value, -1)
                     } else {
                         it.sendResponseHeaders(status.value, response.size.toLong())
-                        if (holdResponse && holdBody) {
+                        if ((hold && holdBody) || (holdRedirectBody && isRedirect)) {
                             heldRequests.trySend(request)
                             if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
                         }
@@ -120,6 +128,7 @@ class ClaudeHttpFixture : AutoCloseable {
         lazy {
             KtorHttpClient(CIO) { configureClaudeCurl() }.apply {
                 requestPipeline.intercept(HttpRequestPipeline.Before) {
+                    if (failKtorPipeline) throw AssertionError(TRANSPORT_MARKER)
                     val url = URI(context.url.buildString())
                     assertClaudeOrigin(url)
                     curlRequestUrls.add(url)

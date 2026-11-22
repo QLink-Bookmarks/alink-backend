@@ -109,10 +109,10 @@ class ClaudeSdkClient(
         validateClaudeStopReason(stopReason().getOrNull()?.asString())
 
         val blocks = content()
-        val fetchIndex = blocks.indexOfFirst { it.serverToolUse().getOrNull()?.name() == ServerToolUseBlock.Name.WEB_FETCH }
-        val fetch =
-            blocks.getOrNull(fetchIndex)?.asServerToolUse()
+        val fetchIndex =
+            blocks.indices.singleOrNull { blocks[it].serverToolUse().getOrNull()?.name() == ServerToolUseBlock.Name.WEB_FETCH }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val fetch = blocks[fetchIndex].asServerToolUse()
         val fetchId = fetch.id().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         val requested =
             fetch
@@ -124,15 +124,16 @@ class ClaudeSdkClient(
                 ?.getOrNull()
         if (requested != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
 
-        val resultIndex = blocks.indexOfLast { it.webFetchToolResult().getOrNull()?.toolUseId() == fetchId }
-        if (resultIndex <= fetchIndex) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val resultIndex =
+            blocks.indices.singleOrNull { blocks[it].webFetchToolResult().isPresent }
+                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val resultBlock = blocks[resultIndex].asWebFetchToolResult()
+        if (resultIndex <= fetchIndex || resultBlock.toolUseId() != fetchId) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         val result =
-            blocks
-                .getOrNull(resultIndex)
-                ?.asWebFetchToolResult()
-                ?.content()
-                ?.webFetchBlock()
-                ?.getOrNull()
+            resultBlock
+                .content()
+                .webFetchBlock()
+                .getOrNull()
                 ?.takeIf { it._type().asString().getOrNull() == "web_fetch_result" }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         if (result.url() != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)

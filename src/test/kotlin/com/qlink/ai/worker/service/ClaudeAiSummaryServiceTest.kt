@@ -83,12 +83,18 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.koin.core.KoinApplication
 import org.koin.core.qualifier.named
 import org.koin.dsl.koinApplication
@@ -398,6 +404,23 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
+                if (!useSdk) {
+                    When("Ktor 요청 파이프라인에서 내부 오류가 나면") {
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            activateProvider()
+                            http.failKtorPipeline = true
+                        }
+                        val action = suspend { register() }
+                        Then("공통 내부 오류를 반환하고 키를 저장하지 않는다") {
+                            val error = ErrorCode.COMMON_INTERNAL_SERVER_ERROR
+                            shouldThrowWithMessage<BusinessException>(error.message) { action() }.errorCode shouldBe error
+                            http.requests shouldBe emptyList()
+                            keys.findAllByUserId(owner.id!!) shouldBe emptyList()
+                        }
+                    }
+                }
+
                 When("Claude 키 검증과 요약이 다른 호스트로 리다이렉트되면") {
                     lateinit var job: AiJob
                     beforeTest {
@@ -451,6 +474,33 @@ class ClaudeAiSummaryServiceTest :
                         http.requests.forEach { it.headers.getFirst("x-api-key") shouldBe apiKey }
                         http.requests.last().body shouldBe http.requests[2].body
                         jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                    }
+                }
+
+                When("Claude가 같은 출처로 307을 반환하고 리다이렉트 본문을 보류하면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        job = enqueue()
+                        http.requests.clear()
+                        http.messagesRedirect = "/redirected/messages"
+                        http.holdRedirectBody = true
+                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
+                    }
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                    Then("본문을 기다리지 않고 한 번만 재전송하여 요약을 완료한다") {
+                        coroutineScope {
+                            val worker = async { action() }
+                            try {
+                                withTimeout(5000) { http.heldRequests.receive() }.url.rawPath shouldBe "/v1/messages"
+                                withTimeout(5000) { worker.await() }
+                            } finally {
+                                http.releaseResponses()
+                            }
+                        }
+                        http.requests.map { it.url.rawPath } shouldBe listOf("/v1/messages", "/redirected/messages")
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                        links.findById(job.linkId)!!.summary shouldBe fixture.summary
                     }
                 }
 
@@ -693,25 +743,34 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
-                When("Claude 키 확인 도중 요청이 취소되면") {
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        activateProvider()
-                        http.holdResponse = true
-                    }
-                    Then("등록의 취소가 전파되고 공급자 키가 저장되지 않는다") {
-                        coroutineScope {
-                            val failure = CompletableDeferred<Throwable?>()
-                            val registration = launch { failure.complete(runCatching { register() }.exceptionOrNull()) }
-                            try {
-                                withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "GET"
-                                withTimeout(3000) { registration.cancelAndJoin() }
-                                (failure.await() is CancellationException) shouldBe true
-                            } finally {
-                                http.releaseResponses()
+                listOf(false, true).forEach { redirected ->
+                    When("Claude 키 확인 도중 요청이 취소되면 (리다이렉트=$redirected)") {
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            activateProvider()
+                            http.holdResponse = true
+                            if (redirected) {
+                                http.modelsRedirect = "/redirected/models"
+                                http.heldPath = "/redirected/models"
                             }
                         }
-                        keys.findAllByUserId(owner.id!!) shouldBe emptyList()
+                        Then("등록의 취소가 전파되고 공급자 키가 저장되지 않는다") {
+                            coroutineScope {
+                                val failure = CompletableDeferred<Throwable?>()
+                                val registration = launch { failure.complete(runCatching { register() }.exceptionOrNull()) }
+                                try {
+                                    val held = withTimeout(5000) { http.heldRequests.receive() }
+                                    held.method shouldBe "GET"
+                                    held.url.rawPath shouldBe if (redirected) "/redirected/models" else "/v1/models"
+                                    withTimeout(3000) { registration.cancelAndJoin() }
+                                    (failure.await() is CancellationException) shouldBe true
+                                } finally {
+                                    http.releaseResponses()
+                                }
+                            }
+                            http.requests.size shouldBe if (redirected) 2 else 1
+                            keys.findAllByUserId(owner.id!!) shouldBe emptyList()
+                        }
                     }
                 }
 
@@ -761,11 +820,6 @@ class ClaudeAiSummaryServiceTest :
                         lateinit var summaryJson: String
                         beforeTest {
                             if (it.type != TestType.Test) return@beforeTest
-                            val modelId = if (includeCache) "claude-sonnet-4-6" else "claude-haiku-4-5-20251001"
-                            model =
-                                models.insert(
-                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false, model = modelId),
-                                )
                             job = enqueue()
                             summaryJson = fixture.summaryJson(linkId = job.linkId, folderId = folder.id.takeIf { includeCache })
                             http.messagesBody = fixture.messagesResponse(finalText = summaryJson, includeCache = includeCache)
@@ -809,6 +863,32 @@ class ClaudeAiSummaryServiceTest :
                                 it.requests shouldBe 1
                                 it.tokens shouldBe tokens
                             }
+                        }
+                    }
+                }
+
+                listOf("claude-sonnet-4-6", "claude-haiku-4-5-20251001").forEach { modelId ->
+                    When("공개 모델 ID $modelId 사용 중 알 수 없는 중간 블록이 추가되면") {
+                        lateinit var job: AiJob
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            model =
+                                models.insert(
+                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false, model = modelId),
+                                )
+                            job = enqueue()
+                            http.messagesBody =
+                                fixture.messagesResponse(
+                                    finalText = fixture.summaryJson(linkId = job.linkId, folderId = null),
+                                    editContent = { it.dropLast(1) + unknownClaudeBlock + it.last() },
+                                )
+                        }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("원래 모델 ID로 실행하고 가져오기 뒤의 구조화 요약을 저장한다") {
+                            shouldNotThrow<BusinessException> { action() }
+                            summaryModel(http.requests.last()) shouldBe modelId
+                            links.findById(job.linkId)!!.summary shouldBe fixture.summary
+                            jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
                         }
                     }
                 }
@@ -932,31 +1012,40 @@ class ClaudeAiSummaryServiceTest :
                     }
                 }
 
-                When("Claude 요약 도중 워커가 취소되면") {
-                    lateinit var job: AiJob
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        job = enqueue()
-                        http.holdResponse = true
-                        http.holdBody = true
-                    }
-                    Then("공급자 호출을 취소하고 완료나 실패를 저장하지 않는다") {
-                        coroutineScope {
-                            val worker = launch { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                            try {
-                                withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "POST"
-                                withTimeout(3000) { worker.cancelAndJoin() }
-                            } finally {
-                                http.releaseResponses()
+                listOf(false, true).forEach { redirected ->
+                    When("Claude 요약 도중 워커가 취소되면 (리다이렉트=$redirected)") {
+                        lateinit var job: AiJob
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            job = enqueue()
+                            http.holdResponse = true
+                            http.holdBody = true
+                            if (redirected) {
+                                http.messagesRedirect = "/redirected/messages"
+                                http.heldPath = "/redirected/messages"
                             }
                         }
-                        jobs.findById(job.id!!)!!.let {
-                            it.status shouldBe AiJobStatus.P
-                            (it.startedAt != null) shouldBe true
+                        Then("공급자 호출을 취소하고 완료나 실패를 저장하지 않는다") {
+                            coroutineScope {
+                                val worker = launch { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                                try {
+                                    val held = withTimeout(5000) { http.heldRequests.receive() }
+                                    held.method shouldBe "POST"
+                                    held.url.rawPath shouldBe if (redirected) "/redirected/messages" else "/v1/messages"
+                                    withTimeout(3000) { worker.cancelAndJoin() }
+                                } finally {
+                                    http.releaseResponses()
+                                }
+                            }
+                            http.requests.count { it.method == "POST" } shouldBe if (redirected) 2 else 1
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.P
+                                (it.startedAt != null) shouldBe true
+                            }
+                            links.findById(job.linkId)!!.status shouldBe LinkStatus.G
+                            recordedUsage(job) shouldBe null
+                            todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                         }
-                        links.findById(job.linkId)!!.status shouldBe LinkStatus.G
-                        recordedUsage(job) shouldBe null
-                        todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                     }
                 }
 
@@ -987,6 +1076,71 @@ class ClaudeAiSummaryServiceTest :
                         "가져오기 결과 누락" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchStatus = null)
                         },
+                        "다른 URL의 두 번째 가져오기" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    val secondCall =
+                                        buildJsonObject {
+                                            put("type", "server_tool_use")
+                                            put("name", "web_fetch")
+                                            put("id", "srvtoolu_second")
+                                            put("input", buildJsonObject { put("url", otherUrl) })
+                                        }
+                                    val result = blocks[2].jsonObject
+                                    val secondResult = JsonObject(result + ("tool_use_id" to JsonPrimitive("srvtoolu_second")))
+                                    blocks.dropLast(1) + secondCall + secondResult + blocks.last()
+                                },
+                            )
+                        },
+                        "성공 뒤 max_uses_exceeded 결과" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    val extraResult =
+                                        JsonObject(
+                                            blocks[2].jsonObject + (
+                                                "content" to
+                                                    buildJsonObject {
+                                                        put("type", "web_fetch_tool_result_error")
+                                                        put("error_code", "max_uses_exceeded")
+                                                    }
+                                            ),
+                                        )
+                                    blocks.dropLast(1) + extraResult + blocks.last()
+                                },
+                            )
+                        },
+                        "호출 앞의 중복 결과" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> listOf(blocks[0], blocks[2], blocks[1], blocks[2], blocks.last()) },
+                            )
+                        },
+                        "호출 앞에만 있는 결과" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> listOf(blocks[0], blocks[2], blocks[1], blocks.last()) },
+                            )
+                        },
+                        "최종 블록의 알 수 없는 종류" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks -> blocks + unknownClaudeBlock },
+                            )
+                        },
+                        "최종 텍스트의 잘못된 필드 형식" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editContent = { blocks ->
+                                    blocks.dropLast(1) +
+                                        buildJsonObject {
+                                            put("type", "text")
+                                            put("text", JsonArray(emptyList()))
+                                        }
+                                },
+                            )
+                        },
                         "빈 최종 텍스트" to { fixture.messagesResponse(finalText = " ") },
                         "refusal" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "refusal")
@@ -999,6 +1153,27 @@ class ClaudeAiSummaryServiceTest :
                         "깨진 SDK 응답" to { "{${ClaudeSummaryFixture.PAGE_MARKER}" },
                         "잘못된 토큰 사용량" to {
                             fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), inputTokens = Int.MAX_VALUE.toLong())
+                        },
+                        "문자열 토큰" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editUsage = { usage -> JsonObject(usage + ("input_tokens" to JsonPrimitive("11"))) },
+                            )
+                        },
+                        "소수 토큰" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editUsage = { usage -> JsonObject(usage + ("output_tokens" to JsonPrimitive(3.5))) },
+                            )
+                        },
+                        "음수 캐시 토큰" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                editUsage = { usage -> JsonObject(usage + ("cache_read_input_tokens" to JsonPrimitive(-1))) },
+                            )
+                        },
+                        "null 사용량" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), editUsage = { JsonNull })
                         },
                         "링크 ID 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(null, null)) },
                         "링크 ID 불일치" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId + 1, null)) },
@@ -1017,27 +1192,49 @@ class ClaudeAiSummaryServiceTest :
                             appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
                             val error =
                                 when (scenario) {
-                                    "다른 URL", "가져온 결과의 URL 불일치" -> ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH
+                                    "다른 URL", "가져온 결과의 URL 불일치" -> {
+                                        ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH
+                                    }
 
                                     "다른 도구 호출 ID",
                                     "가져오기 오류",
                                     "SDK 형식의 가져오기 오류",
                                     "가져오기 결과 누락",
-                                    -> ErrorCode.AI_SUMMARY_FETCH_FAILED
+                                    "다른 URL의 두 번째 가져오기",
+                                    "성공 뒤 max_uses_exceeded 결과",
+                                    "호출 앞의 중복 결과",
+                                    "호출 앞에만 있는 결과",
+                                    -> {
+                                        ErrorCode.AI_SUMMARY_FETCH_FAILED
+                                    }
 
-                                    "빈 최종 텍스트" -> ErrorCode.AI_EMPTY_RESPONSE
+                                    "빈 최종 텍스트", "최종 블록의 알 수 없는 종류" -> {
+                                        ErrorCode.AI_EMPTY_RESPONSE
+                                    }
 
-                                    "refusal" -> ErrorCode.AI_SUMMARY_REFUSED
+                                    "refusal" -> {
+                                        ErrorCode.AI_SUMMARY_REFUSED
+                                    }
 
-                                    "max_tokens" -> ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED
+                                    "max_tokens" -> {
+                                        ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED
+                                    }
 
-                                    "pause_turn" -> ErrorCode.AI_SUMMARY_INCOMPLETE
+                                    "pause_turn" -> {
+                                        ErrorCode.AI_SUMMARY_INCOMPLETE
+                                    }
 
-                                    "깨진 JSON", "깨진 SDK 응답" -> ErrorCode.AI_SUMMARY_RESPONSE_INVALID
+                                    "깨진 JSON", "깨진 SDK 응답", "최종 텍스트의 잘못된 필드 형식" -> {
+                                        ErrorCode.AI_SUMMARY_RESPONSE_INVALID
+                                    }
 
-                                    "잘못된 토큰 사용량" -> ErrorCode.AI_SUMMARY_USAGE_INVALID
+                                    "잘못된 토큰 사용량", "문자열 토큰", "소수 토큰", "음수 캐시 토큰", "null 사용량" -> {
+                                        ErrorCode.AI_SUMMARY_USAGE_INVALID
+                                    }
 
-                                    else -> ErrorCode.AI_SUMMARY_LINK_MISMATCH
+                                    else -> {
+                                        ErrorCode.AI_SUMMARY_LINK_MISMATCH
+                                    }
                                 }
                             jobs.findById(job.id!!)!!.let {
                                 it.status shouldBe AiJobStatus.F
@@ -1057,6 +1254,12 @@ class ClaudeAiSummaryServiceTest :
             }
         }
     })
+
+private val unknownClaudeBlock =
+    buildJsonObject {
+        put("type", "future_block")
+        put("content", JsonArray(emptyList()))
+    }
 
 private fun verifyMessagesRequest(
     request: ClaudeHttpFixture.Request,

@@ -1,8 +1,13 @@
 package com.qlink.support.fixture
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -49,6 +54,8 @@ class ClaudeSummaryFixture(
         includeCache: Boolean = true,
         inputTokens: Long = 11,
         fetchErrorCode: String? = null,
+        editContent: ((JsonArray) -> List<JsonElement>)? = null,
+        editUsage: ((JsonObject) -> JsonElement)? = null,
     ): String =
         buildJsonObject {
             put("stop_reason", stopReason)
@@ -103,7 +110,11 @@ class ClaudeSummaryFixture(
                     }
                 }
             }
-        }.toString()
+        }.let { response ->
+            val content = editContent?.let { JsonArray(it(response.getValue("content").jsonArray)) } ?: response.getValue("content")
+            val usage = editUsage?.invoke(response.getValue("usage").jsonObject) ?: response.getValue("usage")
+            JsonObject(response + mapOf("content" to content, "usage" to usage)).toString()
+        }
 
     companion object {
         const val PAGE_MARKER = "dummy-private-page-marker"
