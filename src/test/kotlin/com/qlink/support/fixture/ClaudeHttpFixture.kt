@@ -7,9 +7,13 @@ import com.anthropic.core.http.HttpClient
 import com.anthropic.core.http.HttpRequest
 import com.anthropic.core.http.HttpResponse
 import com.anthropic.errors.AnthropicIoException
+import com.qlink.config.configureClaudeCurl
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpServer
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.HttpRequestPipeline
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
 import kotlinx.coroutines.channels.Channel
 import java.net.InetSocketAddress
 import java.net.URI
@@ -17,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import io.ktor.client.HttpClient as KtorHttpClient
 
 class ClaudeHttpFixture : AutoCloseable {
     data class Request(
@@ -29,6 +34,7 @@ class ClaudeHttpFixture : AutoCloseable {
 
     val requests = CopyOnWriteArrayList<Request>()
     val sdkRequestUrls = CopyOnWriteArrayList<URI>()
+    val curlRequestUrls = CopyOnWriteArrayList<URI>()
 
     @Volatile var modelsStatus: HttpStatusCode? = HttpStatusCode.OK
 
@@ -74,16 +80,15 @@ class ClaudeHttpFixture : AutoCloseable {
                         heldRequests.trySend(request)
                         if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
                     }
-                    val isModelsRequest = it.requestMethod == "GET" && url.rawPath.endsWith("/v1/models")
-                    val isMessagesRequest = it.requestMethod == "POST" && url.rawPath.endsWith("/v1/messages")
+                    val isModelsRequest = it.requestMethod == "GET" && url.rawPath.endsWith("/models")
+                    val isMessagesRequest = it.requestMethod == "POST" && url.rawPath.endsWith("/messages")
                     val status =
                         when {
+                            url.rawPath.startsWith("/redirected/") -> HttpStatusCode.OK
                             isModelsRequest && modelsRedirect != null -> HttpStatusCode.Found
                             isModelsRequest -> modelsStatus ?: return@createContext
-                            url.rawPath == "/redirected/models" -> HttpStatusCode.OK
                             isMessagesRequest && messagesRedirect != null -> HttpStatusCode.TemporaryRedirect
                             isMessagesRequest -> nextMessageStatus.also { nextMessageStatus = null } ?: messagesStatus
-                            url.rawPath == "/redirected/messages" -> HttpStatusCode.OK
                             else -> HttpStatusCode.NotFound
                         }
                     if (status == HttpStatusCode.Found || status == HttpStatusCode.TemporaryRedirect) {
@@ -111,18 +116,31 @@ class ClaudeHttpFixture : AutoCloseable {
             }
             start()
         }
-    private val client = OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
+    private val curlClient =
+        lazy {
+            KtorHttpClient(CIO) { configureClaudeCurl() }.apply {
+                requestPipeline.intercept(HttpRequestPipeline.Before) {
+                    val url = URI(context.url.buildString())
+                    assertClaudeOrigin(url)
+                    curlRequestUrls.add(url)
+                    context.url.protocol = URLProtocol.HTTP
+                    context.url.host = "127.0.0.1"
+                    context.url.port = server.address.port
+                }
+            }
+        }
 
-    val transport =
+    val ktorTransport: KtorHttpClient get() = curlClient.value
+
+    val transport: HttpClient by lazy {
+        val client = OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
         object : HttpClient by client {
             override fun execute(
                 request: HttpRequest,
                 requestOptions: RequestOptions,
             ): HttpResponse {
                 val url = URI(request.url())
-                if (url.host != "api.anthropic.com" || url.scheme != "https" || url.port !in listOf(-1, 443)) {
-                    throw AssertionError("Unexpected Claude origin: ${url.scheme}://${url.authority}")
-                }
+                assertClaudeOrigin(url)
                 sdkRequestUrls.add(url)
                 val base = URI(request.baseUrl)
                 val localBase =
@@ -136,9 +154,17 @@ class ClaudeHttpFixture : AutoCloseable {
                 }
             }
         }
+    }
+
+    private fun assertClaudeOrigin(url: URI) {
+        if (url.host != "api.anthropic.com" || url.scheme != "https" || url.port !in listOf(-1, 443)) {
+            throw AssertionError("Unexpected Claude origin: ${url.scheme}://${url.authority}")
+        }
+    }
 
     override fun close() {
         releaseResponses()
+        if (curlClient.isInitialized()) curlClient.value.close()
         server.stop(0)
         serverExecutor.close()
         heldRequests.close()

@@ -5,9 +5,11 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.classic.spi.ThrowableProxyUtil
 import ch.qos.logback.core.read.ListAppender
 import com.qlink.ai.client.AiApiKeyValidationRequest
+import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.AiSummaryClientRequest
 import com.qlink.ai.client.AiSummarySpec
+import com.qlink.ai.client.ClaudeCurlClient
 import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.domain.AiJobStatus
@@ -66,6 +68,7 @@ import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.config.ApplicationConfigValue
@@ -87,6 +90,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.koin.core.KoinApplication
+import org.koin.core.qualifier.named
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
 import org.slf4j.LoggerFactory
@@ -95,6 +99,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.time.Duration.Companion.minutes
 import com.anthropic.core.http.HttpClient as AnthropicTransport
+import io.ktor.client.HttpClient as KtorTransport
 
 class ClaudeAiSummaryServiceTest :
     BaseServiceTest({
@@ -128,7 +133,7 @@ class ClaudeAiSummaryServiceTest :
         lateinit var fixture: ClaudeSummaryFixture
         lateinit var appender: ListAppender<ILoggingEvent>
         val loggers =
-            listOf(ClaudeSdkClient::class.java, AiSummaryWorker::class.java, AbbreviatedSqlLogger::class.java)
+            listOf(ClaudeSdkClient::class.java, ClaudeCurlClient::class.java, AiSummaryWorker::class.java, AbbreviatedSqlLogger::class.java)
                 .map { LoggerFactory.getLogger(it) as Logger }
         val sqlLoggerName = AbbreviatedSqlLogger::class.java.name
         val baseUrl = "https://api.anthropic.com"
@@ -222,721 +227,831 @@ class ClaudeAiSummaryServiceTest :
             ).forEach { text shouldNotContain it }
         }
 
-        Given("운영 라우터에 등록된 Claude와 HTTP 응답 fixture") {
-            beforeTest {
-                if (it.type != TestType.Test) return@beforeTest
-                claudeSettings =
-                    MapApplicationConfig(
-                        "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                        "ai.claude.sdkEndpoint" to baseUrl,
-                    )
-                http = ClaudeHttpFixture()
-                app =
-                    koinApplication {
-                        modules(
-                            externalModule(config = config, s3Config = s3Config),
-                            repositoryModule(),
-                            serviceModule(),
-                            workerModule(config),
-                            module {
-                                single<AnthropicTransport> { http.transport }
-                                single { koinGet<TransactionRunner>() }
-                                single { cipher }
-                                single { koinGet<MonitoringConfig>() }
-                                single { koinGet<PrometheusMeterRegistry>() }
-                                single { koinGet<ScheduleTodoNotificationService>() }
-                            },
-                        )
+        Given("Claude 클라이언트 선택 설정") {
+            listOf("invalid", "TRUE", "[true]", "\"\"").forEach { value ->
+                When("ai.claude.useSdk에 $value 값이 지정되면") {
+                    val start = {
+                        val invalid = HoconApplicationConfig(ConfigFactory.parseString("ai.claude.useSdk = $value"))
+                        externalModule(config = invalid, s3Config = s3Config)
                     }
-                appender = ListAppender<ILoggingEvent>().apply { start() }
-                loggers.forEach { it.addAppender(appender) }
-
-                fixture =
-                    ClaudeSummaryFixture(summary = "dummy-saved-summary ${RandomFixture.randomSentenceWithMax(100)}")
-                admin = users.insert(UserFixture.createRandomValidSuperAdmin())
-                owner = users.insert(UserFixture.createRandomValidUser())
-                provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.CLAUDE, isActive = false))
-                model = models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
-                folder = folders.insert(FolderFixture.createFolderWith(ownerId = owner.id!!, name = otherUrl))
-            }
-
-            afterTest { (testCase, _) ->
-                if (testCase.type != TestType.Test) return@afterTest
-                loggers.forEach { logger -> logger.detachAppender(appender) }
-                val events = appender.list.toList()
-                appender.stop()
-                app.close()
-                http.close()
-                events.forEach { event ->
-                    val text = event.formattedMessage + event.throwableProxy?.let(ThrowableProxyUtil::asString).orEmpty()
-                    assertProviderPayloadAbsent(text)
-                    if (event.loggerName != sqlLoggerName) {
-                        text shouldNotContain fixture.sourceUrl
-                        text shouldNotContain fixture.summary
+                    Then("설정 키를 명시한 오류로 기동을 중단한다") {
+                        val error = ErrorCode.CONFIG_CLAUDE_USE_SDK_INVALID
+                        shouldThrowWithMessage<BusinessException>(error.message) { start() }.errorCode shouldBe error
                     }
                 }
             }
+        }
 
-            When("관리자가 Claude 공급자와 모델을 활성화하고 공급자 활성화를 반복하면") {
-                Then("운영 라우터가 Claude를 실행하고 저장소의 같은 공급자와 모델이 활성을 유지한다") {
-                    val router = app.koin.get<AiClientRouter>()
-                    router.isExecutable(AiProviderType.CLAUDE) shouldBe true
-                    router.requireSupported(AiProviderType.CLAUDE) shouldBe app.koin.get<ClaudeSdkClient>()
-
-                    val first = activateProvider()
-                    activateProvider() shouldBe first
-                    activateModel()
-                    providers
-                        .findAll()
-                        .filter { it.type == AiProviderType.CLAUDE }
-                        .single()
-                        .isActive shouldBe true
-                    models.findById(model.id!!)!!.isActive shouldBe true
-                }
-            }
-
-            When("모델 조회가 2xx를 반환하고 새 키로 재등록하면") {
-                Then("같은 사용자 설정 한 건의 암호문을 갱신한다") {
-                    activateProvider()
-                    http.modelsStatus = HttpStatusCode.NoContent
-                    val originalId = register()
-                    val original = keys.findById(originalId)!!
-                    (original.apiKey == apiKey) shouldBe false
-                    cipher.decrypt(original.apiKey) shouldBe apiKey
-
-                    val replacement = "dummy-claude-key-${RandomFixture.randomId()}"
-                    register(replacement) shouldBe originalId
-                    val saved = keys.findAllByUserId(owner.id!!).single()
-                    saved.id shouldBe originalId
-                    saved.providerId shouldBe provider.id
-                    (saved.apiKey == original.apiKey) shouldBe false
-                    cipher.decrypt(saved.apiKey) shouldBe replacement
-                }
-            }
-
-            listOf(
-                HttpStatusCode.Unauthorized to ErrorCode.AI_API_KEY_INVALID,
-                HttpStatusCode.Forbidden to ErrorCode.AI_VENDOR_PERMISSION_DENIED,
-                HttpStatusCode.BadRequest to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.NotFound to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.PayloadTooLarge to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.UnprocessableEntity to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.RequestTimeout to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
-                HttpStatusCode.ServiceUnavailable to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
-                HttpStatusCode.Found to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.TooManyRequests to ErrorCode.AI_VENDOR_RATE_LIMITED,
-                HttpStatusCode.PaymentRequired to ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED,
-                null to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
-            ).forEach { (status, error) ->
-                When("키 검증 결과가 ${status?.value ?: "전송 실패"}이면") {
-                    var existingId: Long? = null
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        activateProvider()
-                        existingId = if (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) register() else null
-                        http.requests.clear()
-                        http.modelsStatus = status
-                        if (status == HttpStatusCode.PaymentRequired) {
-                            http.errorBody = """{"error":{"type":"billing_error","message":"${ClaudeHttpFixture.ERROR_MARKER}"}}"""
-                        }
-                    }
-                    val action = suspend { register("dummy-rejected-key-${RandomFixture.randomId()}") }
-                    Then("API 오류로 매핑하고 새 키를 저장하지 않는다") {
-                        shouldThrowWithMessage<BusinessException>(error.message) { action() }.errorCode shouldBe error
-                        http.requests
-                            .single()
-                            .url.host shouldBe "api.anthropic.com"
-                        val saved = keys.findByUserIdAndProviderId(userId = owner.id!!, providerId = provider.id!!)
-                        saved?.id shouldBe existingId
-                        saved?.let { cipher.decrypt(it.apiKey) shouldBe apiKey }
-                    }
-                }
-            }
-
-            When("Claude 키 검증과 요약이 다른 호스트로 리다이렉트되면") {
-                lateinit var job: AiJob
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    job = enqueue()
-                    http.requests.clear()
-                    http.modelsRedirect = "https://other.example/v1/models"
-                    http.messagesRedirect = "https://other.example/v1/messages"
-                }
-                val checkKey = suspend { register() }
-                val summarize = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                Then("설정한 HTTPS 출처에만 키를 전송하고 기존 키를 보존한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_REQUEST_REJECTED.message) { checkKey() }
-                    shouldNotThrow<BusinessException> { summarize() }
-                    links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_VENDOR_REQUEST_REJECTED.message
-                    http.requests.map { it.method to it.url.toString() } shouldBe
-                        listOf("GET" to "$baseUrl/v1/models?limit=1", "POST" to "$baseUrl/v1/messages")
-                    keys.findAllByUserId(owner.id!!).single().id shouldBe job.userProviderId
-                    http.requests.forEach { request ->
-                        request.headers.getFirst("x-api-key") shouldBe apiKey
-                        request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
-                    }
-                }
-            }
-
-            When("Claude가 같은 HTTPS 출처의 주소로 키 조회와 Messages를 리다이렉트하면") {
-                lateinit var job: AiJob
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    app.koin.get<UpdateAiProviderService>().updateAiProvider(
-                        loginId = admin.id!!,
-                        id = provider.id!!,
-                        request = UpdateAiProviderRequest(baseUrl = baseUrl),
-                    )
-                    http.modelsRedirect = "/redirected/models?limit=1"
-                    job = enqueue()
-                    http.messagesRedirect = "$baseUrl:443/redirected/messages"
-                    http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
-                }
-                val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                Then("두 요청이 같은 출처로 이동하고 키와 Messages 본문을 보존한다") {
-                    shouldNotThrow<BusinessException> { action() }
-                    http.requests.map { it.method to it.url.rawPath } shouldBe
-                        listOf(
-                            "GET" to "/v1/models",
-                            "GET" to "/redirected/models",
-                            "POST" to "/v1/messages",
-                            "POST" to "/redirected/messages",
-                        )
-                    http.requests[1].url.rawQuery shouldBe "limit=1"
-                    http.requests.forEach { it.headers.getFirst("x-api-key") shouldBe apiKey }
-                    http.requests.last().body shouldBe http.requests[2].body
-                    jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
-                }
-            }
-
-            listOf(
-                "",
-                "ai.claude.maxOutputTokens = invalid",
-                "ai.claude.maxOutputTokens = [1000]",
-                "ai.claude.maxOutputTokens = 0",
-            ).forEach { setting ->
-                When("Claude 출력 토큰 설정이 누락되거나 잘못되면 ($setting)") {
-                    lateinit var job: AiJob
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        claudeSettings = HoconApplicationConfig(ConfigFactory.parseString(setting))
-                        job = enqueue()
-                        http.requests.clear()
-                    }
-                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                    Then("Claude 요약만 실패하고 기존 공급자 라우터와 Claude 키 검증은 동작한다") {
-                        val router = app.koin.get<AiClientRouter>()
-                        router.requireSupported(AiProviderType.OPENAI).providerType shouldBe AiProviderType.OPENAI
-                        router.requireSupported(AiProviderType.GEMINI).providerType shouldBe AiProviderType.GEMINI
-                        shouldNotThrow<BusinessException> { action() }
-                        http.requests shouldBe emptyList()
-                        links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE.message
-                        shouldNotThrow<BusinessException> { register() }
-                        http.requests.single().method shouldBe "GET"
-                    }
-                }
-            }
-
-            When("Claude SDK 주소가 허용되지 않은 HTTPS 호스트면") {
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    claudeSettings = MapApplicationConfig("ai.claude.sdkEndpoint" to otherUrl)
-                    activateProvider()
-                }
-                val action = suspend { register() }
-                Then("요청을 보내거나 키를 저장하지 않는다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_PROVIDER_BASE_URL_INVALID.message) { action() }
-                    http.requests shouldBe emptyList()
-                    keys.findAllByUserId(owner.id!!) shouldBe emptyList()
-                }
-            }
-
-            val prefix = "/gateway-${RandomFixture.randomId()}/claude"
-            listOf(
-                "" to "",
-                "/" to "",
-                "/v1" to "",
-                "/v1/" to "",
-                "$prefix/" to prefix,
-                "$prefix/v1" to prefix,
-                ":443$prefix/v1/" to ":443$prefix",
-                "$prefix//" to "$prefix/",
-                "$prefix//v1" to "$prefix/",
-            ).forEach { (configured, expected) ->
-                When("Claude SDK 주소를 '$baseUrl$configured'로 구성하고 DB에 다른 주소를 저장하면") {
-                    lateinit var job: AiJob
-                    val storedUrl = "$baseUrl/stored-${RandomFixture.randomId()}/v1"
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        claudeSettings =
-                            MapApplicationConfig(
-                                "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                                "ai.claude.sdkEndpoint" to baseUrl + configured,
-                            )
-                        app.koin.get<UpdateAiProviderService>().updateAiProvider(
-                            loginId = admin.id!!,
-                            id = provider.id!!,
-                            request = UpdateAiProviderRequest(baseUrl = storedUrl),
-                        )
-                        job = enqueue()
-                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
-                    }
-                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                    Then("DB 값을 보존하고 공유 SDK 연결로 설정한 주소에만 요청을 보낸다") {
-                        providers.findById(provider.id!!)!!.baseUrl shouldBe storedUrl
-                        shouldNotThrow<BusinessException> { action() }
-                        val modelsUrl = URI("$baseUrl$expected/v1/models?limit=1")
-                        val messagesUrl = URI("$baseUrl$expected/v1/messages")
-                        http.sdkRequestUrls shouldBe listOf(modelsUrl, messagesUrl)
-                        http.requests.map { it.method to it.url.rawPath } shouldBe
-                            listOf("GET" to modelsUrl.rawPath, "POST" to messagesUrl.rawPath)
-                        http.requests
-                            .map { it.connectionPort }
-                            .distinct()
-                            .size shouldBe 1
-                        http.requests.forEach { request ->
-                            request.headers["x-api-key"] shouldBe listOf(apiKey)
-                            request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
-                        }
-                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
-                        links.findById(job.linkId)!!.summary shouldBe fixture.summary
-                    }
-                }
-            }
-
-            When("공유 Claude SDK에서 서로 다른 사용자 키의 두 요청이 겹치면") {
-                val summaryKey = "dummy-second-key-${RandomFixture.randomId()}"
-                val linkId = RandomFixture.randomId()
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    http.holdResponse = true
-                    http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = linkId, folderId = null))
-                }
-                Then("ModelList와 Messages 각각에 해당 요청의 키만 전송한다") {
-                    coroutineScope {
-                        val adapter = app.koin.get<AiClientRouter>().requireSupported(AiProviderType.CLAUDE)
-                        val validate =
-                            async { adapter.validateApiKey(AiApiKeyValidationRequest(baseUrl = provider.baseUrl, apiKey = apiKey)) }
-                        val summarize =
-                            async {
-                                adapter.summarize(
-                                    AiSummaryClientRequest(
-                                        providerType = AiProviderType.CLAUDE,
-                                        baseUrl = provider.baseUrl,
-                                        apiKey = summaryKey,
-                                        model = model.model,
-                                        prompt = fixture.sourceUrl,
-                                        requestedUrl = fixture.sourceUrl,
-                                    ),
-                                )
-                            }
-                        try {
-                            val sent = withTimeout(5000) { List(2) { http.heldRequests.receive() } }
-                            sent.associate { it.method to it.headers["x-api-key"] } shouldBe
-                                mapOf("GET" to listOf(apiKey), "POST" to listOf(summaryKey))
-                        } finally {
-                            http.releaseResponses()
-                        }
-                        validate.await()
-                        summarize.await().linkId shouldBe linkId
-                    }
-                }
-            }
-
-            listOf(null, "", "   ", "relative-path", "http://claude-source.example/page").forEach { requestedUrl ->
-                When("Claude 요청의 requestedUrl이 '$requestedUrl'이면") {
-                    var request: AiSummaryClientRequest? = null
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        request =
-                            AiSummaryClientRequest(
-                                providerType = AiProviderType.CLAUDE,
-                                baseUrl = baseUrl,
-                                apiKey = apiKey,
-                                model = model.model,
-                                prompt = RandomFixture.randomSentenceWithMax(100),
-                                requestedUrl = requestedUrl,
-                            )
-                    }
-                    val action = suspend { app.koin.get<ClaudeSdkClient>().summarize(request!!) }
-                    Then("외부 요청 없이 원문 주소 오류를 반환한다") {
-                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID.message) { action() }
-                        http.requests shouldBe emptyList()
-                    }
-                }
-            }
-
-            When("기본 Claude 공급자 작업의 저장된 원문 URL을 사용할 수 없으면") {
-                lateinit var job: AiJob
-                lateinit var fallbackModel: String
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    val queued = enqueueDefault()
-                    fallbackModel =
-                        models
-                            .insert(
-                                AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1),
-                            ).model
-                    job =
-                        jobs.update(
-                            AiJob(
-                                id = queued.id,
-                                linkId = queued.linkId,
-                                userProviderId = queued.userProviderId,
-                                requestModelId = queued.requestModelId,
-                                requestedUrl = "relative-${RandomFixture.randomId()}",
-                                prompt = queued.prompt,
-                            ),
-                        )
-                }
-
-                val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-
-                Then("기존 후보 순회 후 원문 오류를 저장하고 HTTP 요청을 보내지 않는다") {
-                    shouldNotThrow<BusinessException> { action() }
-                    appender.list
-                        .filter { it.formattedMessage.startsWith("[WORKER] Trial model=") }
-                        .map { it.formattedMessage } shouldBe
-                        List(5) {
-                            listOf("[WORKER] Trial model=${model.model}", "[WORKER] Trial model=$fallbackModel")
-                        }.flatten()
-                    http.requests shouldBe emptyList()
-                    jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
-                    links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID.message
-                }
-            }
-
-            When("Claude 키 확인 도중 요청이 취소되면") {
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    activateProvider()
-                    http.holdResponse = true
-                }
-                Then("등록의 취소가 전파되고 공급자 키가 저장되지 않는다") {
-                    coroutineScope {
-                        val failure = CompletableDeferred<Throwable?>()
-                        val registration = launch { failure.complete(runCatching { register() }.exceptionOrNull()) }
-                        try {
-                            withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "GET"
-                            withTimeout(3000) { registration.cancelAndJoin() }
-                            (failure.await() is CancellationException) shouldBe true
-                        } finally {
-                            http.releaseResponses()
-                        }
-                    }
-                    keys.findAllByUserId(owner.id!!) shouldBe emptyList()
-                }
-            }
-
-            When("사용자가 본인 Claude 설정의 모델 목록을 조회하면") {
-                var keyId = 0L
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    activateProvider()
-                    activateModel()
-                    models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
-                    val other = users.insert(UserFixture.createRandomValidUser())
-                    keys.insert(AiFixture.createUserProviderOf(userId = other.id!!, providerId = provider.id!!))
-                    keyId = register()
-                }
-                Then("저장소의 활성 모델만 본인 설정으로 반환한다") {
-                    val response = app.koin.get<GetAiProviderModelsService>().getAiProviderModels(loginId = owner.id, isMine = true)
-                    val active = models.findAllByProviderId(provider.id!!).filter { it.isActive }
-                    response.single().models.map { it.id } shouldBe active.map { it.id }
-                    response
-                        .single()
-                        .models
-                        .map { it.userProviderId }
-                        .distinct() shouldBe listOf(keyId)
-                }
-            }
-
-            When("Claude 설정으로 다른 공급자 모델을 고르면") {
-                lateinit var request: AiSummaryRequest
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    activateProvider()
-                    val other = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI))
-                    val otherModel = models.insert(AiFixture.createRandomAvailableModelOf(providerId = other.id!!))
-                    request = AiSummaryRequest(userProviderId = register(), modelId = otherModel.id!!, url = fixture.sourceUrl)
-                }
-                val action =
-                    suspend { app.koin.get<UpdateLinkAiSummaryService>().updateLinkAiSummary(loginId = owner.id!!, request = request) }
-                Then("모델 오류를 반환하고 작업을 생성하지 않는다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_MODEL_NOT_FOUND.message) { action() }
-                    jobs.findAllByStatus(AiJobStatus.P) shouldBe emptyList()
-                }
-            }
-
-            listOf(true to 26, false to 14).forEach { (includeCache, tokens) ->
-                When("선택한 Claude 모델이 유효한 최종 요약을 반환하면 (캐시 항목 포함=$includeCache)") {
-                    lateinit var job: AiJob
-                    lateinit var summaryJson: String
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        job = enqueue()
-                        summaryJson = fixture.summaryJson(linkId = job.linkId, folderId = folder.id.takeIf { includeCache })
-                        http.messagesBody = fixture.messagesResponse(finalText = summaryJson, includeCache = includeCache)
-                    }
-                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                    Then("대기 작업의 원문·모델로 실행하고 최종 요약·액션·사용량을 저장한다") {
-                        jobs.findById(job.id!!)!!.let {
-                            it.status shouldBe AiJobStatus.P
-                            it.requestedUrl shouldBe fixture.sourceUrl
-                            it.requestModelId shouldBe model.id
-                        }
-                        links.findById(job.linkId)!!.status shouldBe LinkStatus.G
-                        shouldNotThrow<BusinessException> { action() }
-
-                        appender.list.any { it.formattedMessage.startsWith("INSERT INTO ai_jobs") } shouldBe true
-                        verifyMessagesRequest(
-                            request = http.requests.last(),
-                            job = job,
-                            model = model.model,
-                            sourceUrl = fixture.sourceUrl,
-                            maxOutputTokens = maxOutputTokens,
-                        )
-                        jobs.findById(job.id!!)!!.let {
-                            it.status shouldBe AiJobStatus.C
-                            it.responseModelId shouldBe model.id
-                            it.response shouldBe summaryJson
-                        }
-                        links.findById(job.linkId)!!.let {
-                            it.status shouldBe LinkStatus.A
-                            it.title shouldBe fixture.title
-                            it.summary shouldBe fixture.summary
-                            it.tags shouldBe listOf(fixture.tag)
-                            it.folderId shouldBe folder.id.takeIf { includeCache }
-                            it.workModelId shouldBe model.id
-                        }
-                        val savedTodos = todos.findAllByLinkId(job.linkId).associateBy { it.title }
-                        savedTodos.keys shouldBe setOf(fixture.scheduledAction, fixture.unscheduledAction)
-                        savedTodos.getValue(fixture.scheduledAction).reminderAt?.epochSeconds shouldBe fixture.reminderAt.epochSeconds
-                        savedTodos.getValue(fixture.unscheduledAction).reminderAt shouldBe null
-                        recordedUsage(job)!!.let {
-                            it.requests shouldBe 1
-                            it.tokens shouldBe tokens
-                        }
-                    }
-                }
-            }
-
-            When("Claude 요약 작업이 대기 중 만료되어 복구 대상이 되면") {
-                lateinit var job: AiJob
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    val pending = enqueue()
-                    val expiredAt = jobs.now() - AiJob.STALE_AFTER - 1.minutes
-                    job =
-                        jobs.update(
-                            AiJob(
-                                id = pending.id,
-                                linkId = pending.linkId,
-                                userProviderId = pending.userProviderId,
-                                requestModelId = pending.requestModelId,
-                                requestedUrl = pending.requestedUrl,
-                                prompt = pending.prompt,
-                                requestedAt = expiredAt,
-                            ),
-                        )
-                }
-                val action = suspend { app.koin.get<AiSummaryWorker>().recover() }
-                Then("작업과 링크를 복구 실패로 저장하고 공급자에 다시 요청하지 않는다") {
-                    val initialLogCount = appender.list.size
-                    shouldNotThrow<BusinessException> { action() }
-                    appender.list
-                        .drop(
-                            initialLogCount,
-                        ).any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe
-                        true
-                    jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
-                    links.findById(job.linkId)!!.let {
-                        it.status shouldBe LinkStatus.F
-                        it.summary shouldBe AiJob.DEFAULT_FAILURE_MESSAGE
-                        assertProviderPayloadAbsent(it.summary!!)
-                    }
-                    http.requests
-                        .single()
-                        .url
-                        .toString() shouldBe "$baseUrl/v1/models?limit=1"
-                    recordedUsage(job) shouldBe null
-                    todos.findAllByLinkId(job.linkId) shouldBe emptyList()
-                }
-            }
-
-            When("기본 Claude 공급자의 첫 모델이 503을 반환하면") {
-                lateinit var job: AiJob
-                lateinit var fallback: AvailableModel
+        listOf(true, false).forEach { useSdk ->
+            Given("운영 라우터에 등록된 Claude와 HTTP 응답 fixture (SDK=$useSdk)") {
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
                     claudeSettings =
                         MapApplicationConfig(
                             "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
-                            "ai.claude.sdkEndpoint" to "$baseUrl$prefix//",
+                            "ai.claude.sdkEndpoint" to baseUrl,
                         )
-                    job = enqueueDefault()
-                    fallback =
-                        models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1))
-                    http.nextMessageStatus = HttpStatusCode.ServiceUnavailable
-                    http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
-                }
-                val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                Then("SDK 재시도 없이 다음 모델을 호출하고 성공 모델의 사용량을 저장한다") {
-                    shouldNotThrow<BusinessException> { action() }
-                    http.requests.map { it.method to it.url.rawPath } shouldBe
-                        List(2) { "POST" to "$prefix//v1/messages" }
-                    val attemptedModels = http.requests.filter { it.method == "POST" }.map { summaryModel(it) }
-                    attemptedModels shouldBe listOf(model.model, fallback.model)
-                    jobs.findById(job.id!!)!!.let {
-                        it.status shouldBe AiJobStatus.C
-                        it.requestModelId shouldBe model.id
-                        it.responseModelId shouldBe fallback.id
-                    }
-                    links.findById(job.linkId)!!.workModelId shouldBe fallback.id
-                    recordedUsage(job) shouldBe null
-                    usage
-                        .findByUserIdAndProviderIdAndUsageDate(
-                            userProviderId = job.userProviderId,
-                            modelId = fallback.id!!,
-                            usageDate = LocalDate.now(ZoneOffset.UTC),
-                        )!!
-                        .requests shouldBe 1
-                }
-            }
+                    if (!useSdk) (claudeSettings as MapApplicationConfig).put("ai.claude.useSdk", "false")
+                    http = ClaudeHttpFixture()
+                    app =
+                        koinApplication {
+                            modules(
+                                externalModule(config = config, s3Config = s3Config),
+                                repositoryModule(),
+                                serviceModule(),
+                                workerModule(config),
+                                module {
+                                    if (useSdk) {
+                                        single<AnthropicTransport> { http.transport }
+                                    } else {
+                                        single<KtorTransport>(named<ClaudeCurlClient>()) { http.ktorTransport }
+                                    }
+                                    single { koinGet<TransactionRunner>() }
+                                    single { cipher }
+                                    single { koinGet<MonitoringConfig>() }
+                                    single { koinGet<PrometheusMeterRegistry>() }
+                                    single { koinGet<ScheduleTodoNotificationService>() }
+                                },
+                            )
+                        }
+                    appender = ListAppender<ILoggingEvent>().apply { start() }
+                    loggers.forEach { it.addAppender(appender) }
 
-            listOf(
-                HttpStatusCode.Unauthorized to ErrorCode.AI_API_KEY_INVALID,
-                HttpStatusCode.Forbidden to ErrorCode.AI_VENDOR_PERMISSION_DENIED,
-                HttpStatusCode.NotFound to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
-                HttpStatusCode.TooManyRequests to ErrorCode.AI_VENDOR_RATE_LIMITED,
-                HttpStatusCode.PaymentRequired to ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED,
-            ).forEach { (status, error) ->
-                When("기본 Claude 모델이 ${status.value} 오류를 반환하면") {
-                    lateinit var job: AiJob
-                    lateinit var fallback: AvailableModel
-                    beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
-                        job = enqueueDefault()
-                        fallback =
-                            models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1))
-                        http.messagesStatus = status
-                        if (error == ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED) {
-                            http.errorBody =
-                                """{"error":{"type":"billing_error","message":"${ClaudeHttpFixture.ERROR_MARKER}"}}"""
+                    fixture =
+                        ClaudeSummaryFixture(summary = "dummy-saved-summary ${RandomFixture.randomSentenceWithMax(100)}")
+                    admin = users.insert(UserFixture.createRandomValidSuperAdmin())
+                    owner = users.insert(UserFixture.createRandomValidUser())
+                    val providerFixture = AiFixture.createRandomValidAiProvider(type = AiProviderType.CLAUDE, isActive = false)
+                    val configured =
+                        if (useSdk) {
+                            providerFixture
+                        } else {
+                            providerFixture.changeBaseUrl(
+                                baseUrl = "$baseUrl/v1",
+                                now = RandomFixture.randomPastInstant(),
+                            )
+                        }
+                    provider = providers.insert(configured)
+                    model = models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
+                    folder = folders.insert(FolderFixture.createFolderWith(ownerId = owner.id!!, name = otherUrl))
+                }
+
+                afterTest { (testCase, _) ->
+                    if (testCase.type != TestType.Test) return@afterTest
+                    loggers.forEach { logger -> logger.detachAppender(appender) }
+                    val events = appender.list.toList()
+                    appender.stop()
+                    app.close()
+                    http.close()
+                    events.forEach { event ->
+                        val text = event.formattedMessage + event.throwableProxy?.let(ThrowableProxyUtil::asString).orEmpty()
+                        assertProviderPayloadAbsent(text)
+                        if (event.loggerName != sqlLoggerName) {
+                            text shouldNotContain fixture.sourceUrl
+                            text shouldNotContain fixture.summary
                         }
                     }
-                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                    Then("기존 후보 순회를 유지하고 정제된 실패만 저장한다") {
-                        shouldNotThrow<BusinessException> { action() }
-                        http.requests.filter { it.method == "POST" }.map { summaryModel(it) } shouldBe
-                            List(5) { listOf(model.model, fallback.model) }.flatten()
-                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
-                        links.findById(job.linkId)!!.summary shouldBe error.message
-                        recordedUsage(job) shouldBe null
-                        todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                }
+
+                When("관리자가 Claude 공급자와 모델을 활성화하고 공급자 활성화를 반복하면") {
+                    Then("운영 라우터가 Claude를 실행하고 저장소의 같은 공급자와 모델이 활성을 유지한다") {
+                        val router = app.koin.get<AiClientRouter>()
+                        router.isExecutable(AiProviderType.CLAUDE) shouldBe true
+                        val adapter = router.requireSupported(AiProviderType.CLAUDE)
+                        adapter shouldBe app.koin.get<AiClient>(named("claude"))
+                        app.koin.getAll<AiClient>().filter { it.providerType == AiProviderType.CLAUDE } shouldBe listOf(adapter)
+                        if (useSdk) {
+                            adapter.shouldBeInstanceOf<ClaudeSdkClient>()
+                            app.koin.getOrNull<KtorTransport>(named<ClaudeCurlClient>()) shouldBe null
+                        } else {
+                            adapter.shouldBeInstanceOf<ClaudeCurlClient>()
+                            app.koin.getOrNull<AnthropicTransport>() shouldBe null
+                        }
+
+                        val first = activateProvider()
+                        activateProvider() shouldBe first
+                        activateModel()
+                        providers
+                            .findAll()
+                            .filter { it.type == AiProviderType.CLAUDE }
+                            .single()
+                            .isActive shouldBe true
+                        models.findById(model.id!!)!!.isActive shouldBe true
                     }
                 }
-            }
 
-            When("Claude 요약 도중 워커가 취소되면") {
-                lateinit var job: AiJob
-                beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
-                    job = enqueue()
-                    http.holdResponse = true
-                    http.holdBody = true
+                When("모델 조회가 2xx를 반환하고 새 키로 재등록하면") {
+                    Then("같은 사용자 설정 한 건의 암호문을 갱신한다") {
+                        activateProvider()
+                        http.modelsStatus = HttpStatusCode.NoContent
+                        val originalId = register()
+                        val original = keys.findById(originalId)!!
+                        (original.apiKey == apiKey) shouldBe false
+                        cipher.decrypt(original.apiKey) shouldBe apiKey
+
+                        val replacement = "dummy-claude-key-${RandomFixture.randomId()}"
+                        register(replacement) shouldBe originalId
+                        val saved = keys.findAllByUserId(owner.id!!).single()
+                        saved.id shouldBe originalId
+                        saved.providerId shouldBe provider.id
+                        (saved.apiKey == original.apiKey) shouldBe false
+                        cipher.decrypt(saved.apiKey) shouldBe replacement
+                    }
                 }
-                Then("공급자 호출을 취소하고 완료나 실패를 저장하지 않는다") {
-                    coroutineScope {
-                        val worker = launch { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                        try {
-                            withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "POST"
-                            withTimeout(3000) { worker.cancelAndJoin() }
-                        } finally {
-                            http.releaseResponses()
+
+                listOf(
+                    HttpStatusCode.Unauthorized to ErrorCode.AI_API_KEY_INVALID,
+                    HttpStatusCode.Forbidden to ErrorCode.AI_VENDOR_PERMISSION_DENIED,
+                    HttpStatusCode.BadRequest to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.NotFound to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.PayloadTooLarge to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.UnprocessableEntity to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.RequestTimeout to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
+                    HttpStatusCode.ServiceUnavailable to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
+                    HttpStatusCode.Found to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.TooManyRequests to ErrorCode.AI_VENDOR_RATE_LIMITED,
+                    HttpStatusCode.PaymentRequired to ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED,
+                    null to ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE,
+                ).forEach { (status, error) ->
+                    When("키 검증 결과가 ${status?.value ?: "전송 실패"}이면") {
+                        var existingId: Long? = null
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            activateProvider()
+                            existingId = if (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) register() else null
+                            http.requests.clear()
+                            http.modelsStatus = status
+                            if (status == HttpStatusCode.PaymentRequired) {
+                                http.errorBody = """{"error":{"type":"billing_error","message":"${ClaudeHttpFixture.ERROR_MARKER}"}}"""
+                            }
+                        }
+                        val action = suspend { register("dummy-rejected-key-${RandomFixture.randomId()}") }
+                        Then("API 오류로 매핑하고 새 키를 저장하지 않는다") {
+                            shouldThrowWithMessage<BusinessException>(error.message) { action() }.errorCode shouldBe error
+                            http.requests
+                                .single()
+                                .url.host shouldBe "api.anthropic.com"
+                            val saved = keys.findByUserIdAndProviderId(userId = owner.id!!, providerId = provider.id!!)
+                            saved?.id shouldBe existingId
+                            saved?.let { cipher.decrypt(it.apiKey) shouldBe apiKey }
                         }
                     }
-                    jobs.findById(job.id!!)!!.let {
-                        it.status shouldBe AiJobStatus.P
-                        (it.startedAt != null) shouldBe true
-                    }
-                    links.findById(job.linkId)!!.status shouldBe LinkStatus.G
-                    recordedUsage(job) shouldBe null
-                    todos.findAllByLinkId(job.linkId) shouldBe emptyList()
                 }
-            }
 
-            val invalidMessages: Map<String, (AiJob) -> String> =
-                linkedMapOf(
-                    "다른 URL" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchUrl = otherUrl) },
-                    "가져온 결과의 URL 불일치" to {
-                        fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultUrl = otherUrl)
-                    },
-                    "다른 도구 호출 ID" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultId = "wrong") },
-                    "가져오기 오류" to {
-                        fixture.messagesResponse(
-                            finalText = fixture.summaryJson(it.linkId, null),
-                            fetchStatus = "web_fetch_tool_result_error",
-                        )
-                    },
-                    "SDK 형식의 가져오기 오류" to {
-                        fixture.messagesResponse(
-                            finalText = fixture.summaryJson(it.linkId, null),
-                            fetchStatus = "web_fetch_tool_result_error",
-                            fetchErrorCode = "url_not_accessible",
-                        )
-                    },
-                    "가져오기 결과 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchStatus = null) },
-                    "빈 최종 텍스트" to { fixture.messagesResponse(finalText = " ") },
-                    "refusal" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "refusal") },
-                    "max_tokens" to
-                        { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "max_tokens") },
-                    "pause_turn" to
-                        { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "pause_turn") },
-                    "깨진 JSON" to { fixture.messagesResponse(finalText = "{${ClaudeSummaryFixture.PAGE_MARKER}") },
-                    "깨진 SDK 응답" to { "{${ClaudeSummaryFixture.PAGE_MARKER}" },
-                    "잘못된 토큰 사용량" to {
-                        fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), inputTokens = Int.MAX_VALUE.toLong())
-                    },
-                    "링크 ID 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(null, null)) },
-                    "링크 ID 불일치" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId + 1, null)) },
-                )
-            invalidMessages.forEach { (scenario, body) ->
-                When("Claude 응답이 '$scenario'이면") {
+                When("Claude 키 검증과 요약이 다른 호스트로 리다이렉트되면") {
                     lateinit var job: AiJob
                     beforeTest {
                         if (it.type != TestType.Test) return@beforeTest
                         job = enqueue()
-                        http.messagesBody = body(job)
+                        http.requests.clear()
+                        http.modelsRedirect = "https://other.example/v1/models"
+                        http.messagesRedirect = "https://other.example/v1/messages"
+                    }
+                    val checkKey = suspend { register() }
+                    val summarize = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                    Then("설정한 HTTPS 출처에만 키를 전송하고 기존 키를 보존한다") {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_VENDOR_REQUEST_REJECTED.message) { checkKey() }
+                        shouldNotThrow<BusinessException> { summarize() }
+                        links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_VENDOR_REQUEST_REJECTED.message
+                        http.requests.map { it.method to it.url.toString() } shouldBe
+                            listOf("GET" to "$baseUrl/v1/models?limit=1", "POST" to "$baseUrl/v1/messages")
+                        keys.findAllByUserId(owner.id!!).single().id shouldBe job.userProviderId
+                        http.requests.forEach { request ->
+                            request.headers.getFirst("x-api-key") shouldBe apiKey
+                            request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
+                        }
+                    }
+                }
+
+                When("Claude가 같은 HTTPS 출처의 주소로 키 조회와 Messages를 리다이렉트하면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        app.koin.get<UpdateAiProviderService>().updateAiProvider(
+                            loginId = admin.id!!,
+                            id = provider.id!!,
+                            request = UpdateAiProviderRequest(baseUrl = baseUrl),
+                        )
+                        http.modelsRedirect = "/redirected/models?limit=1"
+                        job = enqueue()
+                        http.messagesRedirect = "$baseUrl:443/redirected/messages"
+                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
                     }
                     val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
-                    Then("실패 사유만 저장하고 요약·액션·사용량을 반영하지 않는다") {
+                    Then("두 요청이 같은 출처로 이동하고 키와 Messages 본문을 보존한다") {
                         shouldNotThrow<BusinessException> { action() }
-                        appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
-                        val error =
-                            when (scenario) {
-                                "다른 URL", "가져온 결과의 URL 불일치" -> ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH
-                                "다른 도구 호출 ID", "가져오기 오류", "SDK 형식의 가져오기 오류", "가져오기 결과 누락" -> ErrorCode.AI_SUMMARY_FETCH_FAILED
-                                "빈 최종 텍스트" -> ErrorCode.AI_EMPTY_RESPONSE
-                                "refusal" -> ErrorCode.AI_SUMMARY_REFUSED
-                                "max_tokens" -> ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED
-                                "pause_turn" -> ErrorCode.AI_SUMMARY_INCOMPLETE
-                                "깨진 JSON", "깨진 SDK 응답" -> ErrorCode.AI_SUMMARY_RESPONSE_INVALID
-                                "잘못된 토큰 사용량" -> ErrorCode.AI_SUMMARY_USAGE_INVALID
-                                else -> ErrorCode.AI_SUMMARY_LINK_MISMATCH
-                            }
-                        jobs.findById(job.id!!)!!.let {
-                            it.status shouldBe AiJobStatus.F
-                            it.response shouldBe null
-                            it.responseModelId shouldBe null
+                        http.requests.map { it.method to it.url.rawPath } shouldBe
+                            listOf(
+                                "GET" to "/v1/models",
+                                "GET" to "/redirected/models",
+                                "POST" to "/v1/messages",
+                                "POST" to "/redirected/messages",
+                            )
+                        http.requests[1].url.rawQuery shouldBe "limit=1"
+                        http.requests.forEach { it.headers.getFirst("x-api-key") shouldBe apiKey }
+                        http.requests.last().body shouldBe http.requests[2].body
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                    }
+                }
+
+                listOf(
+                    "",
+                    "ai.claude.maxOutputTokens = invalid",
+                    "ai.claude.maxOutputTokens = [1000]",
+                    "ai.claude.maxOutputTokens = 0",
+                ).forEach { setting ->
+                    When("Claude 출력 토큰 설정이 누락되거나 잘못되면 ($setting)") {
+                        lateinit var job: AiJob
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            claudeSettings = HoconApplicationConfig(ConfigFactory.parseString(setting))
+                            job = enqueue()
+                            http.requests.clear()
                         }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("Claude 요약만 실패하고 기존 공급자 라우터와 Claude 키 검증은 동작한다") {
+                            val router = app.koin.get<AiClientRouter>()
+                            router.requireSupported(AiProviderType.OPENAI).providerType shouldBe AiProviderType.OPENAI
+                            router.requireSupported(AiProviderType.GEMINI).providerType shouldBe AiProviderType.GEMINI
+                            shouldNotThrow<BusinessException> { action() }
+                            http.requests shouldBe emptyList()
+                            links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE.message
+                            shouldNotThrow<BusinessException> { register() }
+                            http.requests.single().method shouldBe "GET"
+                        }
+                    }
+                }
+
+                val prefix = "/gateway-${RandomFixture.randomId()}/claude"
+                if (useSdk) {
+                    When("Claude SDK 주소가 허용되지 않은 HTTPS 호스트면") {
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            claudeSettings = MapApplicationConfig("ai.claude.sdkEndpoint" to otherUrl)
+                            activateProvider()
+                        }
+                        val action = suspend { register() }
+                        Then("요청을 보내거나 키를 저장하지 않는다") {
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.AI_PROVIDER_BASE_URL_INVALID.message) { action() }
+                            http.requests shouldBe emptyList()
+                            keys.findAllByUserId(owner.id!!) shouldBe emptyList()
+                        }
+                    }
+
+                    listOf(
+                        "" to "",
+                        "/" to "",
+                        "/v1" to "",
+                        "/v1/" to "",
+                        "$prefix/" to prefix,
+                        "$prefix/v1" to prefix,
+                        ":443$prefix/v1/" to ":443$prefix",
+                        "$prefix//" to "$prefix/",
+                        "$prefix//v1" to "$prefix/",
+                    ).forEach { (configured, expected) ->
+                        When("Claude SDK 주소를 '$baseUrl$configured'로 구성하고 DB에 다른 주소를 저장하면") {
+                            lateinit var job: AiJob
+                            val storedUrl = "$baseUrl/stored-${RandomFixture.randomId()}/v1"
+                            beforeTest {
+                                if (it.type != TestType.Test) return@beforeTest
+                                claudeSettings =
+                                    MapApplicationConfig(
+                                        "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
+                                        "ai.claude.sdkEndpoint" to baseUrl + configured,
+                                    )
+                                app.koin.get<UpdateAiProviderService>().updateAiProvider(
+                                    loginId = admin.id!!,
+                                    id = provider.id!!,
+                                    request = UpdateAiProviderRequest(baseUrl = storedUrl),
+                                )
+                                job = enqueue()
+                                val summary = fixture.summaryJson(linkId = job.linkId, folderId = null)
+                                http.messagesBody = fixture.messagesResponse(finalText = summary)
+                            }
+                            val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                            Then("DB 값을 보존하고 공유 SDK 연결로 설정한 주소에만 요청을 보낸다") {
+                                providers.findById(provider.id!!)!!.baseUrl shouldBe storedUrl
+                                shouldNotThrow<BusinessException> { action() }
+                                val modelsUrl = URI("$baseUrl$expected/v1/models?limit=1")
+                                val messagesUrl = URI("$baseUrl$expected/v1/messages")
+                                http.sdkRequestUrls shouldBe listOf(modelsUrl, messagesUrl)
+                                http.requests.map { it.method to it.url.rawPath } shouldBe
+                                    listOf("GET" to modelsUrl.rawPath, "POST" to messagesUrl.rawPath)
+                                http.requests
+                                    .map { it.connectionPort }
+                                    .distinct()
+                                    .size shouldBe 1
+                                http.requests.forEach { request ->
+                                    request.headers["x-api-key"] shouldBe listOf(apiKey)
+                                    request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
+                                }
+                                jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                                links.findById(job.linkId)!!.summary shouldBe fixture.summary
+                            }
+                        }
+                    }
+                } else {
+                    listOf("/v1/", "$prefix//v1", "$prefix//v1/", ":443$prefix/custom").forEach { storedPath ->
+                        When("Ktor 모드에서 SDK 주소와 DB 주소가 다르면 ($storedPath)") {
+                            lateinit var job: AiJob
+                            val storedUrl = baseUrl + storedPath
+                            beforeTest {
+                                if (it.type != TestType.Test) return@beforeTest
+                                claudeSettings =
+                                    MapApplicationConfig(
+                                        "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
+                                        "ai.claude.sdkEndpoint" to otherUrl,
+                                    )
+                                app.koin.get<UpdateAiProviderService>().updateAiProvider(
+                                    loginId = admin.id!!,
+                                    id = provider.id!!,
+                                    request = UpdateAiProviderRequest(baseUrl = storedUrl),
+                                )
+                                job = enqueue()
+                                val summary = fixture.summaryJson(linkId = job.linkId, folderId = null)
+                                http.messagesBody = fixture.messagesResponse(finalText = summary)
+                            }
+                            val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                            Then("DB에 저장된 경로와 요청별 키를 사용한다") {
+                                providers.findById(provider.id!!)!!.baseUrl shouldBe storedUrl.trimEnd('/')
+                                shouldNotThrow<BusinessException> { action() }
+                                val path = URI(storedUrl).rawPath.removeSuffix("/")
+                                http.curlRequestUrls.map { it.rawPath to it.rawQuery } shouldBe
+                                    listOf("$path/models" to "limit=1", "$path/messages" to null)
+                                http.requests.map { it.url.rawPath } shouldBe listOf("$path/models", "$path/messages")
+                                http.requests.forEach { request ->
+                                    request.headers["x-api-key"] shouldBe listOf(apiKey)
+                                    request.headers.getFirst("anthropic-version") shouldBe "2023-06-01"
+                                }
+                                http.sdkRequestUrls shouldBe emptyList()
+                                jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.C
+                                links.findById(job.linkId)!!.summary shouldBe fixture.summary
+                            }
+                        }
+                    }
+                }
+
+                When("공유 Claude 클라이언트에서 서로 다른 사용자 키의 두 요청이 겹치면") {
+                    val summaryKey = "dummy-second-key-${RandomFixture.randomId()}"
+                    val linkId = RandomFixture.randomId()
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        http.holdResponse = true
+                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = linkId, folderId = null))
+                    }
+                    Then("ModelList와 Messages 각각에 해당 요청의 키만 전송한다") {
+                        coroutineScope {
+                            val adapter = app.koin.get<AiClientRouter>().requireSupported(AiProviderType.CLAUDE)
+                            val validate =
+                                async { adapter.validateApiKey(AiApiKeyValidationRequest(baseUrl = provider.baseUrl, apiKey = apiKey)) }
+                            val summarize =
+                                async {
+                                    adapter.summarize(
+                                        AiSummaryClientRequest(
+                                            providerType = AiProviderType.CLAUDE,
+                                            baseUrl = provider.baseUrl,
+                                            apiKey = summaryKey,
+                                            model = model.model,
+                                            prompt = fixture.sourceUrl,
+                                            requestedUrl = fixture.sourceUrl,
+                                        ),
+                                    )
+                                }
+                            try {
+                                val sent = withTimeout(5000) { List(2) { http.heldRequests.receive() } }
+                                sent.associate { it.method to it.headers["x-api-key"] } shouldBe
+                                    mapOf("GET" to listOf(apiKey), "POST" to listOf(summaryKey))
+                            } finally {
+                                http.releaseResponses()
+                            }
+                            validate.await()
+                            summarize.await().linkId shouldBe linkId
+                        }
+                    }
+                }
+
+                listOf(null, "", "   ", "relative-path", "http://claude-source.example/page").forEach { requestedUrl ->
+                    When("Claude 요청의 requestedUrl이 '$requestedUrl'이면") {
+                        var request: AiSummaryClientRequest? = null
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            request =
+                                AiSummaryClientRequest(
+                                    providerType = AiProviderType.CLAUDE,
+                                    baseUrl = baseUrl,
+                                    apiKey = apiKey,
+                                    model = model.model,
+                                    prompt = RandomFixture.randomSentenceWithMax(100),
+                                    requestedUrl = requestedUrl,
+                                )
+                        }
+                        val action = suspend { app.koin.get<AiClient>(named("claude")).summarize(request!!) }
+                        Then("외부 요청 없이 원문 주소 오류를 반환한다") {
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID.message) { action() }
+                            http.requests shouldBe emptyList()
+                        }
+                    }
+                }
+
+                When("기본 Claude 공급자 작업의 저장된 원문 URL을 사용할 수 없으면") {
+                    lateinit var job: AiJob
+                    lateinit var fallbackModel: String
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        val queued = enqueueDefault()
+                        fallbackModel =
+                            models
+                                .insert(
+                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1),
+                                ).model
+                        job =
+                            jobs.update(
+                                AiJob(
+                                    id = queued.id,
+                                    linkId = queued.linkId,
+                                    userProviderId = queued.userProviderId,
+                                    requestModelId = queued.requestModelId,
+                                    requestedUrl = "relative-${RandomFixture.randomId()}",
+                                    prompt = queued.prompt,
+                                ),
+                            )
+                    }
+
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+
+                    Then("기존 후보 순회 후 원문 오류를 저장하고 HTTP 요청을 보내지 않는다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        appender.list
+                            .filter { it.formattedMessage.startsWith("[WORKER] Trial model=") }
+                            .map { it.formattedMessage } shouldBe
+                            List(5) {
+                                listOf("[WORKER] Trial model=${model.model}", "[WORKER] Trial model=$fallbackModel")
+                            }.flatten()
+                        http.requests shouldBe emptyList()
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
+                        links.findById(job.linkId)!!.summary shouldBe ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID.message
+                    }
+                }
+
+                When("Claude 키 확인 도중 요청이 취소되면") {
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        activateProvider()
+                        http.holdResponse = true
+                    }
+                    Then("등록의 취소가 전파되고 공급자 키가 저장되지 않는다") {
+                        coroutineScope {
+                            val failure = CompletableDeferred<Throwable?>()
+                            val registration = launch { failure.complete(runCatching { register() }.exceptionOrNull()) }
+                            try {
+                                withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "GET"
+                                withTimeout(3000) { registration.cancelAndJoin() }
+                                (failure.await() is CancellationException) shouldBe true
+                            } finally {
+                                http.releaseResponses()
+                            }
+                        }
+                        keys.findAllByUserId(owner.id!!) shouldBe emptyList()
+                    }
+                }
+
+                When("사용자가 본인 Claude 설정의 모델 목록을 조회하면") {
+                    var keyId = 0L
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        activateProvider()
+                        activateModel()
+                        models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
+                        val other = users.insert(UserFixture.createRandomValidUser())
+                        keys.insert(AiFixture.createUserProviderOf(userId = other.id!!, providerId = provider.id!!))
+                        keyId = register()
+                    }
+                    Then("저장소의 활성 모델만 본인 설정으로 반환한다") {
+                        val response = app.koin.get<GetAiProviderModelsService>().getAiProviderModels(loginId = owner.id, isMine = true)
+                        val active = models.findAllByProviderId(provider.id!!).filter { it.isActive }
+                        response.single().models.map { it.id } shouldBe active.map { it.id }
+                        response
+                            .single()
+                            .models
+                            .map { it.userProviderId }
+                            .distinct() shouldBe listOf(keyId)
+                    }
+                }
+
+                When("Claude 설정으로 다른 공급자 모델을 고르면") {
+                    lateinit var request: AiSummaryRequest
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        activateProvider()
+                        val other = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI))
+                        val otherModel = models.insert(AiFixture.createRandomAvailableModelOf(providerId = other.id!!))
+                        request = AiSummaryRequest(userProviderId = register(), modelId = otherModel.id!!, url = fixture.sourceUrl)
+                    }
+                    val action =
+                        suspend { app.koin.get<UpdateLinkAiSummaryService>().updateLinkAiSummary(loginId = owner.id!!, request = request) }
+                    Then("모델 오류를 반환하고 작업을 생성하지 않는다") {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.AI_MODEL_NOT_FOUND.message) { action() }
+                        jobs.findAllByStatus(AiJobStatus.P) shouldBe emptyList()
+                    }
+                }
+
+                listOf(true to 26, false to 14).forEach { (includeCache, tokens) ->
+                    When("선택한 Claude 모델이 유효한 최종 요약을 반환하면 (캐시 항목 포함=$includeCache)") {
+                        lateinit var job: AiJob
+                        lateinit var summaryJson: String
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            val modelId = if (includeCache) "claude-sonnet-4-6" else "claude-haiku-4-5-20251001"
+                            model =
+                                models.insert(
+                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false, model = modelId),
+                                )
+                            job = enqueue()
+                            summaryJson = fixture.summaryJson(linkId = job.linkId, folderId = folder.id.takeIf { includeCache })
+                            http.messagesBody = fixture.messagesResponse(finalText = summaryJson, includeCache = includeCache)
+                        }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("대기 작업의 원문·모델로 실행하고 최종 요약·액션·사용량을 저장한다") {
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.P
+                                it.requestedUrl shouldBe fixture.sourceUrl
+                                it.requestModelId shouldBe model.id
+                            }
+                            links.findById(job.linkId)!!.status shouldBe LinkStatus.G
+                            shouldNotThrow<BusinessException> { action() }
+
+                            appender.list.any { it.formattedMessage.startsWith("INSERT INTO ai_jobs") } shouldBe true
+                            verifyMessagesRequest(
+                                request = http.requests.last(),
+                                job = job,
+                                model = model.model,
+                                sourceUrl = fixture.sourceUrl,
+                                maxOutputTokens = maxOutputTokens,
+                            )
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.C
+                                it.responseModelId shouldBe model.id
+                                it.response shouldBe summaryJson
+                            }
+                            links.findById(job.linkId)!!.let {
+                                it.status shouldBe LinkStatus.A
+                                it.title shouldBe fixture.title
+                                it.summary shouldBe fixture.summary
+                                it.tags shouldBe listOf(fixture.tag)
+                                it.folderId shouldBe folder.id.takeIf { includeCache }
+                                it.workModelId shouldBe model.id
+                            }
+                            val savedTodos = todos.findAllByLinkId(job.linkId).associateBy { it.title }
+                            savedTodos.keys shouldBe setOf(fixture.scheduledAction, fixture.unscheduledAction)
+                            savedTodos.getValue(fixture.scheduledAction).reminderAt?.epochSeconds shouldBe fixture.reminderAt.epochSeconds
+                            savedTodos.getValue(fixture.unscheduledAction).reminderAt shouldBe null
+                            recordedUsage(job)!!.let {
+                                it.requests shouldBe 1
+                                it.tokens shouldBe tokens
+                            }
+                        }
+                    }
+                }
+
+                When("Claude 요약 작업이 대기 중 만료되어 복구 대상이 되면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        val pending = enqueue()
+                        val expiredAt = jobs.now() - AiJob.STALE_AFTER - 1.minutes
+                        job =
+                            jobs.update(
+                                AiJob(
+                                    id = pending.id,
+                                    linkId = pending.linkId,
+                                    userProviderId = pending.userProviderId,
+                                    requestModelId = pending.requestModelId,
+                                    requestedUrl = pending.requestedUrl,
+                                    prompt = pending.prompt,
+                                    requestedAt = expiredAt,
+                                ),
+                            )
+                    }
+                    val action = suspend { app.koin.get<AiSummaryWorker>().recover() }
+                    Then("작업과 링크를 복구 실패로 저장하고 공급자에 다시 요청하지 않는다") {
+                        val initialLogCount = appender.list.size
+                        shouldNotThrow<BusinessException> { action() }
+                        appender.list
+                            .drop(
+                                initialLogCount,
+                            ).any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe
+                            true
+                        jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
                         links.findById(job.linkId)!!.let {
                             it.status shouldBe LinkStatus.F
-                            it.summary shouldBe error.message
+                            it.summary shouldBe AiJob.DEFAULT_FAILURE_MESSAGE
                             assertProviderPayloadAbsent(it.summary!!)
                         }
+                        http.requests
+                            .single()
+                            .url
+                            .toString() shouldBe "$baseUrl/v1/models?limit=1"
                         recordedUsage(job) shouldBe null
                         todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                    }
+                }
+
+                When("기본 Claude 공급자의 첫 모델이 503을 반환하면") {
+                    lateinit var job: AiJob
+                    lateinit var fallback: AvailableModel
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        claudeSettings =
+                            MapApplicationConfig(
+                                "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
+                                "ai.claude.sdkEndpoint" to "$baseUrl$prefix//",
+                            )
+                        job = enqueueDefault()
+                        fallback =
+                            models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1))
+                        http.nextMessageStatus = HttpStatusCode.ServiceUnavailable
+                        http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
+                    }
+                    val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                    Then("클라이언트 재시도 없이 다음 모델을 호출하고 성공 모델의 사용량을 저장한다") {
+                        shouldNotThrow<BusinessException> { action() }
+                        http.requests.map { it.method to it.url.rawPath } shouldBe
+                            List(2) { "POST" to if (useSdk) "$prefix//v1/messages" else "/v1/messages" }
+                        val attemptedModels = http.requests.filter { it.method == "POST" }.map { summaryModel(it) }
+                        attemptedModels shouldBe listOf(model.model, fallback.model)
+                        jobs.findById(job.id!!)!!.let {
+                            it.status shouldBe AiJobStatus.C
+                            it.requestModelId shouldBe model.id
+                            it.responseModelId shouldBe fallback.id
+                        }
+                        links.findById(job.linkId)!!.workModelId shouldBe fallback.id
+                        recordedUsage(job) shouldBe null
+                        usage
+                            .findByUserIdAndProviderIdAndUsageDate(
+                                userProviderId = job.userProviderId,
+                                modelId = fallback.id!!,
+                                usageDate = LocalDate.now(ZoneOffset.UTC),
+                            )!!
+                            .requests shouldBe 1
+                    }
+                }
+
+                listOf(
+                    HttpStatusCode.Unauthorized to ErrorCode.AI_API_KEY_INVALID,
+                    HttpStatusCode.Forbidden to ErrorCode.AI_VENDOR_PERMISSION_DENIED,
+                    HttpStatusCode.NotFound to ErrorCode.AI_VENDOR_REQUEST_REJECTED,
+                    HttpStatusCode.TooManyRequests to ErrorCode.AI_VENDOR_RATE_LIMITED,
+                    HttpStatusCode.PaymentRequired to ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED,
+                ).forEach { (status, error) ->
+                    When("기본 Claude 모델이 ${status.value} 오류를 반환하면") {
+                        lateinit var job: AiJob
+                        lateinit var fallback: AvailableModel
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            job = enqueueDefault()
+                            fallback =
+                                models.insert(
+                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1),
+                                )
+                            http.messagesStatus = status
+                            if (error == ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED) {
+                                http.errorBody =
+                                    """{"error":{"type":"billing_error","message":"${ClaudeHttpFixture.ERROR_MARKER}"}}"""
+                            }
+                        }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("기존 후보 순회를 유지하고 정제된 실패만 저장한다") {
+                            shouldNotThrow<BusinessException> { action() }
+                            http.requests.filter { it.method == "POST" }.map { summaryModel(it) } shouldBe
+                                List(5) { listOf(model.model, fallback.model) }.flatten()
+                            jobs.findById(job.id!!)!!.status shouldBe AiJobStatus.F
+                            links.findById(job.linkId)!!.summary shouldBe error.message
+                            recordedUsage(job) shouldBe null
+                            todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                        }
+                    }
+                }
+
+                When("Claude 요약 도중 워커가 취소되면") {
+                    lateinit var job: AiJob
+                    beforeTest {
+                        if (it.type != TestType.Test) return@beforeTest
+                        job = enqueue()
+                        http.holdResponse = true
+                        http.holdBody = true
+                    }
+                    Then("공급자 호출을 취소하고 완료나 실패를 저장하지 않는다") {
+                        coroutineScope {
+                            val worker = launch { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                            try {
+                                withTimeout(5000) { http.heldRequests.receive() }.method shouldBe "POST"
+                                withTimeout(3000) { worker.cancelAndJoin() }
+                            } finally {
+                                http.releaseResponses()
+                            }
+                        }
+                        jobs.findById(job.id!!)!!.let {
+                            it.status shouldBe AiJobStatus.P
+                            (it.startedAt != null) shouldBe true
+                        }
+                        links.findById(job.linkId)!!.status shouldBe LinkStatus.G
+                        recordedUsage(job) shouldBe null
+                        todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                    }
+                }
+
+                val invalidMessages: Map<String, (AiJob) -> String> =
+                    linkedMapOf(
+                        "다른 URL" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchUrl = otherUrl)
+                        },
+                        "가져온 결과의 URL 불일치" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultUrl = otherUrl)
+                        },
+                        "다른 도구 호출 ID" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), resultId = "wrong")
+                        },
+                        "가져오기 오류" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                fetchStatus = "web_fetch_tool_result_error",
+                            )
+                        },
+                        "SDK 형식의 가져오기 오류" to {
+                            fixture.messagesResponse(
+                                finalText = fixture.summaryJson(it.linkId, null),
+                                fetchStatus = "web_fetch_tool_result_error",
+                                fetchErrorCode = "url_not_accessible",
+                            )
+                        },
+                        "가져오기 결과 누락" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), fetchStatus = null)
+                        },
+                        "빈 최종 텍스트" to { fixture.messagesResponse(finalText = " ") },
+                        "refusal" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "refusal")
+                        },
+                        "max_tokens" to
+                            { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "max_tokens") },
+                        "pause_turn" to
+                            { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), stopReason = "pause_turn") },
+                        "깨진 JSON" to { fixture.messagesResponse(finalText = "{${ClaudeSummaryFixture.PAGE_MARKER}") },
+                        "깨진 SDK 응답" to { "{${ClaudeSummaryFixture.PAGE_MARKER}" },
+                        "잘못된 토큰 사용량" to {
+                            fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId, null), inputTokens = Int.MAX_VALUE.toLong())
+                        },
+                        "링크 ID 누락" to { fixture.messagesResponse(finalText = fixture.summaryJson(null, null)) },
+                        "링크 ID 불일치" to { fixture.messagesResponse(finalText = fixture.summaryJson(it.linkId + 1, null)) },
+                    )
+                invalidMessages.forEach { (scenario, body) ->
+                    When("Claude 응답이 '$scenario'이면") {
+                        lateinit var job: AiJob
+                        beforeTest {
+                            if (it.type != TestType.Test) return@beforeTest
+                            job = enqueue()
+                            http.messagesBody = body(job)
+                        }
+                        val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                        Then("실패 사유만 저장하고 요약·액션·사용량을 반영하지 않는다") {
+                            shouldNotThrow<BusinessException> { action() }
+                            appender.list.any { it.formattedMessage.startsWith("UPDATE ai_jobs") } shouldBe true
+                            val error =
+                                when (scenario) {
+                                    "다른 URL", "가져온 결과의 URL 불일치" -> ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH
+
+                                    "다른 도구 호출 ID",
+                                    "가져오기 오류",
+                                    "SDK 형식의 가져오기 오류",
+                                    "가져오기 결과 누락",
+                                    -> ErrorCode.AI_SUMMARY_FETCH_FAILED
+
+                                    "빈 최종 텍스트" -> ErrorCode.AI_EMPTY_RESPONSE
+
+                                    "refusal" -> ErrorCode.AI_SUMMARY_REFUSED
+
+                                    "max_tokens" -> ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED
+
+                                    "pause_turn" -> ErrorCode.AI_SUMMARY_INCOMPLETE
+
+                                    "깨진 JSON", "깨진 SDK 응답" -> ErrorCode.AI_SUMMARY_RESPONSE_INVALID
+
+                                    "잘못된 토큰 사용량" -> ErrorCode.AI_SUMMARY_USAGE_INVALID
+
+                                    else -> ErrorCode.AI_SUMMARY_LINK_MISMATCH
+                                }
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.F
+                                it.response shouldBe null
+                                it.responseModelId shouldBe null
+                            }
+                            links.findById(job.linkId)!!.let {
+                                it.status shouldBe LinkStatus.F
+                                it.summary shouldBe error.message
+                                assertProviderPayloadAbsent(it.summary!!)
+                            }
+                            recordedUsage(job) shouldBe null
+                            todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                        }
                     }
                 }
             }

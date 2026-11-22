@@ -133,7 +133,7 @@ fun externalModule(
         )
     }
 
-    registerClaudeSdk(config)
+    registerClaude(config)
 
     single<AiClientRouter> {
         aiClientRouter(
