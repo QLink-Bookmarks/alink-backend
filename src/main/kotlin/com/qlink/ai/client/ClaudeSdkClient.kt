@@ -15,27 +15,36 @@ import com.qlink.ai.domain.AiProviderType
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.ClaudeConfig
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import org.slf4j.Logger
 import java.net.URI
 import java.net.URISyntaxException
 import kotlin.jvm.optionals.getOrNull
 
-class ClaudeAiClient(
+class ClaudeSdkClient(
     private val client: AnthropicClient,
     private val config: ClaudeConfig,
+    private val dispatcher: CoroutineDispatcher,
     private val log: Logger,
 ) : AiClient {
     override val providerType: AiProviderType = AiProviderType.CLAUDE
 
     override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
-        val provider = providerClient(baseUrl = request.baseUrl, apiKey = request.apiKey)
+        validateEndpoint()
+        val params =
+            ModelListParams
+                .builder()
+                .limit(1)
+                .putAdditionalHeader("x-api-key", validApiKey(request.apiKey))
+                .build()
         exchange {
-            provider
+            client
                 .models()
                 .withRawResponse()
-                .list(ModelListParams.builder().limit(1).build())
+                .list(params)
                 .close()
         }
     }
@@ -43,8 +52,12 @@ class ClaudeAiClient(
     override suspend fun summarize(request: AiSummaryClientRequest): AiSummaryClientResponse {
         val sourceUrl = request.requestedUrl?.trim() ?: throw BusinessException(ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID)
         val sourceHost = sourceHost(sourceUrl)
-        val provider = providerClient(baseUrl = request.baseUrl, apiKey = request.apiKey)
-        val maxTokens = config.maxOutputTokens ?: throw BusinessException(ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE)
+        validateEndpoint()
+        val maxTokens = config.maxOutputTokens
+        if (maxTokens == null) {
+            log.warn("Claude summary requires a positive integer in ai.claude.maxOutputTokens or AI_CLAUDE_MAX_OUTPUT_TOKENS")
+            throw BusinessException(ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE)
+        }
 
         val params =
             MessageCreateParams
@@ -52,11 +65,12 @@ class ClaudeAiClient(
                 .model(request.model)
                 .system(AiSummarySpec.systemInstruction)
                 .maxTokens(maxTokens)
+                .putAdditionalHeader("x-api-key", validApiKey(request.apiKey))
                 .addUserMessage(request.prompt)
                 .addTool(config.webFetch(sourceHost))
                 .outputConfig(config.outputConfig)
                 .build()
-        val message = exchange { provider.messages().create(params) }
+        val message = exchange { client.messages().create(params) }
 
         val text = readResponse { message.summaryText(sourceUrl) }
         val usedTokens = readResponse(ErrorCode.AI_SUMMARY_USAGE_INVALID) { message.usage().totalTokens() }
@@ -81,33 +95,30 @@ class ClaudeAiClient(
             ?: throw BusinessException(ErrorCode.AI_SUMMARY_SOURCE_URL_INVALID)
     }
 
-    private fun providerClient(
-        baseUrl: String,
-        apiKey: String,
-    ): AnthropicClient {
-        if (!providerType.isAllowedBaseUrl(baseUrl)) throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+    private fun validateEndpoint() {
+        if (config.baseUrl == null) throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+    }
+
+    private fun validApiKey(apiKey: String): String {
         if (apiKey.isBlank() || apiKey.any { it !in ' '..'~' }) throw BusinessException(ErrorCode.AI_API_KEY_INVALID)
-        return client.withOptions {
-            it.baseUrl(baseUrl.trimEnd('/').removeSuffix("/v1") + "/")
-            it.putHeader("x-api-key", apiKey)
-            it.putHeader("anthropic-version", "2023-06-01")
-        }
+        return apiKey
     }
 
     private suspend fun <T> exchange(call: () -> T): T =
-        runInterruptible(Dispatchers.IO) {
-            try {
-                call()
-            } catch (error: AnthropicServiceException) {
-                log.info("Claude request failed with HTTP status={}", error.statusCode())
-                val quotaExhausted =
-                    error.type().getOrNull() == ErrorType.BILLING_ERROR || error.errorCode().getOrNull() in billingErrorCodes
-                throw BusinessException(aiVendorErrorCode(status = error.statusCode(), quotaExhausted = quotaExhausted))
-            } catch (_: AnthropicIoException) {
-                throw BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
-            } catch (_: AnthropicInvalidDataException) {
-                throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
-            }
+        try {
+            runInterruptible(dispatcher, call)
+        } catch (error: AnthropicServiceException) {
+            currentCoroutineContext().ensureActive()
+            log.info("Claude request failed with HTTP status={}", error.statusCode())
+            val quotaExhausted =
+                error.type().getOrNull() == ErrorType.BILLING_ERROR || error.errorCode().getOrNull() in billingErrorCodes
+            throw BusinessException(aiVendorErrorCode(status = error.statusCode(), quotaExhausted = quotaExhausted))
+        } catch (_: AnthropicIoException) {
+            currentCoroutineContext().ensureActive()
+            throw BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+        } catch (_: AnthropicInvalidDataException) {
+            currentCoroutineContext().ensureActive()
+            throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
         }
 
     private fun <T> readResponse(

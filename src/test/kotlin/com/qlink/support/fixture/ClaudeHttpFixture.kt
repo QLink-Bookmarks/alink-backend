@@ -10,11 +10,13 @@ import com.anthropic.errors.AnthropicIoException
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpServer
 import io.ktor.http.HttpStatusCode
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import java.net.InetSocketAddress
 import java.net.URI
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ClaudeHttpFixture : AutoCloseable {
     data class Request(
@@ -22,6 +24,7 @@ class ClaudeHttpFixture : AutoCloseable {
         val url: URI,
         val headers: Headers,
         val body: String,
+        val connectionPort: Int,
     )
 
     val requests = CopyOnWriteArrayList<Request>()
@@ -41,26 +44,36 @@ class ClaudeHttpFixture : AutoCloseable {
 
     @Volatile var messagesRedirect: String? = null
 
-    val pendingRequest = CompletableDeferred<Unit>()
-
-    @Volatile var interrupted = false
+    val heldRequests = Channel<Request>(Channel.UNLIMITED)
+    private val responseGate = CountDownLatch(1)
+    private val serverExecutor = Executors.newVirtualThreadPerTaskExecutor()
 
     @Volatile var holdResponse = false
 
+    @Volatile var holdBody = false
+
+    fun releaseResponses() = responseGate.countDown()
+
     private val server =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            executor = serverExecutor
             createContext("/") { exchange ->
                 exchange.use {
                     val url = URI("https://api.anthropic.com${it.requestURI}")
                     val body = it.requestBody.bufferedReader().use { reader -> reader.readText() }
-                    requests.add(
+                    val request =
                         Request(
                             method = it.requestMethod,
                             url = url,
                             headers = it.requestHeaders,
                             body = body,
-                        ),
-                    )
+                            connectionPort = it.remoteAddress.port,
+                        )
+                    requests.add(request)
+                    if (holdResponse && !holdBody) {
+                        heldRequests.trySend(request)
+                        if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
+                    }
                     val isModelsRequest = it.requestMethod == "GET" && url.rawPath.endsWith("/v1/models")
                     val isMessagesRequest = it.requestMethod == "POST" && url.rawPath.endsWith("/v1/messages")
                     val status =
@@ -88,6 +101,10 @@ class ClaudeHttpFixture : AutoCloseable {
                         it.sendResponseHeaders(status.value, -1)
                     } else {
                         it.sendResponseHeaders(status.value, response.size.toLong())
+                        if (holdResponse && holdBody) {
+                            heldRequests.trySend(request)
+                            if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
+                        }
                         it.responseBody.write(response)
                     }
                 }
@@ -102,15 +119,6 @@ class ClaudeHttpFixture : AutoCloseable {
                 request: HttpRequest,
                 requestOptions: RequestOptions,
             ): HttpResponse {
-                if (holdResponse) {
-                    pendingRequest.complete(Unit)
-                    try {
-                        CountDownLatch(1).await()
-                    } catch (e: InterruptedException) {
-                        interrupted = true
-                        throw e
-                    }
-                }
                 val url = URI(request.url())
                 if (url.host != "api.anthropic.com" || url.scheme != "https" || url.port !in listOf(-1, 443)) {
                     throw AssertionError("Unexpected Claude origin: ${url.scheme}://${url.authority}")
@@ -130,7 +138,10 @@ class ClaudeHttpFixture : AutoCloseable {
         }
 
     override fun close() {
+        releaseResponses()
         server.stop(0)
+        serverExecutor.close()
+        heldRequests.close()
     }
 
     companion object {

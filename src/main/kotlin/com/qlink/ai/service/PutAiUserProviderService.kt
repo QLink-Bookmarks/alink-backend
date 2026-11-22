@@ -15,7 +15,6 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.user.repository.UserRepository
-import java.io.IOException
 
 class PutAiUserProviderService(
     private val tx: TransactionRunner,
@@ -63,10 +62,6 @@ class PutAiUserProviderService(
 
             is AiApiKeyValidationException -> {
                 BusinessException(aiVendorErrorCode(statusCode))
-            }
-
-            is IOException -> {
-                BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
             }
 
             else -> {

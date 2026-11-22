@@ -9,7 +9,7 @@ import com.anthropic.backends.AnthropicBackend
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.OkHttpClient
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.ClaudeAiClient
+import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
 import com.qlink.auth.client.AppleAuthResourceClient
@@ -45,10 +45,14 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.serialization.json.Json
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
+import java.util.concurrent.Executors
 import com.anthropic.core.http.HttpClient as AnthropicTransport
 
 fun externalModule(
@@ -148,11 +152,14 @@ fun externalModule(
 
     single<AnthropicClient> { get<ClaudeConfig>().client(get()) } onClose { it?.close() }
 
+    single(named<ClaudeSdkClient>()) { Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher() } onClose { it?.close() }
+
     single {
-        ClaudeAiClient(
+        ClaudeSdkClient(
             client = get(),
             config = get(),
-            log = LoggerFactory.getLogger(ClaudeAiClient::class.java),
+            dispatcher = get<ExecutorCoroutineDispatcher>(named<ClaudeSdkClient>()),
+            log = LoggerFactory.getLogger(ClaudeSdkClient::class.java),
         )
     }
 
@@ -162,7 +169,7 @@ fun externalModule(
                 listOf(
                     get<GeminiAiClient>(),
                     get<OpenAiClient>(),
-                    get<ClaudeAiClient>(),
+                    get<ClaudeSdkClient>(),
                 ),
         )
     }

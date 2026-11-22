@@ -14,6 +14,7 @@ import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.WebFetchTool20250910
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.client.AiSummarySpec
+import com.qlink.ai.domain.AiProviderType
 import io.ktor.server.config.ApplicationConfig
 import java.net.URI
 import java.net.URISyntaxException
@@ -23,10 +24,15 @@ import kotlin.jvm.optionals.getOrNull
 class ClaudeConfig(
     config: ApplicationConfig,
 ) {
+    val baseUrl: String? =
+        runCatching {
+            config.optionalString("ai.claude.baseUrl") ?: System.getenv("AI_CLAUDE_BASE_URL") ?: DEFAULT_BASE_URL
+        }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)
+
     val maxOutputTokens: Long? =
-        (config.optionalString("ai.claude.maxOutputTokens") ?: System.getenv("AI_CLAUDE_MAX_OUTPUT_TOKENS"))
-            ?.toLongOrNull()
-            ?.takeIf { it > 0 }
+        runCatching {
+            config.optionalString("ai.claude.maxOutputTokens") ?: System.getenv("AI_CLAUDE_MAX_OUTPUT_TOKENS")
+        }.getOrNull()?.toLongOrNull()?.takeIf { it > 0 }
 
     val outputConfig: OutputConfig =
         OutputConfig
@@ -53,6 +59,8 @@ class ClaudeConfig(
             ClientOptions
                 .builder()
                 .httpClient(transport)
+                .baseUrl(baseUrl ?: DEFAULT_BASE_URL)
+                .putHeader("anthropic-version", "2023-06-01")
                 .maxRetries(0)
                 .timeout(Duration.ofSeconds(15))
                 .logLevel(LogLevel.OFF)
@@ -99,5 +107,9 @@ class ClaudeConfig(
                 it.rawUserInfo == null &&
                 it.rawFragment == null
         }
+    }
+
+    private companion object {
+        const val DEFAULT_BASE_URL = "https://api.anthropic.com"
     }
 }
