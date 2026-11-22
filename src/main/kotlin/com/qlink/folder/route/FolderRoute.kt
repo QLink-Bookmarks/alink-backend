@@ -1,7 +1,6 @@
 package com.qlink.folder.route
 
 import com.qlink.auth.domain.JwtPrincipal
-import com.qlink.common.response.ReadNoStore
 import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
@@ -26,10 +25,12 @@ import io.github.smiley4.ktoropenapi.resources.delete
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
 
@@ -53,7 +54,7 @@ fun Route.folderRoutes() {
                 is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
                 is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
             }
-        }.install(ReadNoStore)
+        }
     }
 
     authenticate {
@@ -88,6 +89,7 @@ fun Route.folderRoutes() {
             val request = call.receive<CreateFolderInvitationRequest>()
             val response = createFolderInvitationService.createInvitation(principal.userId, resource.id, request)
 
+            call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondSuccess(HttpStatusCode.Created, response)
         }
 

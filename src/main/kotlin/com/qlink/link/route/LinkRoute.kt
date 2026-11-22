@@ -5,7 +5,6 @@ import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.domain.JwtPrincipal
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.common.response.ReadNoStore
 import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
@@ -99,7 +98,7 @@ fun Route.linkRoutes() {
                 is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
                 is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
             }
-        }.install(ReadNoStore)
+        }
 
         get<LinkResources.ById>(getLinkDetailDocs()) { resource ->
             val response =
@@ -111,7 +110,7 @@ fun Route.linkRoutes() {
                 is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
                 is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
             }
-        }.install(ReadNoStore)
+        }
     }
 
     authenticate {

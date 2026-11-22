@@ -1,7 +1,6 @@
 package com.qlink.todo.route
 
 import com.qlink.auth.domain.JwtPrincipal
-import com.qlink.common.response.ReadNoStore
 import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
@@ -63,7 +62,7 @@ fun Route.todoRoutes() {
                 is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
                 is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
             }
-        }.install(ReadNoStore)
+        }
     }
 
     authenticate {

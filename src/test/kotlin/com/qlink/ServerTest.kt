@@ -77,11 +77,11 @@ class ServerTest :
                 client.get(path).status shouldBe HttpStatusCode.NotFound
                 val unauthorized = client.put(path)
                 unauthorized.status shouldBe HttpStatusCode.Unauthorized
-                unauthorized.headers[HttpHeaders.CacheControl] shouldBe null
+                unauthorized.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
 
                 val missingLink = client.get("/api/links/${RandomFixture.randomId()}")
                 missingLink.status shouldBe HttpStatusCode.NotFound
-                missingLink.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                missingLink.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                 apiErrorCode(missingLink.bodyAsText()) shouldBe ErrorCode.LINK_NOT_FOUND.code
 
                 val malformedBodies =
@@ -95,7 +95,7 @@ class ServerTest :
                         }
 
                     badRequest.status shouldBe HttpStatusCode.BadRequest
-                    badRequest.headers[HttpHeaders.CacheControl] shouldBe null
+                    badRequest.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                     apiErrorCode(badRequest.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
                 }
 
@@ -147,7 +147,7 @@ class ServerTest :
 
                 val publicNotFound = client.get("/api/links?folderId=${RandomFixture.randomId()}&cursor=invalid")
                 publicNotFound.status shouldBe HttpStatusCode.NotFound
-                publicNotFound.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                publicNotFound.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                 apiErrorCode(publicNotFound.bodyAsText()) shouldBe ErrorCode.FOLDER_NOT_FOUND.code
             }
         }
@@ -242,7 +242,7 @@ class ServerTest :
                     memberLinks.getValue("hasNext").jsonPrimitive.content shouldBe "true"
                     for ((filter, id) in listOf(true to publicLink, false to privateLink)) {
                         val filtered = client.get("$linksPath&isPublic=$filter") { bearerAuth(token(member)) }
-                        filtered.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        filtered.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                         val entry =
                             filtered
                                 .readData()
@@ -263,7 +263,7 @@ class ServerTest :
                             .getValue("contents")
                             .jsonArray
                             .isEmpty() shouldBe true
-                        filtered.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        filtered.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                     }
                     for (filter in listOf(
                         "isPublic",
@@ -275,7 +275,7 @@ class ServerTest :
                     )) {
                         val rejected = client.get("$linksPath&$filter")
                         rejected.status shouldBe HttpStatusCode.BadRequest
-                        rejected.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        rejected.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                         apiErrorCode(rejected.bodyAsText()) shouldBe ErrorCode.COMMON_INVALID_FILTER.code
                     }
                     val previousCursor = memberLinks.getValue("nextCursor").jsonPrimitive.content
@@ -320,7 +320,7 @@ class ServerTest :
                     for (path in listOf(folderPath, detailPath, linksPath, todosPath)) {
                         val malformed = client.get(path) { bearerAuth("invalid") }
                         malformed.status shouldBe HttpStatusCode.Unauthorized
-                        malformed.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        malformed.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                     }
 
                     client
@@ -452,7 +452,7 @@ class ServerTest :
                             bearerAuth(token(owner))
                             contentType(ContentType.Application.Json)
                             setBody("""{"isPublic":$isPublic}""")
-                        }.readData(cacheControl = null)
+                        }.readData()
 
                     val folderPublication = tx.readOnly { folders.findById(folder)?.turnsPublicAt }
                     val linkPublication = tx.readOnly { links.findById(publicLink)?.turnsPublicAt }
@@ -531,7 +531,7 @@ class ServerTest :
                             contentType(ContentType.Application.Json)
                             setBody("""{"folderId":$privateFolder}""")
                         }
-                    move.readData(cacheControl = null).getValue("isPublic") shouldBe JsonPrimitive(false)
+                    move.readData().getValue("isPublic") shouldBe JsonPrimitive(false)
                     client.get(detailPath).status shouldBe HttpStatusCode.NotFound
                     client
                         .get(linksPath)
@@ -661,7 +661,7 @@ class ServerTest :
                             for (path in listOf(folderPath, linksPath, todosPath)) {
                                 val denied = client.get(path) { bearerAuth(memberToken) }
                                 denied.status shouldBe HttpStatusCode.NotFound
-                                denied.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                                denied.headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
                                 apiErrorCode(denied.bodyAsText()) shouldBe ErrorCode.FOLDER_NOT_FOUND.code
                                 denied.bodyAsText() shouldBe client.get(path).bodyAsText()
                             }
@@ -700,9 +700,9 @@ private fun apiErrorCode(json: String): String =
         .getValue("code")
         .jsonPrimitive.content
 
-private suspend fun HttpResponse.readData(cacheControl: String? = "no-store"): JsonObject {
+private suspend fun HttpResponse.readData(): JsonObject {
     status shouldBe HttpStatusCode.OK
-    headers[HttpHeaders.CacheControl] shouldBe cacheControl
+    headers.getAll(HttpHeaders.CacheControl) shouldBe listOf("private, no-cache")
     return Json
         .parseToJsonElement(bodyAsText())
         .jsonObject
