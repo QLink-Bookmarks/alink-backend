@@ -23,6 +23,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.todo.repository.TodoRepository
@@ -356,7 +357,10 @@ class UpdateFolderServiceTest :
                                 tx.required {
                                     val source =
                                         folderRepository.insert(
-                                            FolderFixture.createSharedFolderOf(ownerId).setPublic(true),
+                                            FolderFixture
+                                                .createSharedFolderOf(
+                                                    ownerId,
+                                                ).withPublication(),
                                         )
                                     folderMemberRepository.insertIfAbsent(
                                         FolderMemberFixture.createOwnerMember(folderId = source.id!!, userId = ownerId),
@@ -608,7 +612,10 @@ class UpdateFolderServiceTest :
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 recipientId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folderRepository.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(true))
+                folder =
+                    folderRepository.insert(
+                        FolderFixture.createSharedFolderOf(ownerId).withPublication(),
+                    )
                 folderMemberRepository.insertIfAbsent(FolderMemberFixture.createOwnerMember(folderId = folder.id!!, userId = ownerId))
                 folderMemberRepository.insertIfAbsent(FolderMemberFixture.createMember(folderId = folder.id!!, userId = recipientId))
                 staleRequest = UpdateFolderRequest(name = folder.name, emoji = folder.emoji, isPublic = false)
