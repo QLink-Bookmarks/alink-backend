@@ -1,6 +1,5 @@
 package com.qlink.ai.dto
 
-import com.qlink.ai.client.AiSummaryClientResponse
 import com.qlink.ai.domain.AiJob
 
 // Captured from the repository-returned link before the external AI request.

@@ -1,40 +1,14 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.ai.dto.AiSummaryResult
+import com.qlink.ai.dto.AiSummaryTodo
 import com.qlink.common.error.ErrorCode
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
-
-data class AiSummaryPrompt(
-    val linkId: Long,
-    val url: String,
-)
-
-data class AiSummaryClientRequest(
-    val providerType: AiProviderType,
-    val baseUrl: String,
-    val apiKey: String,
-    val model: String,
-    val prompt: String,
-    val requestedUrl: String? = null,
-)
-
-data class AiSummaryClientResponse(
-    val linkId: Long?,
-    val folderId: Long?,
-    val rawResponse: String,
-    val title: String,
-    val summary: String,
-    val tags: List<String>,
-    val todos: List<AiSummaryTodo>,
-    val usedTokens: Int,
-)
-
-data class AiSummaryTodo(
-    val title: String,
-    val reminderAt: Instant?,
-)
 
 interface AiClient {
     val providerType: AiProviderType
@@ -43,15 +17,6 @@ interface AiClient {
 
     suspend fun validateApiKey(request: AiApiKeyValidationRequest)
 }
-
-data class AiApiKeyValidationRequest(
-    val baseUrl: String,
-    val apiKey: String,
-)
-
-class AiApiKeyValidationException(
-    val statusCode: Int,
-) : RuntimeException("AI API key validation failed. statusCode=$statusCode")
 
 internal fun aiVendorErrorCode(
     status: Int,
@@ -104,20 +69,3 @@ private fun String.removeMarkdownJsonFence(): String =
         .removePrefix("```JSON")
         .removePrefix("```")
         .removeSuffix("```")
-
-@Serializable
-private data class AiSummaryResult(
-    val id: Long? = null,
-    val linkId: Long? = null,
-    val folderId: Long? = null,
-    val title: String,
-    val summary: String,
-    val tags: List<String> = emptyList(),
-    val todos: List<AiSummaryTodoResult> = emptyList(),
-)
-
-@Serializable
-private data class AiSummaryTodoResult(
-    val title: String,
-    val reminderAt: String? = null,
-)

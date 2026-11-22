@@ -4,10 +4,8 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.classic.spi.ThrowableProxyUtil
 import ch.qos.logback.core.read.ListAppender
-import com.qlink.ai.client.AiApiKeyValidationRequest
 import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.AiSummaryClientRequest
 import com.qlink.ai.client.AiSummarySpec
 import com.qlink.ai.client.ClaudeCurlClient
 import com.qlink.ai.client.ClaudeSdkClient
@@ -17,6 +15,8 @@ import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
@@ -126,7 +126,11 @@ class ClaudeAiSummaryServiceTest :
         val config =
             object : ApplicationConfig by applicationConfig {
                 override fun propertyOrNull(path: String): ApplicationConfigValue? =
-                    if (path.startsWith("ai.claude.")) claudeSettings.propertyOrNull(path) else applicationConfig.propertyOrNull(path)
+                    if (path.startsWith("ai.claude.")) {
+                        claudeSettings.propertyOrNull(path)
+                    } else {
+                        applicationConfig.propertyOrNull(path)
+                    }
             }
         val s3Config = ServiceTestEnvironment.s3Config(environment = "dev")
 
@@ -252,13 +256,17 @@ class ClaudeAiSummaryServiceTest :
         listOf(true, false).forEach { useSdk ->
             Given("운영 라우터에 등록된 Claude와 HTTP 응답 fixture (SDK=$useSdk)") {
                 beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
+                    if (it.type != TestType.Test) {
+                        return@beforeTest
+                    }
                     claudeSettings =
                         MapApplicationConfig(
                             "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
                             "ai.claude.sdkEndpoint" to baseUrl,
                         )
-                    if (!useSdk) (claudeSettings as MapApplicationConfig).put("ai.claude.useSdk", "false")
+                    if (!useSdk) {
+                        (claudeSettings as MapApplicationConfig).put("ai.claude.useSdk", "false")
+                    }
                     http = ClaudeHttpFixture()
                     app =
                         koinApplication {
@@ -304,7 +312,9 @@ class ClaudeAiSummaryServiceTest :
                 }
 
                 afterTest { (testCase, _) ->
-                    if (testCase.type != TestType.Test) return@afterTest
+                    if (testCase.type != TestType.Test) {
+                        return@afterTest
+                    }
                     loggers.forEach { logger -> logger.detachAppender(appender) }
                     val events = appender.list.toList()
                     appender.stop()
@@ -383,9 +393,16 @@ class ClaudeAiSummaryServiceTest :
                     When("키 검증 결과가 ${status?.value ?: "전송 실패"}이면") {
                         var existingId: Long? = null
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             activateProvider()
-                            existingId = if (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) register() else null
+                            existingId =
+                                if (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) {
+                                    register()
+                                } else {
+                                    null
+                                }
                             http.requests.clear()
                             http.modelsStatus = status
                             if (status == HttpStatusCode.PaymentRequired) {
@@ -408,7 +425,9 @@ class ClaudeAiSummaryServiceTest :
                 if (!useSdk) {
                     When("Ktor 요청 파이프라인에서 내부 오류가 나면") {
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             activateProvider()
                             http.failKtorPipeline = true
                         }
@@ -425,7 +444,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude 키 검증과 요약이 다른 호스트로 리다이렉트되면") {
                     lateinit var job: AiJob
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         job = enqueue()
                         http.requests.clear()
                         http.modelsRedirect = "https://other.example/v1/models"
@@ -450,7 +471,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude가 같은 HTTPS 출처의 주소로 키 조회와 Messages를 리다이렉트하면") {
                     lateinit var job: AiJob
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         app.koin.get<UpdateAiProviderService>().updateAiProvider(
                             loginId = admin.id!!,
                             id = provider.id!!,
@@ -481,7 +504,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude가 같은 출처로 307을 반환하고 리다이렉트 본문을 보류하면") {
                     lateinit var job: AiJob
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         job = enqueue()
                         http.requests.clear()
                         http.messagesRedirect = "/redirected/messages"
@@ -514,7 +539,9 @@ class ClaudeAiSummaryServiceTest :
                     When("Claude 출력 토큰 설정이 누락되거나 잘못되면 ($setting)") {
                         lateinit var job: AiJob
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             claudeSettings = HoconApplicationConfig(ConfigFactory.parseString(setting))
                             job = enqueue()
                             http.requests.clear()
@@ -537,7 +564,9 @@ class ClaudeAiSummaryServiceTest :
                 if (useSdk) {
                     When("Claude SDK 주소가 허용되지 않은 HTTPS 호스트면") {
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             claudeSettings = MapApplicationConfig("ai.claude.sdkEndpoint" to otherUrl)
                             activateProvider()
                         }
@@ -564,7 +593,9 @@ class ClaudeAiSummaryServiceTest :
                             lateinit var job: AiJob
                             val storedUrl = "$baseUrl/stored-${RandomFixture.randomId()}/v1"
                             beforeTest {
-                                if (it.type != TestType.Test) return@beforeTest
+                                if (it.type != TestType.Test) {
+                                    return@beforeTest
+                                }
                                 claudeSettings =
                                     MapApplicationConfig(
                                         "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
@@ -607,7 +638,9 @@ class ClaudeAiSummaryServiceTest :
                             lateinit var job: AiJob
                             val storedUrl = baseUrl + storedPath
                             beforeTest {
-                                if (it.type != TestType.Test) return@beforeTest
+                                if (it.type != TestType.Test) {
+                                    return@beforeTest
+                                }
                                 claudeSettings =
                                     MapApplicationConfig(
                                         "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
@@ -646,7 +679,9 @@ class ClaudeAiSummaryServiceTest :
                     val summaryKey = "dummy-second-key-${RandomFixture.randomId()}"
                     val linkId = RandomFixture.randomId()
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         http.holdResponse = true
                         http.messagesBody = fixture.messagesResponse(finalText = fixture.summaryJson(linkId = linkId, folderId = null))
                     }
@@ -685,7 +720,9 @@ class ClaudeAiSummaryServiceTest :
                     When("Claude 요청의 requestedUrl이 '$requestedUrl'이면") {
                         var request: AiSummaryClientRequest? = null
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             request =
                                 AiSummaryClientRequest(
                                     providerType = AiProviderType.CLAUDE,
@@ -708,7 +745,9 @@ class ClaudeAiSummaryServiceTest :
                     lateinit var job: AiJob
                     lateinit var fallbackModel: String
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         val queued = enqueueDefault()
                         fallbackModel =
                             models
@@ -747,7 +786,9 @@ class ClaudeAiSummaryServiceTest :
                 listOf(false, true).forEach { redirected ->
                     When("Claude 키 확인 도중 요청이 취소되면 (리다이렉트=$redirected)") {
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             activateProvider()
                             http.holdResponse = true
                             if (redirected) {
@@ -762,14 +803,24 @@ class ClaudeAiSummaryServiceTest :
                                 try {
                                     val held = withTimeout(5000) { http.heldRequests.receive() }
                                     held.method shouldBe "GET"
-                                    held.url.rawPath shouldBe if (redirected) "/redirected/models" else "/v1/models"
+                                    held.url.rawPath shouldBe
+                                        if (redirected) {
+                                            "/redirected/models"
+                                        } else {
+                                            "/v1/models"
+                                        }
                                     withTimeout(3000) { registration.cancelAndJoin() }
                                     (failure.await() is CancellationException) shouldBe true
                                 } finally {
                                     http.releaseResponses()
                                 }
                             }
-                            http.requests.size shouldBe if (redirected) 2 else 1
+                            http.requests.size shouldBe
+                                if (redirected) {
+                                    2
+                                } else {
+                                    1
+                                }
                             keys.findAllByUserId(owner.id!!) shouldBe emptyList()
                         }
                     }
@@ -778,7 +829,9 @@ class ClaudeAiSummaryServiceTest :
                 When("사용자가 본인 Claude 설정의 모델 목록을 조회하면") {
                     var keyId = 0L
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         activateProvider()
                         activateModel()
                         models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false))
@@ -801,7 +854,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude 설정으로 다른 공급자 모델을 고르면") {
                     lateinit var request: AiSummaryRequest
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         activateProvider()
                         val other = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI))
                         val otherModel = models.insert(AiFixture.createRandomAvailableModelOf(providerId = other.id!!))
@@ -820,7 +875,9 @@ class ClaudeAiSummaryServiceTest :
                         lateinit var job: AiJob
                         lateinit var summaryJson: String
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             job = enqueue()
                             summaryJson = fixture.summaryJson(linkId = job.linkId, folderId = folder.id.takeIf { includeCache })
                             http.messagesBody = fixture.messagesResponse(finalText = summaryJson, includeCache = includeCache)
@@ -872,7 +929,9 @@ class ClaudeAiSummaryServiceTest :
                     When("공개 모델 ID $modelId 사용 중 알 수 없는 중간 블록이 추가되면") {
                         lateinit var job: AiJob
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             model =
                                 models.insert(
                                     AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, isActive = false, model = modelId),
@@ -897,7 +956,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude가 원문 문서를 text/plain으로 가져오면") {
                     lateinit var job: AiJob
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         job = enqueue()
                         http.messagesBody =
                             fixture.messagesResponse(
@@ -927,7 +988,9 @@ class ClaudeAiSummaryServiceTest :
                 When("Claude 요약 작업이 대기 중 만료되어 복구 대상이 되면") {
                     lateinit var job: AiJob
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         val pending = enqueue()
                         val expiredAt = jobs.now() - AiJob.STALE_AFTER - 1.minutes
                         job =
@@ -971,7 +1034,9 @@ class ClaudeAiSummaryServiceTest :
                     lateinit var job: AiJob
                     lateinit var fallback: AvailableModel
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         claudeSettings =
                             MapApplicationConfig(
                                 "ai.claude.maxOutputTokens" to maxOutputTokens.toString(),
@@ -987,7 +1052,14 @@ class ClaudeAiSummaryServiceTest :
                     Then("클라이언트 재시도 없이 다음 모델을 호출하고 성공 모델의 사용량을 저장한다") {
                         shouldNotThrow<BusinessException> { action() }
                         http.requests.map { it.method to it.url.rawPath } shouldBe
-                            List(2) { "POST" to if (useSdk) "$prefix//v1/messages" else "/v1/messages" }
+                            List(2) {
+                                "POST" to
+                                    if (useSdk) {
+                                        "$prefix//v1/messages"
+                                    } else {
+                                        "/v1/messages"
+                                    }
+                            }
                         val attemptedModels = http.requests.filter { it.method == "POST" }.map { summaryModel(it) }
                         attemptedModels shouldBe listOf(model.model, fallback.model)
                         jobs.findById(job.id!!)!!.let {
@@ -1018,7 +1090,9 @@ class ClaudeAiSummaryServiceTest :
                         lateinit var job: AiJob
                         lateinit var fallback: AvailableModel
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             job = enqueueDefault()
                             fallback =
                                 models.insert(
@@ -1047,7 +1121,9 @@ class ClaudeAiSummaryServiceTest :
                     When("Claude 요약 도중 워커가 취소되면 (리다이렉트=$redirected)") {
                         lateinit var job: AiJob
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             job = enqueue()
                             http.holdResponse = true
                             http.holdBody = true
@@ -1062,13 +1138,23 @@ class ClaudeAiSummaryServiceTest :
                                 try {
                                     val held = withTimeout(5000) { http.heldRequests.receive() }
                                     held.method shouldBe "POST"
-                                    held.url.rawPath shouldBe if (redirected) "/redirected/messages" else "/v1/messages"
+                                    held.url.rawPath shouldBe
+                                        if (redirected) {
+                                            "/redirected/messages"
+                                        } else {
+                                            "/v1/messages"
+                                        }
                                     withTimeout(3000) { worker.cancelAndJoin() }
                                 } finally {
                                     http.releaseResponses()
                                 }
                             }
-                            http.requests.count { it.method == "POST" } shouldBe if (redirected) 2 else 1
+                            http.requests.count { it.method == "POST" } shouldBe
+                                if (redirected) {
+                                    2
+                                } else {
+                                    1
+                                }
                             jobs.findById(job.id!!)!!.let {
                                 it.status shouldBe AiJobStatus.P
                                 (it.startedAt != null) shouldBe true
@@ -1251,7 +1337,9 @@ class ClaudeAiSummaryServiceTest :
                     When("Claude 응답이 '$scenario'이면") {
                         lateinit var job: AiJob
                         beforeTest {
-                            if (it.type != TestType.Test) return@beforeTest
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
                             job = enqueue()
                             http.messagesBody = body(job)
                         }
@@ -1341,7 +1429,14 @@ private val unknownClaudeBlock =
 private fun JsonArray.editBlock(
     index: Int,
     edit: (JsonObject) -> JsonObject,
-): List<JsonElement> = mapIndexed { position, block -> if (position == index) edit(block.jsonObject) else block }
+): List<JsonElement> =
+    mapIndexed { position, block ->
+        if (position == index) {
+            edit(block.jsonObject)
+        } else {
+            block
+        }
+    }
 
 private fun JsonArray.editFetchResult(edit: (JsonObject) -> JsonObject): List<JsonElement> =
     editBlock(2) { block ->

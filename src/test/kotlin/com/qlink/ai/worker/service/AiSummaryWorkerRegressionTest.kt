@@ -189,7 +189,9 @@ class AiSummaryWorkerRegressionTest :
             ).forEach { (error, failure) ->
                 When("레거시 공급자가 ${error.name}에 해당하는 전송 또는 응답 오류를 반환하면") {
                     beforeTest {
-                        if (it.type != TestType.Test) return@beforeTest
+                        if (it.type != TestType.Test) {
+                            return@beforeTest
+                        }
                         enqueue()
                         fakeAiClient.failuresByModel = mapOf(model.model to failure(RandomFixture.randomSentenceWithMax(100)))
                     }
@@ -210,7 +212,9 @@ class AiSummaryWorkerRegressionTest :
                 val rawMarker = "provider-private-${RandomFixture.randomId()}"
 
                 beforeTest {
-                    if (it.type != TestType.Test) return@beforeTest
+                    if (it.type != TestType.Test) {
+                        return@beforeTest
+                    }
                     enqueue(Role.SUPER_ADMIN)
                     fallback =
                         availableModelRepository.insert(AiFixture.createRandomAvailableModelOf(providerId = key.providerId, priority = 2))

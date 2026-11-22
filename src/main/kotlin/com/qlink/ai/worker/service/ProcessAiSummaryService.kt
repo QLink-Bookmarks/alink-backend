@@ -1,14 +1,14 @@
 package com.qlink.ai.worker.service
 
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.AiSummaryClientRequest
-import com.qlink.ai.client.AiSummaryClientResponse
 import com.qlink.ai.domain.AiJob
 import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.ai.dto.AiSummaryCompletion
 import com.qlink.ai.dto.AiSummaryExecutionResult
 import com.qlink.ai.dto.AiSummarySnapshot
@@ -256,7 +256,9 @@ class ProcessAiSummaryService(
             }
         }
 
-        if (lastFailure is BusinessException) throw lastFailure
+        if (lastFailure is BusinessException) {
+            throw lastFailure
+        }
         throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
     }
 

@@ -85,7 +85,9 @@ class ClaudeHttpFixture : AutoCloseable {
                     val hold = holdResponse && (heldPath == null || heldPath == url.rawPath)
                     if (hold && !holdBody) {
                         heldRequests.trySend(request)
-                        if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
+                        if (!responseGate.await(20, TimeUnit.SECONDS)) {
+                            return@createContext
+                        }
                     }
                     val isModelsRequest = it.requestMethod == "GET" && url.rawPath.endsWith("/models")
                     val isMessagesRequest = it.requestMethod == "POST" && url.rawPath.endsWith("/messages")
@@ -100,7 +102,12 @@ class ClaudeHttpFixture : AutoCloseable {
                         }
                     val isRedirect = status == HttpStatusCode.Found || status == HttpStatusCode.TemporaryRedirect
                     if (isRedirect) {
-                        val redirect = if (isModelsRequest) modelsRedirect else messagesRedirect
+                        val redirect =
+                            if (isModelsRequest) {
+                                modelsRedirect
+                            } else {
+                                messagesRedirect
+                            }
                         it.responseHeaders.set("Location", redirect ?: "http://localhost:${it.localAddress.port}/redirect")
                     }
                     it.responseHeaders.set("Content-Type", "application/json")
@@ -116,7 +123,9 @@ class ClaudeHttpFixture : AutoCloseable {
                         it.sendResponseHeaders(status.value, response.size.toLong())
                         if ((hold && holdBody) || (holdRedirectBody && isRedirect)) {
                             heldRequests.trySend(request)
-                            if (!responseGate.await(20, TimeUnit.SECONDS)) return@createContext
+                            if (!responseGate.await(20, TimeUnit.SECONDS)) {
+                                return@createContext
+                            }
                         }
                         it.responseBody.write(response)
                     }
@@ -128,7 +137,9 @@ class ClaudeHttpFixture : AutoCloseable {
         lazy {
             KtorHttpClient(CIO) { configureClaudeCurl() }.apply {
                 requestPipeline.intercept(HttpRequestPipeline.Before) {
-                    if (failKtorPipeline) throw AssertionError(TRANSPORT_MARKER)
+                    if (failKtorPipeline) {
+                        throw AssertionError(TRANSPORT_MARKER)
+                    }
                     val url = URI(context.url.buildString())
                     assertClaudeOrigin(url)
                     curlRequestUrls.add(url)
@@ -173,7 +184,9 @@ class ClaudeHttpFixture : AutoCloseable {
 
     override fun close() {
         releaseResponses()
-        if (curlClient.isInitialized()) curlClient.value.close()
+        if (curlClient.isInitialized()) {
+            curlClient.value.close()
+        }
         server.stop(0)
         serverExecutor.close()
         heldRequests.close()

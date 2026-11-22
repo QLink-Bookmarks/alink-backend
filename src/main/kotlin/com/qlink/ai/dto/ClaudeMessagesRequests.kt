@@ -1,4 +1,6 @@
-package com.qlink.ai.client
+@file:Suppress("ktlint:standard:filename")
+
+package com.qlink.ai.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

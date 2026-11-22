@@ -1,9 +1,9 @@
 package com.qlink.ai.worker.service
 
-import com.qlink.ai.client.AiSummaryTodo
 import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.dto.AiSummaryCompletion
+import com.qlink.ai.dto.AiSummaryTodo
 import com.qlink.ai.repository.AiJobRepository
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository

@@ -1,6 +1,12 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.ai.dto.ClaudeErrorResponse
+import com.qlink.ai.dto.ClaudeMessagesRequest
+import com.qlink.ai.dto.ClaudeMessagesResponse
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireTrue
@@ -23,8 +29,6 @@ import io.ktor.http.isSuccess
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -72,7 +76,7 @@ class ClaudeCurlClient(
             ) { it.bodyAsText() }
         val message =
             try {
-                json.decodeFromString<MessagesResponse>(rawResponse)
+                json.decodeFromString<ClaudeMessagesResponse>(rawResponse)
             } catch (_: IllegalArgumentException) {
                 throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
             }
@@ -86,7 +90,12 @@ class ClaudeCurlClient(
     ): URI {
         providerType.isAllowedBaseUrl(baseUrl).requireTrue(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
         val base = baseUrl.removeSuffix("/")
-        val path = if (URI(base).rawPath.isEmpty()) "$base/v1" else base
+        val path =
+            if (URI(base).rawPath.isEmpty()) {
+                "$base/v1"
+            } else {
+                base
+            }
         return URI("$path/$operation")
     }
 
@@ -97,7 +106,12 @@ class ClaudeCurlClient(
         body: String? = null,
         read: suspend (HttpResponse) -> T,
     ): T {
-        val statuses = if (method == HttpMethod.Get) setOf(301, 302, 303, 307, 308) else setOf(307, 308)
+        val statuses =
+            if (method == HttpMethod.Get) {
+                setOf(301, 302, 303, 307, 308)
+            } else {
+                setOf(307, 308)
+            }
         var target: URI? = null
         val first =
             send(url = url, apiKey = apiKey, method = method, body = body) { response ->
@@ -114,7 +128,9 @@ class ClaudeCurlClient(
                     null
                 }
             }
-        if (first != null) return first
+        if (first != null) {
+            return first
+        }
         val redirect = target ?: throw BusinessException(ErrorCode.AI_VENDOR_REQUEST_REJECTED)
         return send(url = redirect, apiKey = apiKey, method = method, body = body) { read(it.requireSuccess()) }
     }
@@ -156,124 +172,84 @@ class ClaudeCurlClient(
     private suspend fun HttpResponse.hasBillingError(): Boolean {
         val error =
             try {
-                json.decodeFromString<ErrorResponse>(bodyAsText()).error
+                json.decodeFromString<ClaudeErrorResponse>(bodyAsText()).error
             } catch (_: IllegalArgumentException) {
                 return false
             }
         return error?.type == "billing_error" || error?.details?.errorCode in claudeBillingErrorCodes
     }
 
-    @Serializable
-    private data class ErrorResponse(
-        val error: Error? = null,
-    ) {
-        @Serializable
-        data class Error(
-            val type: String? = null,
-            val details: Details? = null,
-        )
+    private fun ClaudeMessagesResponse.summaryText(sourceUrl: String): String {
+        validateClaudeStopReason(stopReason)
+        val types = content.map { it.type.requiredString() }
+        val fetchIndex =
+            content.indices.singleOrNull { types[it] == "server_tool_use" && content[it].name.requiredString() == "web_fetch" }
+                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val fetch = content[fetchIndex]
+        val fetchId =
+            fetch.id.requiredString().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val requested = (fetch.input as? JsonObject)?.get("url").stringOrNull()
+        if (requested != sourceUrl) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        }
 
-        @Serializable
-        data class Details(
-            @SerialName("error_code") val errorCode: String? = null,
-        )
-    }
-
-    @Serializable
-    private data class MessagesResponse(
-        @SerialName("stop_reason") val stopReason: String? = null,
-        val content: List<ContentBlock>,
-        val usage: JsonElement? = null,
-    ) {
-        fun summaryText(sourceUrl: String): String {
-            validateClaudeStopReason(stopReason)
-            val types = content.map { it.type.requiredString() }
-            val fetchIndex =
-                content.indices.singleOrNull { types[it] == "server_tool_use" && content[it].name.requiredString() == "web_fetch" }
-                    ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val fetch = content[fetchIndex]
-            val fetchId =
-                fetch.id.requiredString().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val requested = (fetch.input as? JsonObject)?.get("url").stringOrNull()
-            if (requested != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-
-            val resultIndex =
-                types.indices.singleOrNull { types[it] == "web_fetch_tool_result" }
-                    ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val resultBlock = content[resultIndex]
-            val resultId = resultBlock.toolUseId.requiredString()
-            if (resultIndex <= fetchIndex || resultId != fetchId) {
+        val resultIndex =
+            types.indices.singleOrNull { types[it] == "web_fetch_tool_result" }
+                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val resultBlock = content[resultIndex]
+        val resultId = resultBlock.toolUseId.requiredString()
+        if (resultIndex <= fetchIndex || resultId != fetchId) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        }
+        val resultContent = resultBlock.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val result =
+            try {
+                json.decodeFromJsonElement(ClaudeMessagesResponse.FetchResult.serializer(), resultContent)
+            } catch (_: IllegalArgumentException) {
                 throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
             }
-            val resultContent = resultBlock.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val result =
-                try {
-                    json.decodeFromJsonElement(FetchResult.serializer(), resultContent)
-                } catch (_: IllegalArgumentException) {
-                    throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-                }
-            if (result.type != "web_fetch_result") throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val resultUrl = result.url.stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
-            if (resultUrl != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
-            val document = result.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            val source = document["source"] as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-            validateClaudeDocument(
-                documentType = document["type"].stringOrNull(),
-                sourceType = source["type"].stringOrNull(),
-                mediaType = source["media_type"].stringOrNull(),
-                data = source["data"].stringOrNull(),
-            )
-
-            val last =
-                content.last().takeIf { resultIndex < content.lastIndex && types.last() == "text" }
-                    ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
-            val text = last.text.requiredString()
-            return text.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        if (result.type != "web_fetch_result") {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         }
-
-        fun totalTokens(): Int {
-            val counts =
-                try {
-                    json.decodeFromJsonElement(Usage.serializer(), usage ?: throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID))
-                } catch (_: IllegalArgumentException) {
-                    throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
-                }
-            return claudeTotalTokens(
-                listOf(
-                    counts.inputTokens.tokenCount(),
-                    counts.outputTokens.tokenCount(),
-                    counts.cacheCreation.tokenCount(default = 0),
-                    counts.cacheRead.tokenCount(default = 0),
-                ),
-            )
+        val resultUrl = result.url.stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+        if (resultUrl != sourceUrl) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
         }
+        val document = result.content as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val source = document["source"] as? JsonObject ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        validateClaudeDocument(
+            documentType = document["type"].stringOrNull(),
+            sourceType = source["type"].stringOrNull(),
+            mediaType = source["media_type"].stringOrNull(),
+            data = source["data"].stringOrNull(),
+        )
+
+        val last =
+            content.last().takeIf { resultIndex < content.lastIndex && types.last() == "text" }
+                ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+        val text = last.text.requiredString()
+        return text.takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
     }
 
-    @Serializable
-    private data class ContentBlock(
-        val type: JsonElement? = null,
-        val name: JsonElement? = null,
-        val id: JsonElement? = null,
-        val input: JsonElement? = null,
-        @SerialName("tool_use_id") val toolUseId: JsonElement? = null,
-        val content: JsonElement? = null,
-        val text: JsonElement? = null,
-    )
-
-    @Serializable
-    private data class FetchResult(
-        val type: String,
-        val url: JsonElement? = null,
-        val content: JsonElement? = null,
-    )
-
-    @Serializable
-    private data class Usage(
-        @SerialName("input_tokens") val inputTokens: JsonPrimitive,
-        @SerialName("output_tokens") val outputTokens: JsonPrimitive,
-        @SerialName("cache_creation_input_tokens") val cacheCreation: JsonPrimitive? = null,
-        @SerialName("cache_read_input_tokens") val cacheRead: JsonPrimitive? = null,
-    )
+    private fun ClaudeMessagesResponse.totalTokens(): Int {
+        val counts =
+            try {
+                json.decodeFromJsonElement(
+                    ClaudeMessagesResponse.Usage.serializer(),
+                    usage ?: throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID),
+                )
+            } catch (_: IllegalArgumentException) {
+                throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
+            }
+        return claudeTotalTokens(
+            listOf(
+                counts.inputTokens.tokenCount(),
+                counts.outputTokens.tokenCount(),
+                counts.cacheCreation.tokenCount(default = 0),
+                counts.cacheRead.tokenCount(default = 0),
+            ),
+        )
+    }
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
@@ -283,7 +259,13 @@ class ClaudeCurlClient(
         fun JsonElement?.requiredString(): String = stringOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
 
         fun JsonPrimitive?.tokenCount(default: Long? = null): Long =
-            (if (this == null || this == JsonNull) default else takeUnless { it.isString }?.longOrNull)
+            (
+                if (this == null || this == JsonNull) {
+                    default
+                } else {
+                    takeUnless { it.isString }?.longOrNull
+                }
+            )
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
     }
 }

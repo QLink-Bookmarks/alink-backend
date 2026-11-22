@@ -14,8 +14,8 @@ import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.WebFetchTool20260318
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.client.AiSummarySpec
-import com.qlink.ai.client.ClaudeMessagesRequest
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.ClaudeMessagesRequest
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import io.ktor.client.HttpClientConfig
@@ -36,7 +36,11 @@ class ClaudeConfig(
             config.optionalString("ai.claude.sdkEndpoint") ?: System.getenv("AI_CLAUDE_SDK_ENDPOINT") ?: DEFAULT_BASE_URL
         }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)?.let { configured ->
             val endpoint = configured.trimEnd('/')
-            if (endpoint.endsWith("/v1")) endpoint.removeSuffix("/v1") + "/" else configured
+            if (endpoint.endsWith("/v1")) {
+                endpoint.removeSuffix("/v1") + "/"
+            } else {
+                configured
+            }
         }
     }
 
@@ -102,8 +106,15 @@ class ClaudeConfig(
         Interceptor.syncOnly { client, request, options ->
             val safeOptions = options.toBuilder().followRedirects(false).build()
             val response = client.execute(request, safeOptions)
-            val statuses = if (request.method == HttpMethod.GET) setOf(301, 302, 303, 307, 308) else setOf(307, 308)
-            if (response.statusCode() !in statuses || request.body().getOrNull()?.repeatable() == false) return@syncOnly response
+            val statuses =
+                if (request.method == HttpMethod.GET) {
+                    setOf(301, 302, 303, 307, 308)
+                } else {
+                    setOf(307, 308)
+                }
+            if (response.statusCode() !in statuses || request.body().getOrNull()?.repeatable() == false) {
+                return@syncOnly response
+            }
 
             val location = response.headers().values("Location").singleOrNull() ?: return@syncOnly response
             val target = claudeRedirectTarget(URI(request.url()), location) ?: return@syncOnly response

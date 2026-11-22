@@ -1,5 +1,7 @@
 package com.qlink.ai.client
 
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import java.net.URI
@@ -9,7 +11,9 @@ internal val claudeBillingErrorCodes =
     setOf("contract_spend_limit_reached", "linked_organization_billing_unavailable", "linked_organization_spend_limit_reached")
 
 internal fun validClaudeApiKey(apiKey: String): String {
-    if (apiKey.isBlank() || apiKey.any { it !in ' '..'~' }) throw BusinessException(ErrorCode.AI_API_KEY_INVALID)
+    if (apiKey.isBlank() || apiKey.any { it !in ' '..'~' }) {
+        throw BusinessException(ErrorCode.AI_API_KEY_INVALID)
+    }
     return apiKey
 }
 
@@ -51,7 +55,9 @@ internal fun validateClaudeDocument(
 }
 
 internal fun claudeTotalTokens(counts: List<Long>): Int {
-    if (counts.any { it !in 0..Int.MAX_VALUE.toLong() }) throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
+    if (counts.any { it !in 0..Int.MAX_VALUE.toLong() }) {
+        throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
+    }
     return counts.sum().takeIf { it <= Int.MAX_VALUE }?.toInt() ?: throw BusinessException(ErrorCode.AI_SUMMARY_USAGE_INVALID)
 }
 
@@ -65,6 +71,8 @@ internal fun parseClaudeSummary(
         } catch (_: IllegalArgumentException) {
             throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
         }
-    if (summary.linkId == null) throw BusinessException(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
+    if (summary.linkId == null) {
+        throw BusinessException(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
+    }
     return summary
 }

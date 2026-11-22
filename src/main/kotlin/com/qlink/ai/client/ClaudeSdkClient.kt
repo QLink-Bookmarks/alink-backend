@@ -10,6 +10,9 @@ import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.Usage
 import com.anthropic.models.models.ModelListParams
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.config.CLAUDE_API_KEY_HEADER
@@ -74,7 +77,9 @@ class ClaudeSdkClient(
     }
 
     private fun validateEndpoint() {
-        if (config.sdkEndpoint == null) throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+        if (config.sdkEndpoint == null) {
+            throw BusinessException(ErrorCode.AI_PROVIDER_BASE_URL_INVALID)
+        }
     }
 
     private suspend fun <T> exchange(call: () -> T): T =
@@ -123,7 +128,9 @@ class ClaudeSdkClient(
                     null -> false
                     else -> true
                 }
-            if (!valid) throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+            if (!valid) {
+                throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
+            }
         }
         val fetchIndex =
             blocks.indices.singleOrNull { index ->
@@ -147,13 +154,17 @@ class ClaudeSdkClient(
                 ?.get("url")
                 ?.asString()
                 ?.getOrNull()
-        if (requested != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        if (requested != sourceUrl) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        }
 
         val resultIndex =
             blocks.indices.singleOrNull { blocks[it].webFetchToolResult().isPresent }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         val resultBlock = blocks[resultIndex].asWebFetchToolResult()
-        if (resultIndex <= fetchIndex || resultBlock.toolUseId() != fetchId) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        if (resultIndex <= fetchIndex || resultBlock.toolUseId() != fetchId) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        }
         val result =
             resultBlock
                 .content()
@@ -161,7 +172,9 @@ class ClaudeSdkClient(
                 .getOrNull()
                 ?.takeIf { it._type().asString().getOrNull() == "web_fetch_result" }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        if (result.url() != sourceUrl) throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        if (result.url() != sourceUrl) {
+            throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
+        }
         readResponse(ErrorCode.AI_SUMMARY_FETCH_FAILED) {
             val document = result.content()
             val source = document.source()
