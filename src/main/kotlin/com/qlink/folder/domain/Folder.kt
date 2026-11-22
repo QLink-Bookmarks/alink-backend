@@ -8,6 +8,7 @@ import com.qlink.common.error.requireNotOver
 import com.qlink.common.error.requireTrue
 import com.qlink.common.error.requiresEmoji
 import kotlin.random.Random
+import kotlin.time.Clock
 import kotlin.time.Instant
 
 private const val GUIDE_FOLDER_NAME = "ALink Tips"
@@ -24,7 +25,7 @@ class Folder(
     val sharedAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
-    val isPublic: Boolean = false,
+    val turnsPublicAt: Instant? = null,
 ) {
     init {
         validateName(name)
@@ -33,6 +34,9 @@ class Folder(
 
     val isShared: Boolean
         get() = sharedAt != null
+
+    val isPublished: Boolean
+        get() = turnsPublicAt != null
 
     fun isOwnedBy(userId: Long): Boolean = ownerId == userId
 
@@ -83,7 +87,7 @@ class Folder(
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            isPublic = isPublic,
+            turnsPublicAt = turnsPublicAt,
         )
 
     fun delegateTo(newOwnerId: Long): Folder =
@@ -95,11 +99,15 @@ class Folder(
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            isPublic = isPublic,
+            turnsPublicAt = turnsPublicAt,
         )
 
-    fun setPublic(isPublic: Boolean): Folder {
-        if (isPublic == this.isPublic) return this
+    fun setPublic(
+        isPublic: Boolean,
+        now: Instant = Clock.System.now(),
+    ): Folder {
+        if (isPublic == isPublished) return this
+        val turnsPublicAt = now.takeIf { isPublic }
 
         return Folder(
             id = id,
@@ -109,7 +117,7 @@ class Folder(
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            isPublic = isPublic,
+            turnsPublicAt = turnsPublicAt,
         )
     }
 

@@ -34,6 +34,7 @@ object LinkFixture {
         favoriteAt: Instant? = null,
         createdAt: Instant? = null,
         isPublic: Boolean = false,
+        turnsPublicAt: Instant? = if (isPublic) RandomFixture.randomPastInstant() else null,
     ): Link =
         Link(
             id = id,
@@ -53,7 +54,7 @@ object LinkFixture {
             tags = tags,
             createdAt = createdAt,
             updatedAt = createdAt,
-            isPublic = isPublic,
+            turnsPublicAt = turnsPublicAt,
         )
 
     fun createValidLinkRequest(
