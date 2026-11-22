@@ -6,7 +6,6 @@ import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.ClaudeCurlClient
 import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.client.GeminiAiClient
 import com.qlink.ai.client.OpenAiClient
@@ -18,7 +17,6 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.ClaudeConfig
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
@@ -144,11 +142,7 @@ fun externalModule(
                 listOf(
                     get<GeminiAiClient>(),
                     get<OpenAiClient>(),
-                    if (get<ClaudeConfig>().useSdk) {
-                        get<ClaudeSdkClient>()
-                    } else {
-                        get<ClaudeCurlClient>()
-                    },
+                    get<ClaudeSdkClient>(),
                 ),
         )
     }

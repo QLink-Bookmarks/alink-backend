@@ -16,8 +16,6 @@ import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.client.AiSummarySpec
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.dto.ClaudeMessagesRequest
-import com.qlink.common.error.BusinessException
-import com.qlink.common.error.ErrorCode
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.server.config.ApplicationConfig
@@ -29,8 +27,6 @@ import kotlin.jvm.optionals.getOrNull
 class ClaudeConfig(
     config: ApplicationConfig,
 ) {
-    val useSdk: Boolean = readUseSdk(config)
-
     val sdkEndpoint: String? by lazy {
         runCatching {
             config.optionalString("ai.claude.sdkEndpoint") ?: System.getenv("AI_CLAUDE_SDK_ENDPOINT") ?: DEFAULT_BASE_URL
@@ -127,16 +123,6 @@ class ClaudeConfig(
         const val DEFAULT_BASE_URL = "https://api.anthropic.com"
         const val WEB_FETCH_MAX_USES = 1L
         const val WEB_FETCH_CITATIONS = false
-
-        fun readUseSdk(config: ApplicationConfig): Boolean {
-            val value =
-                try {
-                    config.optionalString("ai.claude.useSdk") ?: System.getenv("AI_CLAUDE_USE_SDK")
-                } catch (_: RuntimeException) {
-                    throw BusinessException(ErrorCode.CONFIG_CLAUDE_USE_SDK_INVALID)
-                }
-            return value?.let { it.toBooleanStrictOrNull() ?: throw BusinessException(ErrorCode.CONFIG_CLAUDE_USE_SDK_INVALID) } ?: true
-        }
     }
 }
 

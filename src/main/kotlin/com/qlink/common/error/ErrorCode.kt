@@ -241,7 +241,6 @@ enum class ErrorCode(
     CONFIG_AI_SUMMARY_PARALLELISM_INVALID("CONFIG_500_0008", 500, "AI 요약 병렬 처리 수는 양수여야 해요"),
     CONFIG_LINK_PREVIEW_FUNCTION_REQUIRED("CONFIG_500_0009", 500, "링크 프리뷰 함수 설정이 없어요"),
     CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID("CONFIG_500_0010", 500, "AI API 키 암호화 키의 길이가 올바르지 않아요"),
-    CONFIG_CLAUDE_USE_SDK_INVALID("CONFIG_500_0024", 500, "ai.claude.useSdk 또는 AI_CLAUDE_USE_SDK에 true 또는 false를 설정해 주세요"),
     CONFIG_S3_POST_BUCKET_REQUIRED("CONFIG_500_0011", 500, "게시글 이미지 버킷 설정이 없어요"),
     CONFIG_S3_PREVIEW_BUCKET_REQUIRED("CONFIG_500_0012", 500, "링크 프리뷰 이미지 버킷 설정이 없어요"),
     CONFIG_S3_PUBLIC_BASE_URL_REQUIRED("CONFIG_500_0013", 500, "이미지 공개 기본 URL 설정이 없어요"),
