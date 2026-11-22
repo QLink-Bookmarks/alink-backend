@@ -52,9 +52,3 @@ data class GetTodoCountsResponse(
     val overdue: Int,
     val completed: Int,
 )
-
-@Serializable
-data class PublicLinkTodoResponse(
-    val title: String,
-    val isCompleted: Boolean,
-)

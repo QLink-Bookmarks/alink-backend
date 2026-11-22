@@ -34,13 +34,14 @@ class GetPublicFolderServiceTest :
             }
 
             When("공개 폴더를 읽으면") {
-                Then("저장된 ID, 이름과 nullable 이모지만 포함한다") {
+                Then("저장된 ID, 이름과 nullable 이모지, 본인 링크 개수 0을 반환한다") {
                     val response = service.getPublicFolder(folderId = folder.id!!)
                     val stored = folders.findById(folder.id!!)!!
 
                     response.name shouldBe stored.name
                     response.emoji shouldBe stored.emoji
-                    Json.encodeToJsonElement(response).jsonObject.keys shouldBe setOf("id", "name", "emoji")
+                    response.myLinkCounts shouldBe 0
+                    Json.encodeToJsonElement(response).jsonObject.keys shouldBe setOf("id", "name", "emoji", "myLinkCounts")
                 }
             }
         }

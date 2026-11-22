@@ -10,7 +10,6 @@ import com.qlink.link.dto.PublicLinkContentResponse
 import com.qlink.link.dto.PublicLinkDetailResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.todo.dto.LinkDetailTodoQuery
-import com.qlink.todo.dto.PublicLinkTodoResponse
 import com.qlink.todo.repository.TodoRepository
 
 class GetLinkDetailService(
@@ -40,7 +39,7 @@ class GetLinkDetailService(
                 faviconUrl = detail.faviconUrl,
                 isVideo = detail.isVideo,
                 content = PublicLinkContentResponse(excerpt = detail.contentExcerpt),
-                todos = detail.todos.map { PublicLinkTodoResponse(title = it.title, isCompleted = it.isCompleted) },
+                todos = null,
             )
         }
 

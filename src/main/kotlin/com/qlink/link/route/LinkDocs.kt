@@ -151,7 +151,7 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
         description =
             "로그인은 선택이에요. 소유자와 멤버의 응답에서 본문 기록이 없으면 content가 null이고, 수집 중이면 content.isPending이 true예요. " +
             "로그인한 사용자가 링크를 소유하면 isOwner가 true예요. " +
-            "외부 열람 응답은 원문과 폴더 정보, thumbnailUrl, faviconUrl, isVideo, content.excerpt 및 액션 제목·완료 여부를 제공해요. " +
+            "외부 열람 응답은 원문과 폴더 정보, thumbnailUrl, faviconUrl, isVideo, content.excerpt를 제공하고 todos는 null이에요. " +
             "수집된 발췌나 이미지가 없으면 해당 값은 null이에요."
         protected = false
         request {

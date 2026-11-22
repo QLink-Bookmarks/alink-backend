@@ -24,12 +24,6 @@ data class PublicLinkDetailQuery(
     val faviconUrl: String?,
     val isVideo: Boolean,
     val contentExcerpt: String?,
-    val todos: List<PublicLinkTodoQuery>,
-)
-
-data class PublicLinkTodoQuery(
-    val title: String,
-    val isCompleted: Boolean,
 )
 
 data class PublicLinkQuery(

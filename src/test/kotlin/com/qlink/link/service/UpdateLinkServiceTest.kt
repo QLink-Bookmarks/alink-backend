@@ -72,7 +72,7 @@ class UpdateLinkServiceTest :
             }
 
             When("링크 소유자가 공개하고 공개값을 생략해 제목을 저장한 뒤 철회하면") {
-                Then("개별 공개값을 유지하며 익명 링크·액션 조회와 인증 상세에 반영한다") {
+                Then("개별 공개값을 유지하고 익명 링크 상세의 액션은 공개하지 않는다") {
                     val linkId = link.id!!
                     val request = LinkFixture.createUpdateLinkRequestFrom(link)
 
@@ -92,8 +92,8 @@ class UpdateLinkServiceTest :
                         .single()
                         .title shouldBe title
                     val guestDetail = linkDetail.getPublicLinkDetail(linkId)
-                    guestDetail.todos.single().title shouldBe
-                        todoRepository.findAllByLinkId(linkId).single().title
+                    guestDetail.todos shouldBe null
+                    todoRepository.findAllByLinkId(linkId).single().ownerId shouldBe link.ownerId
 
                     setPrivacy(false).isPublic shouldBe false
                     linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null

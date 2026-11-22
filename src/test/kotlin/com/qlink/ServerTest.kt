@@ -41,6 +41,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -198,7 +199,8 @@ class ServerTest :
                     environment { this.config = config }
 
                     val publicFolder = client.get(folderPath).readData()
-                    publicFolder.keys shouldBe setOf("id", "name", "emoji")
+                    publicFolder.keys shouldBe setOf("id", "name", "emoji", "myLinkCounts")
+                    publicFolder.getValue("myLinkCounts") shouldBe JsonPrimitive(0)
                     publicFolder.getValue("id").jsonPrimitive.long shouldBe folder
                     client.get(folderPath) { bearerAuth(token(outsider)) }.readData() shouldBe publicFolder
                     for (viewer in listOf(owner, member)) {
@@ -230,15 +232,7 @@ class ServerTest :
                             "isVideo",
                             "content",
                         )
-                    val action =
-                        guestDetail
-                            .getValue("todos")
-                            .jsonArray
-                            .single()
-                            .jsonObject
-                    action.keys shouldBe setOf("title", "isCompleted")
-                    action.getValue("title").jsonPrimitive.content shouldBe publicTodo.title
-                    action.getValue("isCompleted").jsonPrimitive.content shouldBe "true"
+                    guestDetail.getValue("todos") shouldBe JsonNull
 
                     val guestLinks = client.get(linksPath).readData()
                     client.get(linksPath) { bearerAuth(token(outsider)) }.readData() shouldBe guestLinks
@@ -504,15 +498,7 @@ class ServerTest :
                         client.get("/api/links?folderId=$folder").readContents().map { it.getValue("id").jsonPrimitive.long } shouldBe
                             listOf(publicLink)
                         client.get("/api/todos").status shouldBe HttpStatusCode.Unauthorized
-                        client
-                            .get(detailPath)
-                            .readData()
-                            .getValue("todos")
-                            .jsonArray
-                            .single()
-                            .jsonObject
-                            .getValue("title") shouldBe
-                            JsonPrimitive(publicTodo.title)
+                        client.get(detailPath).readData().getValue("todos") shouldBe JsonNull
                     }
 
                     assertPrivateAiLink()

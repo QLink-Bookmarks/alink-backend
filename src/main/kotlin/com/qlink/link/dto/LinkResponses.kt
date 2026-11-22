@@ -6,7 +6,6 @@ import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.MatchedField
 import com.qlink.link.domain.SourceType
 import com.qlink.todo.dto.LinkDetailTodoQuery
-import com.qlink.todo.dto.PublicLinkTodoResponse
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
@@ -135,7 +134,7 @@ data class PublicLinkDetailResponse(
     val faviconUrl: String?,
     val isVideo: Boolean,
     val content: PublicLinkContentResponse,
-    val todos: List<PublicLinkTodoResponse>,
+    val todos: List<LinkDetailTodoQuery>?,
 )
 
 @Serializable

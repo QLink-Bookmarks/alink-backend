@@ -31,7 +31,6 @@ import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.LinkSnippetQuery
 import com.qlink.link.dto.PublicLinkDetailQuery
 import com.qlink.link.dto.PublicLinkQuery
-import com.qlink.link.dto.PublicLinkTodoQuery
 import com.qlink.link.dto.SearchLinksQuery
 import com.qlink.link.dto.toPublicLinkQuery
 import com.qlink.link.repository.table.Links
@@ -41,7 +40,6 @@ import com.qlink.link.repository.table.refreshUpdatedAt
 import com.qlink.link.repository.table.searchTextExpression
 import com.qlink.link.repository.table.toLinkDomain
 import com.qlink.linkcontent.repository.table.LinkContents
-import com.qlink.todo.repository.table.Todos
 import org.jetbrains.exposed.v1.core.Case
 import org.jetbrains.exposed.v1.core.ColumnSet
 import org.jetbrains.exposed.v1.core.DoubleColumnType
@@ -88,10 +86,9 @@ import kotlin.time.toKotlinInstant
 class DbLinkRepository : LinkRepository {
     override suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery? {
         val folderName = Folders.name.alias("folder_name")
-        val rows =
+        val row =
             Links
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
-                .join(otherTable = Todos, joinType = JoinType.LEFT, additionalConstraint = { Links.id eq Todos.linkId })
                 .joinCollectedContent()
                 .select(
                     Links.id,
@@ -104,12 +101,8 @@ class DbLinkRepository : LinkRepository {
                     Links.faviconUrl,
                     Links.isVideo,
                     LinkContents.excerpt,
-                    Todos.title,
-                    Todos.completedAt,
                 ).where { (Links.id eq linkId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
-                .orderBy(Todos.id to SortOrder.DESC)
-                .toList()
-        val row = rows.firstOrNull() ?: return null
+                .singleOrNull() ?: return null
         return PublicLinkDetailQuery(
             id = row[Links.id],
             folderId = row[Folders.id],
@@ -121,12 +114,6 @@ class DbLinkRepository : LinkRepository {
             faviconUrl = row[Links.faviconUrl],
             isVideo = row[Links.isVideo],
             contentExcerpt = row[LinkContents.excerpt],
-            todos =
-                rows.mapNotNull { todo ->
-                    todo.getOrNull(Todos.title)?.let {
-                        PublicLinkTodoQuery(title = it, isCompleted = todo.getOrNull(Todos.completedAt) != null)
-                    }
-                },
         )
     }
 

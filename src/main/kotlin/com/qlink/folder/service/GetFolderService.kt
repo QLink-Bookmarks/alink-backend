@@ -38,6 +38,6 @@ class GetFolderService(
         tx.required {
             val folder = folderAccessValidator.lockForRead(folderId)
             folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
-            PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji)
+            PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji, myLinkCounts = 0)
         }
 }

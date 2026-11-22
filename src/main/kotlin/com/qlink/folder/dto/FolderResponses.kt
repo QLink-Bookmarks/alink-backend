@@ -55,6 +55,7 @@ data class PublicFolderResponse(
     val id: Long,
     val name: String,
     val emoji: String?,
+    val myLinkCounts: Int,
 )
 
 internal fun SearchFoldersQuery.toFoldersContentResponse(): GetFoldersContentResponse =
