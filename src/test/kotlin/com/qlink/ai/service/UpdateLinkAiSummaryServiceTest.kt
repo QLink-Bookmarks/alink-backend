@@ -40,6 +40,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
@@ -1119,7 +1120,7 @@ class UpdateLinkAiSummaryServiceTest :
                     if (it.type != TestType.Test) return@beforeTest
                     publicFolder =
                         folderRepository.insert(
-                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(true),
+                            FolderFixture.createValidUnsharedFolder(user.id!!).withPublication(),
                         )
                     privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                 }

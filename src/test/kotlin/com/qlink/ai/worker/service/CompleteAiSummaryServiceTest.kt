@@ -34,6 +34,7 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
 import com.qlink.support.searchTextOf
@@ -124,8 +125,8 @@ class CompleteAiSummaryServiceTest :
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
                     targetIsPublic = true
-                    folderRepository.update(candidate.setPublic(targetIsPublic))
-                    folderRepository.update(source.setPublic(true))
+                    folderRepository.update(candidate.withPublication(targetIsPublic))
+                    folderRepository.update(source.withPublication())
                     val request = LinkFixture.createPatchLinkRequest()
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = true))
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = false))
@@ -147,8 +148,8 @@ class CompleteAiSummaryServiceTest :
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
                     wasPublic = true
-                    folderRepository.update(candidate.setPublic(wasPublic))
-                    folderRepository.update(source.setPublic(true))
+                    folderRepository.update(candidate.withPublication(wasPublic))
+                    folderRepository.update(source.withPublication())
                     patchLink.patchLink(link.ownerId, link.id!!, LinkFixture.createPatchLinkRequest().copy(isPublic = true))
                     folderRepository.update(candidate)
                 }

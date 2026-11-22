@@ -32,6 +32,7 @@ import com.qlink.support.fixture.ImportRequestFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
@@ -245,7 +246,7 @@ class CreateImportServiceTest :
                 beforeTest {
                     publicFolder =
                         folderRepository.insert(
-                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(true),
+                            FolderFixture.createValidUnsharedFolder(user.id!!).withPublication(),
                         )
                     duplicate = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                     val publicTarget = ImportRequestFixture.createFolderRequest(folderId = publicFolder.id)
