@@ -127,6 +127,22 @@ class PatchLinkServiceTest :
                 }
             }
 
+            When("소속 폴더가 삭제된 링크를 새 공개 폴더에 옮기면") {
+                Then("외래 키로 미분류된 링크의 이전 공개 시각이 되살아나지 않는다") {
+                    val id = publicLink.id!!
+                    folderRepository.deleteById(source.id!!)
+                    val unfiled = linkRepository.findById(id)!!
+                    unfiled.folderId shouldBe null
+                    unfiled.turnsPublicAt shouldBe publicLink.turnsPublicAt
+
+                    val request = LinkFixture.createPatchLinkRequest(folderId = publicTarget.id)
+                    patchLinkService.patchLink(publicLink.ownerId, id, request).isPublic shouldBe false
+                    val stored = linkRepository.findById(id)!!
+                    stored.folderId shouldBe publicTarget.id
+                    stored.turnsPublicAt shouldBe null
+                }
+            }
+
             When("공개 링크를 메모만 수정한 뒤 공개 폴더, 비공개 폴더, 미분류 순으로 옮기면") {
                 Then("공개 대상에서는 공개를 유지하고 나머지 대상에서는 비공개 처리한다") {
                     val id = publicLink.id!!

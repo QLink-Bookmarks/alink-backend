@@ -51,7 +51,7 @@ class Link(
 
     fun hasFolderChangedSince(startedFolderId: Long?): Boolean = folderId != startedFolderId
 
-    fun publishedAtIn(folderIsPublic: Boolean): Instant? = turnsPublicAt.takeIf { folderIsPublic }
+    fun publishedAtIn(folderIsPublic: Boolean): Instant? = turnsPublicAt.takeIf { folderId != null && folderIsPublic }
 
     fun isPublishedIn(folderIsPublic: Boolean): Boolean = publishedAtIn(folderIsPublic) != null
 
