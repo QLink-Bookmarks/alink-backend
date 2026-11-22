@@ -11,15 +11,6 @@ import com.google.genai.types.HttpRetryOptions
 import com.google.genai.types.Part
 import com.google.genai.types.Tool
 import com.google.genai.types.UrlContext
-import com.openai.client.OpenAIClient
-import com.openai.client.okhttp.OpenAIOkHttpClient
-import com.openai.core.JsonValue
-import com.openai.core.LogLevel
-import com.openai.core.http.HttpRequest
-import com.openai.core.http.HttpRequestAuthenticator
-import com.openai.models.responses.ResponseFormatTextJsonSchemaConfig
-import com.openai.models.responses.ResponseTextConfig
-import com.openai.models.responses.WebSearchTool
 import com.qlink.ai.client.AiSummarySpec
 import com.qlink.ai.client.geminiHttpError
 import com.qlink.common.error.BusinessException
@@ -29,37 +20,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.blackholeSink
 
-internal class AiSdkConfig(
-    private val config: ApplicationConfig,
+internal class GeminiConfig(
+    config: ApplicationConfig,
 ) {
-    val openAiEnabled = useSdk("ai.openai.useSdk", "AI_OPENAI_USE_SDK", ErrorCode.CONFIG_OPENAI_USE_SDK_INVALID)
-    val geminiEnabled = useSdk("ai.gemini.useSdk", "AI_GEMINI_USE_SDK", ErrorCode.CONFIG_GEMINI_USE_SDK_INVALID)
+    val sdkEndpoint by lazy {
+        (config.optionalString("ai.gemini.sdkEndpoint") ?: System.getenv("AI_GEMINI_SDK_ENDPOINT"))
+            ?.takeIf(String::isNotBlank) ?: "https://generativelanguage.googleapis.com/v1beta"
+    }
 
     private val mapper by lazy { ObjectMapper() }
 
-    val openAiWebSearch by lazy { WebSearchTool.builder().type(WebSearchTool.Type.WEB_SEARCH).build() }
-
-    val openAiSummary: ResponseTextConfig by lazy {
-        ResponseTextConfig
-            .builder()
-            .format(
-                ResponseFormatTextJsonSchemaConfig
-                    .builder()
-                    .name(AiSummarySpec.RESPONSE_SCHEMA_NAME)
-                    .strict(true)
-                    .schema(
-                        ResponseFormatTextJsonSchemaConfig.Schema
-                            .builder()
-                            .apply {
-                                AiSummarySpec.openAiJsonSchema.forEach { (key, value) ->
-                                    putAdditionalProperty(key, JsonValue.fromJsonNode(mapper.readTree(value.toString())))
-                                }
-                            }.build(),
-                    ).build(),
-            ).build()
-    }
-
-    val geminiSummary: GenerateContentConfig by lazy {
+    val summary: GenerateContentConfig by lazy {
         GenerateContentConfig
             .builder()
             .systemInstruction(Content.builder().parts(Part.builder().text(AiSummarySpec.systemInstruction)))
@@ -71,36 +42,22 @@ internal class AiSdkConfig(
             .build()
     }
 
-    fun openAiClient(transport: AiSdkHttpTransport): OpenAIClient =
-        OpenAIOkHttpClient
-            .builder()
-            .baseUrl(setting("ai.openai.sdkEndpoint", "AI_OPENAI_SDK_ENDPOINT") ?: "https://api.openai.com/v1")
-            .httpRequestAuthenticator(
-                object : HttpRequestAuthenticator {
-                    override fun authenticate(request: HttpRequest): HttpRequest = request
-                },
-            ).okHttpClient(transport.client)
-            .maxRetries(0)
-            .logLevel(LogLevel.OFF)
-            .build()
-
-    fun geminiClient(transport: AiSdkHttpTransport): Client =
+    fun client(transport: AiSdkHttpTransport): Client =
         Client
             .builder()
             .apiKey("")
             .vertexAI(false)
-            .clientOptions(ClientOptions.builder().customHttpClient(geminiTransport(transport)).build())
+            .clientOptions(ClientOptions.builder().customHttpClient(authenticatedTransport(transport)).build())
             .httpOptions(
                 HttpOptions
                     .builder()
-                    .baseUrl(
-                        setting("ai.gemini.sdkEndpoint", "AI_GEMINI_SDK_ENDPOINT") ?: "https://generativelanguage.googleapis.com/v1beta",
-                    ).apiVersion("")
+                    .baseUrl(sdkEndpoint)
+                    .apiVersion("")
                     .retryOptions(HttpRetryOptions.builder().attempts(1))
                     .build(),
             ).build()
 
-    private fun geminiTransport(transport: AiSdkHttpTransport) =
+    private fun authenticatedTransport(transport: AiSdkHttpTransport) =
         transport.client
             .newBuilder()
             .addInterceptor { chain ->
@@ -136,25 +93,6 @@ internal class AiSdkConfig(
                     }
                 }
             }.build()
-
-    private fun useSdk(
-        path: String,
-        environmentVariable: String,
-        errorCode: ErrorCode,
-    ): Boolean {
-        val value =
-            try {
-                config.optionalString(path) ?: System.getenv(environmentVariable)
-            } catch (_: RuntimeException) {
-                throw BusinessException(errorCode)
-            }
-        return value?.let { it.toBooleanStrictOrNull() ?: throw BusinessException(errorCode) } ?: true
-    }
-
-    private fun setting(
-        path: String,
-        environmentVariable: String,
-    ): String? = (config.optionalString(path) ?: System.getenv(environmentVariable))?.takeIf(String::isNotBlank)
 
     companion object {
         const val GEMINI_API_KEY_HEADER = "x-goog-api-key"

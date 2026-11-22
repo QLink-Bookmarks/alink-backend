@@ -1,9 +1,9 @@
 package com.qlink.ai.service
 
-import com.google.genai.Client
-import com.openai.client.OpenAIClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.AiSummarySpec
+import com.qlink.ai.client.ClaudeCurlClient
+import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.ai.client.GeminiCurlClient
 import com.qlink.ai.client.GeminiSdkClient
 import com.qlink.ai.client.OpenAiCurlClient
@@ -52,6 +52,11 @@ import io.kotest.assertions.throwables.shouldThrowWithMessage
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.types.shouldBeSameInstanceAs
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.mergeWith
 import kotlinx.coroutines.CompletableDeferred
@@ -79,6 +84,7 @@ import org.koin.core.KoinApplication
 import org.koin.core.module.Module
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.concurrent.CountDownLatch
@@ -115,41 +121,67 @@ class AiSdkServiceTest :
             }
         }
 
-        Given("OpenAI와 Gemini SDK를 모두 끈 운영 설정") {
-            When("두 공급자의 라우터를 불러오면") {
-                Then("SDK와 공용 OkHttp 전송을 생성하지 않고 두 Ktor 어댑터를 선택한다") {
-                    val app =
-                        providerApplication(
-                            MapApplicationConfig("ai.openai.useSdk" to "false", "ai.gemini.useSdk" to "false"),
-                            module {
-                                single<OpenAIClient> { error("Unexpected OpenAI SDK creation") }
-                                single<Client> { error("Unexpected Gemini SDK creation") }
-                                single<AiSdkHttpTransport> { error("Unexpected SDK transport creation") }
-                            },
-                        )
+        fun curlModule(providerType: AiProviderType) =
+            module {
+                single {
+                    HttpClient(CIO) {
+                        followRedirects = false
+                        expectSuccess = false
+                        install(ContentNegotiation) {
+                            json(
+                                Json {
+                                    ignoreUnknownKeys = true
+                                    encodeDefaults = true
+                                },
+                            )
+                        }
+                    }
+                } onClose { it?.close() }
+
+                single {
+                    val httpClient = get<HttpClient>()
+                    val client =
+                        if (providerType == AiProviderType.OPENAI) {
+                            OpenAiCurlClient(httpClient)
+                        } else {
+                            GeminiCurlClient(httpClient)
+                        }
+                    AiClientRouter(clients = listOf(client))
+                }
+            }
+
+        Given("이전 OpenAI와 Gemini 어댑터 선택 설정") {
+            fun verifySdkClients(settings: MapApplicationConfig) {
+                val app = providerApplication(settings)
+                val koin = app.koin
+                val transport =
                     try {
-                        val router = koinGet<AiClientRouter>(app.koin)
-                        router.requireSupported(AiProviderType.OPENAI)::class shouldBe OpenAiCurlClient::class
-                        router.requireSupported(AiProviderType.GEMINI)::class shouldBe GeminiCurlClient::class
+                        val router = koinGet<AiClientRouter>(koin)
+                        router.requireSupported(AiProviderType.OPENAI) shouldBeSameInstanceAs koinGet<OpenAiSdkClient>(koin)
+                        router.requireSupported(AiProviderType.GEMINI) shouldBeSameInstanceAs koinGet<GeminiSdkClient>(koin)
+                        router.requireSupported(AiProviderType.CLAUDE) shouldBeSameInstanceAs koinGet<ClaudeSdkClient>(koin)
+                        koin.getOrNull<OpenAiCurlClient>() shouldBe null
+                        koin.getOrNull<GeminiCurlClient>() shouldBe null
+                        koin.getOrNull<ClaudeCurlClient>() shouldBe null
+                        koinGet<AiSdkHttpTransport>(koin)
                     } finally {
                         app.close()
                     }
+                transport.client.dispatcher.executorService.isShutdown shouldBe true
+                transport.client.connectionPool.connectionCount() shouldBe 0
+            }
+
+            When("두 공급자에 이전 비활성 값을 지정하면") {
+                Then("세 SDK 싱글턴으로 라우팅한다") {
+                    verifySdkClients(MapApplicationConfig("ai.openai.useSdk" to "false", "ai.gemini.useSdk" to "false"))
                 }
             }
-        }
 
-        Given("잘못된 AI SDK 전환 설정") {
-            val settings =
-                mapOf(
-                    "ai.openai.useSdk" to ErrorCode.CONFIG_OPENAI_USE_SDK_INVALID,
-                    "ai.gemini.useSdk" to ErrorCode.CONFIG_GEMINI_USE_SDK_INVALID,
-                )
-            for ((path, errorCode) in settings) {
+            for (path in listOf("ai.openai.useSdk", "ai.gemini.useSdk")) {
                 When("$path 값이 비어 있거나 불리언이 아니면") {
-                    val start = { value: String -> providerApplication(MapApplicationConfig(path to value)).close() }
-                    Then("해당 공급자의 설정 키를 포함해 구성을 거부한다") {
+                    Then("세 SDK 싱글턴으로 라우팅한다") {
                         for (value in listOf("", RandomFixture.randomId().toString())) {
-                            shouldThrowWithMessage<BusinessException>(errorCode.message) { start(value) }
+                            verifySdkClients(MapApplicationConfig(path to value))
                         }
                     }
                 }
@@ -699,8 +731,23 @@ class AiSdkServiceTest :
                 }
 
                 if (basePath == "/gateway//v1") {
-                    for (useSdk in listOf(true, false)) {
-                        When("운영 어댑터의 벤더 오류를 처리하면 (useSdk=$useSdk)") {
+                    for (useCurlFixture in listOf(false, true)) {
+                        val clientName =
+                            if (useCurlFixture) {
+                                "Curl 테스트 fixture"
+                            } else {
+                                "운영 SDK"
+                            }
+                        When("$clientName 어댑터의 벤더 오류를 처리하면") {
+                            fun vendorApplication(): KoinApplication {
+                                val config = MapApplicationConfig("$configPrefix.sdkEndpoint" to (server.baseUrl + basePath))
+                                return if (useCurlFixture) {
+                                    providerApplication(config, curlModule(providerType))
+                                } else {
+                                    providerApplication(config)
+                                }
+                            }
+
                             lateinit var model: AvailableModel
 
                             beforeTest {
@@ -711,12 +758,7 @@ class AiSdkServiceTest :
                             }
 
                             Then("키 등록이 명시적 진단을 반환하고 기존 키를 유지한다") {
-                                val config =
-                                    MapApplicationConfig(
-                                        "$configPrefix.useSdk" to useSdk.toString(),
-                                        "$configPrefix.sdkEndpoint" to (server.baseUrl + basePath),
-                                    )
-                                val app = providerApplication(config)
+                                val app = vendorApplication()
                                 try {
                                     val service = koinGet<PutAiUserProviderService>(app.koin)
                                     val existingKey = "test-${RandomFixture.randomId()}"
@@ -761,10 +803,10 @@ class AiSdkServiceTest :
                                     }
                                     val path =
                                         (
-                                            if (useSdk) {
-                                                basePath
-                                            } else {
+                                            if (useCurlFixture) {
                                                 "/stored$basePath"
+                                            } else {
+                                                basePath
                                             }
                                         ) + "/models"
                                     server.requests.map { it.method to it.path } shouldBe List(errors.size + 1) { "GET" to path }
@@ -774,12 +816,7 @@ class AiSdkServiceTest :
                             }
 
                             Then("빈 프롬프트는 전송하지 않고 워커는 진단별 실패를 저장한다") {
-                                val config =
-                                    MapApplicationConfig(
-                                        "$configPrefix.useSdk" to useSdk.toString(),
-                                        "$configPrefix.sdkEndpoint" to (server.baseUrl + basePath),
-                                    )
-                                val app = providerApplication(config)
+                                val app = vendorApplication()
                                 try {
                                     val apiKey = "test-${RandomFixture.randomId()}"
                                     val router = koinGet<AiClientRouter>(app.koin)
@@ -863,33 +900,11 @@ class AiSdkServiceTest :
                         }
                     }
 
-                    When("운영 설정에서 해당 공급자의 SDK를 끄면") {
-                        Then("그 공급자만 Ktor 어댑터로 전환하고 저장된 주소로 요청한다") {
-                            val sdkRouter = koinGet<AiClientRouter>(application.koin)
-                            (sdkRouter.requireSupported(providerType)::class) shouldBe
-                                if (providerType == AiProviderType.OPENAI) {
-                                    OpenAiSdkClient::class
-                                } else {
-                                    GeminiSdkClient::class
-                                }
-
-                            val fallback = providerApplication(MapApplicationConfig("$configPrefix.useSdk" to "false"))
+                    When("Curl 테스트 fixture로 키를 등록하고 요약하면") {
+                        Then("저장된 주소로 요청하고 결과와 사용량을 반환한다") {
+                            val app = providerApplication(MapApplicationConfig(), curlModule(providerType))
                             try {
-                                val router = koinGet<AiClientRouter>(fallback.koin)
-                                (router.requireSupported(providerType)::class) shouldBe
-                                    if (providerType == AiProviderType.OPENAI) {
-                                        OpenAiCurlClient::class
-                                    } else {
-                                        GeminiCurlClient::class
-                                    }
-                                val otherType =
-                                    if (providerType == AiProviderType.OPENAI) {
-                                        AiProviderType.GEMINI
-                                    } else {
-                                        AiProviderType.OPENAI
-                                    }
-                                router.requireSupported(otherType)::class shouldBe sdkRouter.requireSupported(otherType)::class
-
+                                val router = koinGet<AiClientRouter>(app.koin)
                                 val apiKey = "test-${RandomFixture.randomId()}"
                                 val title = RandomFixture.randomSentenceWithMax(30)
                                 val output =
@@ -908,10 +923,10 @@ class AiSdkServiceTest :
                                     }
                                 }
                                 val result =
-                                    koinGet<PutAiUserProviderService>(fallback.koin)
+                                    koinGet<PutAiUserProviderService>(app.koin)
                                         .putAiUserProvider(loginId = user.id!!, request = registration(apiKey))
                                 val saved = userProviderRepository.findById(result.id)!!
-                                koinGet<ApiKeyCipher>(fallback.koin).decrypt(saved.apiKey) shouldBe apiKey
+                                koinGet<ApiKeyCipher>(app.koin).decrypt(saved.apiKey) shouldBe apiKey
                                 val request = summaryRequest(apiKey)
                                 val response = router.summarize(request)
                                 response.title shouldBe title
@@ -935,7 +950,7 @@ class AiSdkServiceTest :
                                     }
                                 }
                             } finally {
-                                fallback.close()
+                                app.close()
                             }
                         }
                     }

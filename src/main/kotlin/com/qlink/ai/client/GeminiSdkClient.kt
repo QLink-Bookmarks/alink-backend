@@ -13,8 +13,8 @@ import com.qlink.ai.dto.AiSummaryClientRequest
 import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.AiSdkConfig.Companion.GEMINI_API_KEY_HEADER
 import com.qlink.config.AiSdkHttpTransport
+import com.qlink.config.GeminiConfig.Companion.GEMINI_API_KEY_HEADER
 import java.io.IOException
 
 internal class GeminiSdkClient(

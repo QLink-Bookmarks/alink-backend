@@ -5,12 +5,9 @@ import aws.sdk.kotlin.services.lambda.LambdaClient
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
-import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.ClaudeSdkClient
-import com.qlink.ai.client.GeminiCurlClient
 import com.qlink.ai.client.GeminiSdkClient
-import com.qlink.ai.client.OpenAiCurlClient
 import com.qlink.ai.client.OpenAiSdkClient
 import com.qlink.auth.client.AppleAuthResourceClient
 import com.qlink.auth.client.AuthResourceClientRouter
@@ -20,12 +17,13 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.AiSdkConfig
 import com.qlink.config.AiSdkHttpTransport
+import com.qlink.config.GeminiConfig
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
 import com.qlink.config.NotificationConfig
+import com.qlink.config.OpenAiConfig
 import com.qlink.config.S3Config
 import com.qlink.config.string
 import com.qlink.image.service.PreviewImageUrlResolver
@@ -47,7 +45,6 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
@@ -57,7 +54,6 @@ fun externalModule(
     s3Config: S3Config = S3Config.from(config),
 ) = module {
     val notificationConfig = NotificationConfig.from(config)
-    val aiSdkConfig = AiSdkConfig(config)
 
     single {
         val monitoringConfig = get<MonitoringConfig>()
@@ -90,35 +86,28 @@ fun externalModule(
         ApiKeyCipher(keyBase64 = keyBase64, invalidKeyErrorCode = ErrorCode.CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID)
     }
 
-    single { aiSdkConfig }
+    single { GeminiConfig(config) }
+
+    single { OpenAiConfig(config) }
 
     single { AiSdkHttpTransport() } onClose { it?.close() }
 
-    single { get<AiSdkConfig>().geminiClient(get()) } onClose { it?.close() }
+    single { get<GeminiConfig>().client(get()) } onClose { it?.close() }
 
-    single { get<AiSdkConfig>().openAiClient(get()) } onClose { it?.close() }
+    single { get<OpenAiConfig>().client(get()) } onClose { it?.close() }
 
-    single<AiClient>(named("gemini")) {
-        val sdkConfig = get<AiSdkConfig>()
-        if (sdkConfig.geminiEnabled) {
-            GeminiSdkClient(client = get(), transport = get(), config = sdkConfig.geminiSummary)
-        } else {
-            GeminiCurlClient(httpClient = get())
-        }
+    single {
+        GeminiSdkClient(client = get(), transport = get(), config = get<GeminiConfig>().summary)
     }
 
-    single<AiClient>(named("openai")) {
-        val sdkConfig = get<AiSdkConfig>()
-        if (sdkConfig.openAiEnabled) {
-            OpenAiSdkClient(
-                client = get(),
-                transport = get(),
-                textConfig = sdkConfig.openAiSummary,
-                webSearch = sdkConfig.openAiWebSearch,
-            )
-        } else {
-            OpenAiCurlClient(httpClient = get())
-        }
+    single {
+        val openAiConfig = get<OpenAiConfig>()
+        OpenAiSdkClient(
+            client = get(),
+            transport = get(),
+            textConfig = openAiConfig.summary,
+            webSearch = openAiConfig.webSearch,
+        )
     }
 
     single {
@@ -167,8 +156,8 @@ fun externalModule(
         AiClientRouter(
             clients =
                 listOf(
-                    get<AiClient>(named("gemini")),
-                    get<AiClient>(named("openai")),
+                    get<GeminiSdkClient>(),
+                    get<OpenAiSdkClient>(),
                     get<ClaudeSdkClient>(),
                 ),
         )

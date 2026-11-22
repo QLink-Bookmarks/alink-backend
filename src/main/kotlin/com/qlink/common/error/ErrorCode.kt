@@ -256,8 +256,6 @@ enum class ErrorCode(
     CONFIG_LINK_CONTENT_MAX_PAGES_INVALID("CONFIG_500_0019", 500, "본문 수집 최대 페이지 수는 양수여야 해요"),
     CONFIG_LINK_CONTENT_HOST_INTERVAL_INVALID("CONFIG_500_0020", 500, "본문 수집 호스트 간격은 음수일 수 없어요"),
     CONFIG_LINK_CONTENT_HOST_COOLDOWN_INVALID("CONFIG_500_0021", 500, "본문 수집 호스트 대기 시간은 양수여야 해요"),
-    CONFIG_OPENAI_USE_SDK_INVALID("CONFIG_500_0022", 500, "ai.openai.useSdk 또는 AI_OPENAI_USE_SDK에 true 또는 false를 설정해 주세요"),
-    CONFIG_GEMINI_USE_SDK_INVALID("CONFIG_500_0023", 500, "ai.gemini.useSdk 또는 AI_GEMINI_USE_SDK에 true 또는 false를 설정해 주세요"),
 
     // Import
     IMPORT_LINKS_EMPTY("IMPORT_400_0001", 400, "가져올 링크가 없어요"),
