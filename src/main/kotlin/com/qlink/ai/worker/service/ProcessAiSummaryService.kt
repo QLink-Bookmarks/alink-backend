@@ -224,7 +224,6 @@ class ProcessAiSummaryService(
                                 apiKey = context.apiKey,
                                 model = model.model,
                                 prompt = context.job.prompt,
-                                requestedUrl = context.job.requestedUrl,
                             ),
                         )
                     }

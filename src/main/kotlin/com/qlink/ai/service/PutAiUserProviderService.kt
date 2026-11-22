@@ -7,7 +7,6 @@ import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
@@ -34,7 +33,7 @@ class PutAiUserProviderService(
                     ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
 
             provider.validateActive()
-            catchingFailure {
+            runCatching {
                 aiClientRouter.validateApiKey(
                     providerType = provider.type,
                     baseUrl = provider.baseUrl,
