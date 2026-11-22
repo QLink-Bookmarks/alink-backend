@@ -3,6 +3,7 @@ package com.qlink.link.service
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.repository.FolderRepository
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
@@ -27,6 +28,7 @@ class CreateLinkService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
     private val userRepository: UserRepository,
+    private val folderRepository: FolderRepository,
     private val folderAccessValidator: FolderAccessValidator,
     private val scheduleTodoNotificationService: ScheduleTodoNotificationService,
     private val urlResolver: PreviewImageUrlResolver,
@@ -41,7 +43,11 @@ class CreateLinkService(
         val result =
             tx.required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                val folder = request.folderId?.let { folderAccessValidator.validateWritable(it, loginId) }
+                val folder =
+                    request.folderId?.let {
+                        val locked = folderRepository.findAllByIdsForKeyShare(listOf(it)).singleOrNull()
+                        folderAccessValidator.validateWritable(locked, loginId)
+                    }
                 val turnsPublicAt =
                     Link.resolveNewVisibility(
                         folderIsPublic = folder?.isPublished == true,

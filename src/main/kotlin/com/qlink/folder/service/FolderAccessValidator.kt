@@ -11,14 +11,10 @@ class FolderAccessValidator(
     private val folderRepository: FolderRepository,
     private val folderMemberRepository: FolderMemberRepository,
 ) {
-    suspend fun lockForUpdate(folderId: Long): Folder =
-        folderRepository.findAllByIdsForUpdate(listOf(folderId)).singleOrNull()
-            ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
-
     suspend fun validateWritable(
         folderId: Long,
         userId: Long,
-    ): Folder = validateWritable(folderRepository.findAllByIdsForKeyShare(listOf(folderId)).singleOrNull(), userId)
+    ): Folder = validateWritable(folderRepository.findById(folderId), userId)
 
     suspend fun validateWritable(
         folder: Folder?,

@@ -3,7 +3,6 @@
 package com.qlink.folder.dto
 
 import kotlinx.serialization.Serializable
-import kotlin.time.Instant
 
 @Serializable
 data class CreateFolderResponse(
@@ -18,7 +17,7 @@ data class GetFoldersContentResponse(
     val name: String,
     val emoji: String?,
     val isShared: Boolean,
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
     val shareCounts: Int,
     val linkCounts: Int,
     val myLinkCounts: Int,
@@ -43,10 +42,10 @@ data class GetFolderMemberResponse(
 @Serializable
 data class UpdateFolderResponse(
     val id: Long,
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
 )
 
 @Serializable
 data class FolderPrivacyResponse(
-    val turnsPublicAt: Instant?,
+    val isPublic: Boolean,
 )

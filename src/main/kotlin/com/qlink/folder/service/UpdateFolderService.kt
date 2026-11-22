@@ -3,7 +3,6 @@ package com.qlink.folder.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
-import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
@@ -18,8 +17,6 @@ class UpdateFolderService(
     private val folderRepository: FolderRepository,
     private val folderMemberRepository: FolderMemberRepository,
     private val userRepository: UserRepository,
-    private val folderAccessValidator: FolderAccessValidator,
-    private val saveFolderPublicationService: SaveFolderPublicationService,
 ) {
     suspend fun updateFolder(
         loginId: Long,
@@ -29,12 +26,10 @@ class UpdateFolderService(
         tx.required {
             val user = userRepository.findById(loginId) ?: throw BusinessException(ErrorCode.FOLDER_OWNER_NOT_FOUND)
 
-            val folder = folderAccessValidator.lockForUpdate(folderId)
-            if (request.isPublic != null) {
-                folder.isOwnedBy(loginId).requireTrue(ErrorCode.FOLDER_NOT_FOUND)
-            } else {
-                folder.validateOwner(loginId)
-            }
+            val folder =
+                folderRepository.findAllByIdsForUpdate(listOf(folderId)).singleOrNull()
+                    ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
+            folder.validateOwner(loginId)
 
             folderRepository
                 .existsByOwnerIdAndNameAndIdNot(
@@ -49,11 +44,7 @@ class UpdateFolderService(
                     emoji = request.emoji,
                     sharedAt = request.sharedAtOrExisting(folder.sharedAt),
                 )
-            val publication =
-                request.isPublic?.let {
-                    updated.setPublic(isPublic = it, now = Clock.System.now())
-                } ?: updated
-            val saved = saveFolderPublicationService.save(previous = folder, updated = publication)
+            val saved = folderRepository.update(updated)
 
             if (saved.sharedAt != null && folderMemberRepository.existsByFolderId(folderId).not()) {
                 folderMemberRepository.insertIfAbsent(
@@ -66,7 +57,7 @@ class UpdateFolderService(
                 )
             }
 
-            UpdateFolderResponse(id = saved.id!!, turnsPublicAt = saved.turnsPublicAt)
+            UpdateFolderResponse(id = saved.id!!, isPublic = saved.isPublished)
         }
 
     private fun UpdateFolderRequest.sharedAtOrExisting(current: kotlin.time.Instant?): kotlin.time.Instant? =

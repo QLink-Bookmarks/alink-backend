@@ -13,13 +13,14 @@ import kotlin.time.Duration.Companion.seconds
 suspend fun <T> runWhileLinkLocked(
     tx: TransactionRunner,
     holdLock: suspend () -> Unit,
+    afterWaiting: suspend () -> Unit = {},
     action: suspend () -> T,
 ): T =
     runWhileLocked(
         tx = tx,
         table = "links",
         holdLock = holdLock,
-        afterWaiting = {},
+        afterWaiting = afterWaiting,
         action = action,
     )
 
@@ -45,32 +46,44 @@ private suspend fun <T> runWhileLocked(
     action: suspend () -> T,
 ): T =
     coroutineScope {
-        val locked = CompletableDeferred<Unit>()
+        val locked = CompletableDeferred<Int>()
         val release = CompletableDeferred<Unit>()
         val competitor =
             async {
                 tx.required {
                     holdLock()
-                    locked.complete(Unit)
+                    locked.complete(backendPid())
                     release.await()
                     afterWaiting()
                 }
             }
-        locked.await()
+        val blockerPid = locked.await()
         val result = async { action() }
         withTimeout(10.seconds) {
-            while (tx.readOnly { countSessionsWaitingOnLock(table) } == 0) {
+            var waiterPid = tx.readOnly { findWaitingBackend(table, blockerPid) }
+            while (waiterPid == null) {
                 delay(20.milliseconds)
+                waiterPid = tx.readOnly { findWaitingBackend(table, blockerPid) }
             }
+            println("PostgreSQL lock wait on $table: backend $waiterPid blocked by backend $blockerPid")
         }
         release.complete(Unit)
         competitor.await()
         result.await()
     }
 
-private fun countSessionsWaitingOnLock(table: String): Int =
+private fun backendPid(): Int =
+    TransactionManager.current().exec("SELECT pg_backend_pid()") {
+        it.next()
+        it.getInt(1)
+    }!!
+
+private fun findWaitingBackend(
+    table: String,
+    blockerPid: Int,
+): Int? =
     TransactionManager.current().exec(
-        "SELECT count(*) FROM pg_stat_activity " +
+        "SELECT pid FROM pg_stat_activity " +
             "WHERE wait_event_type = 'Lock' AND datname = current_database() " +
-            "AND pid <> pg_backend_pid() AND query ILIKE '%$table%'",
-    ) { it.takeIf { row -> row.next() }?.getInt(1) } ?: 0
+            "AND $blockerPid = ANY(pg_blocking_pids(pid)) AND query ~* '\\m$table\\M'",
+    ) { it.takeIf { row -> row.next() }?.getInt(1) }

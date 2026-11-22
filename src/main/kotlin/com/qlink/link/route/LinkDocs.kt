@@ -254,7 +254,6 @@ internal fun updateLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
-            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 수정 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {
@@ -306,7 +305,6 @@ internal fun patchLinkDocs(): RouteConfig.() -> Unit =
                 }
             }
             authErrorResponse()
-            linkPublicationErrorResponse()
             code(HttpStatusCode.Forbidden) {
                 description = "링크 부분 수정 권한 검증 실패"
                 body<ApiResponse<ErrorDetail>> {

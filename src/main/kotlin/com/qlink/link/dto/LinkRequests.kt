@@ -2,7 +2,6 @@
 
 package com.qlink.link.dto
 
-import com.qlink.common.serialization.StrictBooleanSerializer
 import com.qlink.link.domain.SourceType
 import com.qlink.todo.domain.RepeatDay
 import kotlinx.serialization.Serializable
@@ -21,7 +20,6 @@ data class CreateLinkRequest(
     val faviconUrl: String? = null,
     val isVideo: Boolean = false,
     val sourceType: SourceType,
-    @Serializable(with = StrictBooleanSerializer::class)
     val isPublic: Boolean? = null,
 )
 
@@ -47,8 +45,6 @@ data class UpdateLinkRequest(
     val faviconUrl: String? = null,
     val isVideo: Boolean = false,
     val sourceType: SourceType,
-    @Serializable(with = StrictBooleanSerializer::class)
-    val isPublic: Boolean? = null,
 )
 
 @Serializable
@@ -64,6 +60,5 @@ data class CopyLinkRequest(
 
 @Serializable
 data class SetLinkPrivacyRequest(
-    @Serializable(with = StrictBooleanSerializer::class)
     val isPublic: Boolean,
 )

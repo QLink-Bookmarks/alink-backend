@@ -37,7 +37,6 @@ import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFoldersService
-import com.qlink.folder.service.SaveFolderPublicationService
 import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -48,7 +47,6 @@ import com.qlink.link.service.CreateLinkService
 import com.qlink.link.service.DeleteLinkService
 import com.qlink.link.service.GetLinkDetailService
 import com.qlink.link.service.GetLinksService
-import com.qlink.link.service.OwnedLinkLoader
 import com.qlink.link.service.PatchLinkService
 import com.qlink.link.service.SetLinkFavoriteService
 import com.qlink.link.service.SetLinkPrivacyService
@@ -313,14 +311,12 @@ fun serviceModule() =
             )
         }
 
-        single { SaveFolderPublicationService(tx = get(), folderRepository = get(), linkRepository = get()) }
-
         single {
             SetFolderPrivacyService(
                 tx = get(),
                 userRepository = get(),
-                folderAccessValidator = get(),
-                saveFolderPublicationService = get(),
+                folderRepository = get(),
+                linkRepository = get(),
             )
         }
 
@@ -330,8 +326,6 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 userRepository = get(),
-                folderAccessValidator = get(),
-                saveFolderPublicationService = get(),
             )
         }
 
@@ -400,6 +394,7 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
                 scheduleTodoNotificationService = get(),
                 urlResolver = get(),
@@ -426,15 +421,14 @@ fun serviceModule() =
             )
         }
 
-        single { OwnedLinkLoader(linkRepository = get(), folderRepository = get(), userRepository = get()) }
-
-        single { SetLinkPrivacyService(tx = get(), linkRepository = get(), ownedLinkLoader = get()) }
+        single { SetLinkPrivacyService(tx = get(), linkRepository = get(), userRepository = get(), folderRepository = get()) }
 
         single {
             UpdateLinkService(
                 tx = get(),
                 linkRepository = get(),
-                ownedLinkLoader = get(),
+                userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
                 urlResolver = get(),
                 linkContentRepository = get(),
@@ -447,7 +441,8 @@ fun serviceModule() =
                 tx = get(),
                 linkRepository = get(),
                 todoRepository = get(),
-                ownedLinkLoader = get(),
+                userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
                 scheduleTodoNotificationService = get(),
                 urlResolver = get(),

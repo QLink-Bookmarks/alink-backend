@@ -100,7 +100,7 @@ class DbLinkRepository : LinkRepository {
             ?.toLinkDomain()
 
     override suspend fun clearFolderVisibility(folderId: Long) {
-        Links.update(where = { (Links.folderId eq folderId) and Links.turnsPublicAt.isNotNull() }) {
+        Links.update(where = { Links.folderId eq folderId }) {
             it[turnsPublicAt] = null
         }
     }
