@@ -36,7 +36,7 @@ class GetTodosService(
     private val folderAccessValidator: FolderAccessValidator,
     private val cursorCodec: PublicFolderCursorCodec,
 ) {
-    suspend fun getVisibleTodos(
+    suspend fun getTodos(
         viewerId: Long?,
         folderId: Long?,
         status: String?,
@@ -49,7 +49,7 @@ class GetTodosService(
         tx.required {
             val folder = folderId?.let { folderAccessValidator.lockForRead(it) }
             if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
-                ReadResult.Member(getTodos(viewerId, status, orderKey, order, scrollRequest, isCompleted, reminderAt, folderId))
+                ReadResult.Member(readMemberTodos(viewerId, status, orderKey, order, scrollRequest, isCompleted, reminderAt, folderId))
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
                 folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
@@ -103,54 +103,53 @@ class GetTodosService(
         )
     }
 
-    suspend fun getTodos(
+    private suspend fun readMemberTodos(
         loginId: Long,
-        status: String? = null,
-        orderKey: String? = null,
-        order: String? = null,
+        status: String?,
+        orderKey: String?,
+        order: String?,
         scrollRequest: ScrollRequest,
         isCompleted: Boolean?,
         reminderAt: String?,
-        folderId: Long? = null,
-    ): ScrollResponse<GetTodosContentResponse> =
-        tx.readOnly {
-            userRepository.emptyById(loginId).requireFalse(ErrorCode.TODO_OWNER_NOT_FOUND)
+        folderId: Long?,
+    ): ScrollResponse<GetTodosContentResponse> {
+        userRepository.emptyById(loginId).requireFalse(ErrorCode.TODO_OWNER_NOT_FOUND)
 
-            val sort = TodoSort.of(orderKey = orderKey, order = order)
-            val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort) }
-            val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_TODO_SCROLL_SIZE
-            val statusFilter = status?.let { parseStatus(status = it, isCompleted = isCompleted, reminderAt = reminderAt) }
-            val reminderFilter = reminderAt?.let { TodoReminderFilter.from(it) ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER) }
-            val now =
-                Clock.System
-                    .now()
-                    .toJavaInstant()
-                    .truncatedTo(ChronoUnit.MICROS)
-                    .toKotlinInstant()
-            val queries =
-                todoRepository.search(
-                    ownerId = loginId,
-                    folderId = folderId,
-                    sort = sort,
-                    cursor = cursor,
-                    size = size,
-                    status = statusFilter,
-                    isCompleted = isCompleted,
-                    reminderAt = reminderFilter,
-                    now = now,
-                )
-            val hasNext = queries.size > size
-            val contents = queries.take(size)
-            val statusById = todoRepository.findAllByIds(contents.map { it.id }).associate { it.id!! to it.status(now) }
-            val responses = contents.mapNotNull { query -> statusById[query.id]?.let { query.toResponse(it) } }
-
-            ScrollResponse(
-                isEmpty = responses.isEmpty(),
-                contents = responses,
-                nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, sort = sort) },
-                hasNext = hasNext,
+        val sort = TodoSort.of(orderKey = orderKey, order = order)
+        val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort) }
+        val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_TODO_SCROLL_SIZE
+        val statusFilter = status?.let { parseStatus(status = it, isCompleted = isCompleted, reminderAt = reminderAt) }
+        val reminderFilter = reminderAt?.let { TodoReminderFilter.from(it) ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER) }
+        val now =
+            Clock.System
+                .now()
+                .toJavaInstant()
+                .truncatedTo(ChronoUnit.MICROS)
+                .toKotlinInstant()
+        val queries =
+            todoRepository.search(
+                ownerId = loginId,
+                folderId = folderId,
+                sort = sort,
+                cursor = cursor,
+                size = size,
+                status = statusFilter,
+                isCompleted = isCompleted,
+                reminderAt = reminderFilter,
+                now = now,
             )
-        }
+        val hasNext = queries.size > size
+        val contents = queries.take(size)
+        val statusById = todoRepository.findAllByIds(contents.map { it.id }).associate { it.id!! to it.status(now) }
+        val responses = contents.mapNotNull { query -> statusById[query.id]?.let { query.toResponse(it) } }
+
+        return ScrollResponse(
+            isEmpty = responses.isEmpty(),
+            contents = responses,
+            nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, sort = sort) },
+            hasNext = hasNext,
+        )
+    }
 
     private fun parseStatus(
         status: String,

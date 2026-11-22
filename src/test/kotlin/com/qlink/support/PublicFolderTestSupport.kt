@@ -33,7 +33,7 @@ suspend fun GetLinksService.getPublicLinks(
     order: String?,
     scroll: ScrollRequest,
 ) = (
-    getVisibleLinks(
+    getLinks(
         viewerId = null,
         query = null,
         folderId = folderId,
@@ -50,7 +50,7 @@ suspend fun GetTodosService.getPublicTodos(
     order: String?,
     scroll: ScrollRequest,
 ) = (
-    getVisibleTodos(
+    getTodos(
         viewerId = null,
         folderId = folderId,
         status = null,

@@ -14,6 +14,7 @@ import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getMemberLinkDetail
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
@@ -107,7 +108,7 @@ class SharedFolderReadServiceTest :
                         )
                 }
 
-                val get = suspend { getLinkDetailService.getLinkDetail(member.id!!, link.id!!) }
+                val get = suspend { getLinkDetailService.getMemberLinkDetail(member.id!!, link.id!!) }
 
                 Then("링크 상세 조회에 성공한다") {
                     val response = get()
@@ -140,8 +141,8 @@ class SharedFolderReadServiceTest :
 
                 val get = suspend { getLinkDetailService.getLinkDetail(member.id!!, link.id!!) }
 
-                Then("공유 폴더 링크 권한 예외를 반환한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED.message) {
+                Then("찾을 수 없는 링크와 같은 예외를 반환한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         get()
                     }
                 }

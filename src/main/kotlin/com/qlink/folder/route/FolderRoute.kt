@@ -17,6 +17,7 @@ import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFolderPrivacyService
+import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -38,6 +39,7 @@ fun Route.folderRoutes() {
     val acceptFolderInvitationService by inject<AcceptFolderInvitationService>()
     val deleteFolderService by inject<DeleteFolderService>()
     val getFolderMembersService by inject<GetFolderMembersService>()
+    val getFolderService by inject<GetFolderService>()
     val getFoldersService by inject<GetFoldersService>()
     val updateFolderService by inject<UpdateFolderService>()
     val transferFolderOwnerService by inject<TransferFolderOwnerService>()
@@ -46,7 +48,7 @@ fun Route.folderRoutes() {
     authenticate(optional = true) {
         get<FolderResources.ById>(getFolderDocs()) { resource ->
             val viewerId = call.principal<JwtPrincipal>()?.userId
-            when (val response = getFoldersService.getFolder(folderId = resource.id, viewerId = viewerId)) {
+            when (val response = getFolderService.getFolder(folderId = resource.id, viewerId = viewerId)) {
                 is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
                 is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
             }

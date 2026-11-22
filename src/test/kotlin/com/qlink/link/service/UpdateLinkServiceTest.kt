@@ -23,6 +23,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getMemberLinkDetail
 import com.qlink.support.getPublicLinks
 import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
@@ -82,7 +83,7 @@ class UpdateLinkServiceTest :
                     val stored = linkRepository.findById(linkId)!!
                     stored.isPublicIn(folder.isPublic) shouldBe true
                     stored.title shouldBe title
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
                     publicLinks
                         .getPublicLinks(folder.id!!, null, null, ScrollRequest())
                         .contents
@@ -97,7 +98,7 @@ class UpdateLinkServiceTest :
 
                     update(false).isPublic shouldBe false
                     linkRepository.findById(linkId)!!.isPublic shouldBe false
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                    linkDetail.getMemberLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
                     publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     publicTodos.getPublicTodos(folder.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }

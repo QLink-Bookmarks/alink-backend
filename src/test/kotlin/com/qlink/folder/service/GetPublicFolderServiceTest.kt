@@ -19,7 +19,7 @@ import kotlinx.serialization.json.jsonObject
 
 class GetPublicFolderServiceTest :
     BaseServiceTest({
-        val service = koinGet<GetFoldersService>()
+        val service = koinGet<GetFolderService>()
         val folders = koinGet<FolderRepository>()
         val users = koinGet<UserRepository>()
 

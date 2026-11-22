@@ -56,3 +56,17 @@ data class PublicFolderResponse(
     val name: String,
     val emoji: String?,
 )
+
+internal fun SearchFoldersQuery.toFoldersContentResponse(): GetFoldersContentResponse =
+    GetFoldersContentResponse(
+        id = id,
+        ownerId = ownerId,
+        ownerNickname = ownerNickname,
+        name = name,
+        emoji = emoji,
+        isShared = sharedAt != null,
+        isPublic = isPublic,
+        shareCounts = shareCounts,
+        linkCounts = linkCounts,
+        myLinkCounts = myLinkCounts,
+    )

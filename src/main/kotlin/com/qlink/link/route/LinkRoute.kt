@@ -63,7 +63,7 @@ fun Route.linkRoutes() {
                 return@get
             }
             val response =
-                getLinksService.getVisibleLinks(
+                getLinksService.getLinks(
                     viewerId = viewerId,
                     query = resource.query,
                     folderId = resource.folderId,
@@ -80,7 +80,7 @@ fun Route.linkRoutes() {
 
         get<LinkResources.ById>(getLinkDetailDocs()) { resource ->
             val response =
-                getLinkDetailService.getVisibleLinkDetail(
+                getLinkDetailService.getLinkDetail(
                     linkId = resource.id,
                     viewerId = call.principal<JwtPrincipal>()?.userId,
                 )

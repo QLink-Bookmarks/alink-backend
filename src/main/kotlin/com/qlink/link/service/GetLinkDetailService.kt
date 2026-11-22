@@ -18,9 +18,9 @@ class GetLinkDetailService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
 ) {
-    suspend fun getVisibleLinkDetail(
-        linkId: Long,
+    suspend fun getLinkDetail(
         viewerId: Long?,
+        linkId: Long,
     ): ReadResult<GetLinkDetailResponse, PublicLinkDetailResponse> =
         tx.readOnly {
             val link = viewerId?.let { linkRepository.findDetailById(linkId = linkId, loginId = it) }
@@ -40,23 +40,6 @@ class GetLinkDetailService(
                     ),
                 )
             }
-        }
-
-    suspend fun getLinkDetail(
-        loginId: Long,
-        linkId: Long,
-    ): GetLinkDetailResponse =
-        tx.readOnly {
-            val link =
-                linkRepository.findDetailById(
-                    linkId = linkId,
-                    loginId = loginId,
-                ) ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
-
-            val isOwner = link.ownerId == loginId
-            validateAccess(link = link, loginId = loginId, isOwner = isOwner)
-
-            link.toMemberResponse(loginId)
         }
 
     private fun LinkDetailQuery.canRead(loginId: Long): Boolean =
@@ -97,24 +80,4 @@ class GetLinkDetailService(
                     null
                 },
         )
-
-    private fun validateAccess(
-        link: LinkDetailQuery,
-        loginId: Long,
-        isOwner: Boolean,
-    ) {
-        if (isOwner) {
-            return
-        }
-
-        if (link.folderSharedAt != null) {
-            if (link.folderMemberUserId == loginId) {
-                return
-            }
-
-            throw BusinessException(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
-        }
-
-        throw BusinessException(ErrorCode.LINK_DIFFERENT_OWNER)
-    }
 }

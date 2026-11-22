@@ -53,7 +53,7 @@ class UpdateFolderServiceTest :
         val createLinkService = koinGet<CreateLinkService>()
         val patchLinkService = koinGet<PatchLinkService>()
         val copyLinkService = koinGet<CopyLinkService>()
-        val foldersService = koinGet<GetFoldersService>()
+        val foldersService = koinGet<GetFolderService>()
         val publicLinks = koinGet<GetLinksService>()
         val publicTodos = koinGet<GetTodosService>()
         val todoRepository = koinGet<TodoRepository>()

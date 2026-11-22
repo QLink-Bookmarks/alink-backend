@@ -45,7 +45,7 @@ fun Route.todoRoutes() {
                 return@get
             }
             val response =
-                getTodosService.getVisibleTodos(
+                getTodosService.getTodos(
                     viewerId = viewerId,
                     folderId = resource.folderId,
                     status = resource.status,

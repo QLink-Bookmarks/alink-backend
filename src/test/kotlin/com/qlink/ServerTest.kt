@@ -444,6 +444,9 @@ class ServerTest :
                                 .getValue("linkId")
                                 .jsonPrimitive.long
 
+                        val ownedLinkPath = "/api/links/$memberLinkId"
+                        val beforeOwnedDetail = client.get(ownedLinkPath) { bearerAuth(memberToken) }.readData()
+
                         val accessChange =
                             if (folder.isOwnedBy(member)) {
                                 client.put("$folderPath/owner") {
@@ -486,6 +489,14 @@ class ServerTest :
 
                         client.get(linksPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerLinks
                         client.get(todosPath) { bearerAuth(ownerToken) }.readContents() shouldBe ownerActions
+                        val ownedDetail = client.get(ownedLinkPath) { bearerAuth(memberToken) }.readData()
+                        ownedDetail shouldBe beforeOwnedDetail
+                        ownedDetail.getValue("id").jsonPrimitive.long shouldBe memberLinkId
+                        ownedDetail.getValue("isOwner").jsonPrimitive.content shouldBe "true"
+                        ownedDetail.getValue("isPublic").jsonPrimitive.content shouldBe "false"
+                        ownedDetail.containsKey("memo") shouldBe true
+                        client.get(ownedLinkPath).status shouldBe HttpStatusCode.NotFound
+
                         val personalLinks = client.get("/api/links") { bearerAuth(memberToken) }.readContents()
                         val personalActions = client.get("/api/todos") { bearerAuth(memberToken) }.readContents()
                         personalLinks.any { it.getValue("id").jsonPrimitive.long == memberLinkId } shouldBe true

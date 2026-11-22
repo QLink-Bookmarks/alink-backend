@@ -43,7 +43,7 @@ class GetLinksService(
     private val folderAccessValidator: FolderAccessValidator,
     private val cursorCodec: PublicFolderCursorCodec,
 ) {
-    suspend fun getVisibleLinks(
+    suspend fun getLinks(
         viewerId: Long?,
         query: String?,
         folderId: Long?,
@@ -55,7 +55,7 @@ class GetLinksService(
         tx.required {
             val folder = folderId?.takeUnless { it == 0L }?.let { folderAccessValidator.lockForRead(it) }
             if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
-                ReadResult.Member(getLinks(viewerId, query, folderId, isFavorite, orderKey, order, scrollRequest))
+                ReadResult.Member(readMemberLinks(viewerId, query, folderId, isFavorite, orderKey, order, scrollRequest))
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
                 folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
@@ -114,70 +114,69 @@ class GetLinksService(
         )
     }
 
-    suspend fun getLinks(
+    private suspend fun readMemberLinks(
         loginId: Long,
         query: String?,
         folderId: Long?,
-        isFavorite: Boolean? = null,
-        orderKey: String? = null,
-        order: String? = null,
+        isFavorite: Boolean?,
+        orderKey: String?,
+        order: String?,
         scrollRequest: ScrollRequest,
-    ): ScrollResponse<GetLinksContentResponse> =
-        tx.readOnly {
-            userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
+    ): ScrollResponse<GetLinksContentResponse> {
+        userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
 
-            val sort = LinkSort.of(orderKey = orderKey, order = order)
-            val keyword = SearchKeyword.of(query).takeUnless { it.isBlank }
-            val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort, hasKeyword = keyword != null) }
-            val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
-            val queries =
-                linkRepository.search(
-                    ownerId = loginId,
-                    keyword = keyword,
-                    folderId = folderId,
-                    isFavorite = isFavorite,
-                    sort = sort,
-                    cursor = cursor,
-                    size = size,
-                )
-            val hasNext = queries.size > size
-            val contents = queries.take(size)
-            val todosByLinkId = todoRepository.findAllByLinkIds(contents.map { it.id }).groupBy { it.linkId }
-            val now = Clock.System.now()
-
-            ScrollResponse(
-                isEmpty = contents.isEmpty(),
-                contents =
-                    contents.map { queryRow ->
-                        GetLinksContentResponse(
-                            id = queryRow.id,
-                            folderId = queryRow.folderId,
-                            folderName = queryRow.folderName,
-                            folderEmoji = queryRow.folderEmoji,
-                            workModel = queryRow.workModel,
-                            url = queryRow.url,
-                            title = queryRow.title,
-                            thumbnailUrl = queryRow.thumbnailUrl,
-                            faviconUrl = queryRow.faviconUrl,
-                            isVideo = queryRow.isVideo,
-                            status = queryRow.status,
-                            tags = queryRow.tags,
-                            createdAt = queryRow.createdAt,
-                            todoCounts = todosByLinkId[queryRow.id].orEmpty().toCounts(now),
-                            isFavorite = queryRow.favoriteAt != null,
-                            contentExcerpt = queryRow.contentExcerpt,
-                            matchedFields = queryRow.matchedFields(),
-                            contentSnippet = keyword?.let { queryRow.toSnippetResponse(it) },
-                        )
-                    },
-                nextCursor =
-                    contents
-                        .lastOrNull()
-                        ?.takeIf { hasNext }
-                        ?.let { encodeCursor(query = it, sort = sort, hasKeyword = keyword != null) },
-                hasNext = hasNext,
+        val sort = LinkSort.of(orderKey = orderKey, order = order)
+        val keyword = SearchKeyword.of(query).takeUnless { it.isBlank }
+        val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort, hasKeyword = keyword != null) }
+        val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
+        val queries =
+            linkRepository.search(
+                ownerId = loginId,
+                keyword = keyword,
+                folderId = folderId,
+                isFavorite = isFavorite,
+                sort = sort,
+                cursor = cursor,
+                size = size,
             )
-        }
+        val hasNext = queries.size > size
+        val contents = queries.take(size)
+        val todosByLinkId = todoRepository.findAllByLinkIds(contents.map { it.id }).groupBy { it.linkId }
+        val now = Clock.System.now()
+
+        return ScrollResponse(
+            isEmpty = contents.isEmpty(),
+            contents =
+                contents.map { queryRow ->
+                    GetLinksContentResponse(
+                        id = queryRow.id,
+                        folderId = queryRow.folderId,
+                        folderName = queryRow.folderName,
+                        folderEmoji = queryRow.folderEmoji,
+                        workModel = queryRow.workModel,
+                        url = queryRow.url,
+                        title = queryRow.title,
+                        thumbnailUrl = queryRow.thumbnailUrl,
+                        faviconUrl = queryRow.faviconUrl,
+                        isVideo = queryRow.isVideo,
+                        status = queryRow.status,
+                        tags = queryRow.tags,
+                        createdAt = queryRow.createdAt,
+                        todoCounts = todosByLinkId[queryRow.id].orEmpty().toCounts(now),
+                        isFavorite = queryRow.favoriteAt != null,
+                        contentExcerpt = queryRow.contentExcerpt,
+                        matchedFields = queryRow.matchedFields(),
+                        contentSnippet = keyword?.let { queryRow.toSnippetResponse(it) },
+                    )
+                },
+            nextCursor =
+                contents
+                    .lastOrNull()
+                    ?.takeIf { hasNext }
+                    ?.let { encodeCursor(query = it, sort = sort, hasKeyword = keyword != null) },
+            hasNext = hasNext,
+        )
+    }
 
     private suspend fun decodeCursor(
         encoded: String,

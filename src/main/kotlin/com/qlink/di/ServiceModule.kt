@@ -40,6 +40,7 @@ import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFolderPrivacyService
+import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.PublicFolderCursorCodec
 import com.qlink.folder.service.TransferFolderOwnerService
@@ -314,6 +315,13 @@ fun serviceModule() =
                 tx = get(),
                 folderRepository = get(),
                 userRepository = get(),
+            )
+        }
+
+        single {
+            GetFolderService(
+                tx = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
             )
         }
