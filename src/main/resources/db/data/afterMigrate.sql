@@ -61,5 +61,5 @@ VALUES
     (1, 1, 1, 'SUPER_ADMIN', 'v1:W7+F1lcrEb0xVfYD:Uvy5FM1Wvd3xte0Aurm3+8aB9n/l/kiC5qOH2F47mLIjHSzkkPRWIkM1+rBjqusplSvRameNvQ==', '2026-05-16T23:55:55Z', '2026-05-16T23:55:55Z'),
     (2, 1, 2, 'SUPER_ADMIN', 'v1:jwJzx4sq513gGlpP:1VqGQ5gHbjUI7vHZFyf+jsVdeN+QA9MTi+4IzMiQQ/gMJTUargBHiTCj5i+Md27XDsfyvMfO34X1CyrcdkXiVBkE0NvHD+7t7XBfwi5FkCrQOJyY7QkyedqYEnCSYRcQvjcbZdFZvV8MFZ5W/op6fFhAuFkR5GEctknn2T66XNjong+QexqPVKqv6EuQbIs5FPFHGLVAi2b/w2zn5rJU3BQVB3gLt5PqYtF1lt8lI8Zbzmzn', '2026-05-16T23:55:55Z', '2026-05-16T23:55:55Z');
 
-UPDATE user_providers SET user_id = NULL WHERE user_role = 'SUPER_ADMIN';
+UPDATE user_providers SET user_id = NULL, is_primary_shared_key = TRUE WHERE user_role = 'SUPER_ADMIN';
 SELECT setval(pg_get_serial_sequence('user_providers', 'id'), (SELECT max(id) FROM user_providers));

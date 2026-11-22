@@ -94,6 +94,60 @@ class GetAiDailyUsageServiceTest :
                 }
             }
 
+            When("윤일과 다음 날의 UTC 자정 경계에 사용량이 있으면") {
+                val leapDay = LocalDate.of(2028, 2, 29)
+                val nextDay = leapDay.plusDays(1)
+                lateinit var leapUsage: DailyUsage
+                lateinit var nextUsage: DailyUsage
+
+                beforeTest {
+                    if (it.type != TestType.Test) {
+                        return@beforeTest
+                    }
+                    val key =
+                        keys.insert(
+                            UserProvider(
+                                userId = null,
+                                providerId = provider.id!!,
+                                userRole = Role.SUPER_ADMIN,
+                                apiKey = RandomFixture.randomFixedSentence(40),
+                            ),
+                        )
+                    val modelId = model.id!!
+                    leapUsage =
+                        usages.insert(
+                            DailyUsage(
+                                userProviderId = key.id!!,
+                                modelId = modelId,
+                                usageDate = leapDay,
+                                requests = RandomFixture.randomInt(1, 100),
+                                tokens = RandomFixture.randomInt(1, 1_000),
+                            ),
+                        )
+                    nextUsage =
+                        usages.insert(
+                            DailyUsage(
+                                userProviderId = key.id,
+                                modelId = modelId,
+                                usageDate = nextDay,
+                                requests = leapUsage.requests + 1,
+                                tokens = leapUsage.tokens + 1,
+                            ),
+                        )
+                }
+
+                Then("두 UTC 날짜의 기록을 각각 집계한다") {
+                    for (expected in listOf(leapUsage, nextUsage)) {
+                        val date = expected.usageDate.toString()
+                        val result = service.getAiDailyUsage(loginId = admin.id!!, date = date)
+                        result.date shouldBe date
+                        val item = result.items.single()
+                        item.requests shouldBe expected.requests.toLong()
+                        item.tokens shouldBe expected.tokens.toLong()
+                    }
+                }
+            }
+
             When("사용량이 없는 날짜를 조회하면") {
                 Then("날짜와 빈 목록을 반환한다") {
                     val emptyDate = date.minusDays(1).toString()
@@ -105,7 +159,7 @@ class GetAiDailyUsageServiceTest :
 
             When("날짜가 비어 있거나 존재하지 않는 날짜이면") {
                 Then("잘못된 요청으로 처리한다") {
-                    listOf(null, "2026-02-30").forEach { invalidDate ->
+                    listOf(null, "2026-2-3", "2026-02-30", "2026-11-22T00:00:00Z").forEach { invalidDate ->
                         shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_BAD_REQUEST.message) {
                             service.getAiDailyUsage(loginId = admin.id!!, date = invalidDate)
                         }

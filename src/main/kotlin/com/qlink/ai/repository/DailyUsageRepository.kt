@@ -3,6 +3,7 @@ package com.qlink.ai.repository
 import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.dto.AiDailyUsageQuery
 import java.time.LocalDate
+import kotlin.time.Instant
 
 interface DailyUsageRepository {
     suspend fun insert(dailyUsage: DailyUsage): DailyUsage
@@ -19,7 +20,7 @@ interface DailyUsageRepository {
         usageDate: LocalDate,
     ): List<DailyUsage>
 
-    suspend fun findSharedUsage(usageDate: LocalDate): List<AiDailyUsageQuery>
+    suspend fun findSharedUsage(dayStart: Instant): List<AiDailyUsageQuery>
 
     suspend fun update(dailyUsage: DailyUsage): DailyUsage
 }

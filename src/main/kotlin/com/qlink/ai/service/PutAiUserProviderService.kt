@@ -1,5 +1,6 @@
 package com.qlink.ai.service
 
+import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
@@ -17,7 +18,7 @@ class PutAiUserProviderService(
     private val userRepository: UserRepository,
     private val aiProviderRepository: AiProviderRepository,
     private val userProviderRepository: UserProviderRepository,
-    private val apiKeyValidator: AiApiKeyValidator,
+    private val aiClientRouter: AiClientRouter,
     private val apiKeyCipher: ApiKeyCipher,
 ) {
     suspend fun putAiUserProvider(
@@ -31,7 +32,11 @@ class PutAiUserProviderService(
                     ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
 
             provider.validateActive()
-            apiKeyValidator.validate(provider = provider, apiKey = request.apiKey)
+            aiClientRouter.validateApiKey(
+                providerType = provider.type,
+                baseUrl = provider.baseUrl,
+                apiKey = request.apiKey,
+            )
 
             val userProvider =
                 UserProvider(

@@ -1123,7 +1123,18 @@ class ClaudeAiSummaryServiceTest :
                             if (it.type != TestType.Test) {
                                 return@beforeTest
                             }
-                            job = enqueueDefault()
+                            activateProvider()
+                            activateModel()
+                            val shared =
+                                keys.saveShared(
+                                    UserProvider(
+                                        userId = null,
+                                        providerId = provider.id!!,
+                                        userRole = Role.SUPER_ADMIN,
+                                        apiKey = cipher.encrypt(apiKey),
+                                    ),
+                                )
+                            job = submitSummary(userProviderId = shared.id!!, modelId = model.id!!)
                             nextAdmin = users.insert(UserFixture.createRandomValidSuperAdmin())
                             replacement = "dummy-rotated-${RandomFixture.randomId()}"
                             fallback =

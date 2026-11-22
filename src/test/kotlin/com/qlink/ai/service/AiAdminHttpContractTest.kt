@@ -2,11 +2,13 @@ package com.qlink.ai.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
+import com.qlink.ai.dto.AiApiKeyValidationRequest
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
@@ -36,11 +38,16 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -52,6 +59,7 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.koin.ktor.ext.getKoin
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 
 class AiAdminHttpContractTest :
     BaseServiceTest({
@@ -119,11 +127,7 @@ class AiAdminHttpContractTest :
 
                     testApplication {
                         environment { this.config = config }
-                        application {
-                            val dataSource = getKoin().get<HikariDataSource>()
-                            monitor.subscribe(ApplicationStopped) { dataSource.close() }
-                            getKoin().declare(AiClientRouter(clients = listOf(vendor)))
-                        }
+                        application { configureVendor(vendor) }
 
                         client.get(keyPath).status shouldBe HttpStatusCode.Unauthorized
                         client.get(keyPath) { bearerAuth(token(nonAdmin)) }.status shouldBe HttpStatusCode.Forbidden
@@ -180,8 +184,68 @@ class AiAdminHttpContractTest :
                     }
                 }
             }
+
+            When("같은 제공자에 두 최초 등록 요청이 겹치면") {
+                Then("공용 행 한 건을 만들고, 이후 교체도 그 ID를 유지한다") {
+                    val config = ServiceTestEnvironment.applicationConfig()
+                    val token =
+                        JWT
+                            .create()
+                            .withSubject(admin.id.toString())
+                            .withClaim("role", admin.role.name)
+                            .sign(Algorithm.HMAC256(SecurityConfig.from(config).jwtSecret))
+                    val providerId = provider.id!!
+                    val keyPath = "/api/ai/providers/$providerId/shared-key"
+                    val validatingRequests = AtomicInteger()
+                    val ready = CompletableDeferred<Unit>()
+                    val vendor =
+                        object : AiClient by FakeAiClient() {
+                            override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
+                                if (validatingRequests.incrementAndGet() == 2) {
+                                    ready.complete(Unit)
+                                }
+                                withTimeout(10_000) { ready.await() }
+                            }
+                        }
+
+                    testApplication {
+                        environment { this.config = config }
+                        application { configureVendor(vendor) }
+
+                        suspend fun putKey(key: String) =
+                            client
+                                .put(keyPath) {
+                                    bearerAuth(token)
+                                    contentType(ContentType.Application.Json)
+                                    setBody(buildJsonObject { put("apiKey", key) }.toString())
+                                }.successData()
+
+                        suspend fun sharedIds() =
+                            CoroutineScope(Dispatchers.IO)
+                                .async {
+                                    tx.readOnly {
+                                        keys.findAllByRole(Role.SUPER_ADMIN).filter { it.providerId == providerId }.map { it.id }
+                                    }
+                                }.await()
+
+                        val submitted = List(2) { "dummy-concurrent-${RandomFixture.randomId()}" }
+                        val responses = coroutineScope { submitted.map { key -> async { putKey(key) } }.awaitAll() }
+                        responses shouldBe submitted.map { key -> buildJsonObject { put("lastFour", key.takeLast(4)) } }
+
+                        val firstId = sharedIds().single()
+                        putKey("dummy-rotation-${RandomFixture.randomId()}")
+                        sharedIds() shouldBe listOf(firstId)
+                    }
+                }
+            }
         }
     })
+
+private fun Application.configureVendor(vendor: AiClient) {
+    val dataSource = getKoin().get<HikariDataSource>()
+    monitor.subscribe(ApplicationStopped) { dataSource.close() }
+    getKoin().declare(AiClientRouter(clients = listOf(vendor)))
+}
 
 private suspend fun HttpResponse.successData(): JsonObject {
     status shouldBe HttpStatusCode.OK

@@ -24,6 +24,9 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import java.time.LocalDate
+import java.time.ZoneOffset
+import kotlin.time.Instant
+import kotlin.time.toJavaInstant
 
 class DbDailyUsageRepository : DailyUsageRepository {
     override suspend fun insert(dailyUsage: DailyUsage): DailyUsage =
@@ -59,7 +62,8 @@ class DbDailyUsageRepository : DailyUsageRepository {
                     (DailyUsages.usageDate eq usageDate)
             }.map { it.toDailyUsageDomain() }
 
-    override suspend fun findSharedUsage(usageDate: LocalDate): List<AiDailyUsageQuery> {
+    override suspend fun findSharedUsage(dayStart: Instant): List<AiDailyUsageQuery> {
+        val usageDate = dayStart.toJavaInstant().atOffset(ZoneOffset.UTC).toLocalDate()
         val requests = DailyUsages.requests.castTo<Long>(LongColumnType()).sum()
         val tokens = DailyUsages.tokens.castTo<Long>(LongColumnType()).sum()
         return DailyUsages

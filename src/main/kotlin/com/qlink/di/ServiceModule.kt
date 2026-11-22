@@ -1,7 +1,6 @@
 package com.qlink.di
 
 import com.qlink.ai.service.AiAdminValidator
-import com.qlink.ai.service.AiApiKeyValidator
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.CreateAvailableModelService
 import com.qlink.ai.service.GetAiDailyUsageService
@@ -121,15 +120,12 @@ fun serviceModule() =
                 adminValidator = get(),
                 aiProviderRepository = get(),
                 userProviderRepository = get(),
-                apiKeyValidator = get(),
+                aiClientRouter = get(),
                 apiKeyCipher = get(),
             )
         }
         single {
             GetAiDailyUsageService(tx = get(), adminValidator = get(), dailyUsageRepository = get())
-        }
-        single {
-            AiApiKeyValidator(aiClientRouter = get())
         }
         single {
             AiAdminValidator(userRepository = get())
@@ -296,7 +292,7 @@ fun serviceModule() =
                 userRepository = get(),
                 aiProviderRepository = get(),
                 userProviderRepository = get(),
-                apiKeyValidator = get(),
+                aiClientRouter = get(),
                 apiKeyCipher = get(),
             )
         }

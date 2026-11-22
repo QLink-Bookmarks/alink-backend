@@ -106,7 +106,7 @@ class AiSharedKeyServicesTest :
                         return@beforeTest
                     }
                     existing =
-                        keys.insert(
+                        keys.saveShared(
                             UserProvider(
                                 userId = null,
                                 providerId = provider.id!!,

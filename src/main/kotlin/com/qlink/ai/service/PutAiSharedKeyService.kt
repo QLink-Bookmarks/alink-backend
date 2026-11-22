@@ -1,5 +1,6 @@
 package com.qlink.ai.service
 
+import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiSharedKeyRequest
 import com.qlink.ai.dto.PutAiSharedKeyResponse
@@ -17,7 +18,7 @@ class PutAiSharedKeyService(
     private val adminValidator: AiAdminValidator,
     private val aiProviderRepository: AiProviderRepository,
     private val userProviderRepository: UserProviderRepository,
-    private val apiKeyValidator: AiApiKeyValidator,
+    private val aiClientRouter: AiClientRouter,
     private val apiKeyCipher: ApiKeyCipher,
 ) {
     suspend fun putAiSharedKey(
@@ -28,25 +29,22 @@ class PutAiSharedKeyService(
         tx.required {
             adminValidator.validate(loginId)
             val provider =
-                aiProviderRepository.findByIdForUpdate(providerId) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
+                aiProviderRepository.findById(providerId) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
 
             (request.apiKey.length > 4 && request.apiKey.isNotBlank()).requireTrue(ErrorCode.AI_API_KEY_INVALID)
-            apiKeyValidator.validate(provider = provider, apiKey = request.apiKey)
-            val encryptedKey = apiKeyCipher.encrypt(request.apiKey)
-
-            val existing = userProviderRepository.findDefaultByProviderId(providerId)
-            if (existing == null) {
-                userProviderRepository.insert(
-                    UserProvider(
-                        userId = null,
-                        providerId = providerId,
-                        userRole = Role.SUPER_ADMIN,
-                        apiKey = encryptedKey,
-                    ),
-                )
-            } else {
-                userProviderRepository.update(existing.replaceApiKey(encryptedKey))
-            }
+            aiClientRouter.validateApiKey(
+                providerType = provider.type,
+                baseUrl = provider.baseUrl,
+                apiKey = request.apiKey,
+            )
+            userProviderRepository.saveShared(
+                UserProvider(
+                    userId = null,
+                    providerId = providerId,
+                    userRole = Role.SUPER_ADMIN,
+                    apiKey = apiKeyCipher.encrypt(request.apiKey),
+                ),
+            )
             PutAiSharedKeyResponse(request.apiKey.takeLast(4))
         }
 }
