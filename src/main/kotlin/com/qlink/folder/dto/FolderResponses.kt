@@ -43,11 +43,9 @@ data class GetFolderMemberResponse(
 data class UpdateFolderResponse(
     val id: Long,
     val isPublic: Boolean,
-    val publicId: String?,
 )
 
 @Serializable
 data class FolderPrivacyResponse(
     val isPublic: Boolean,
-    val publicId: String?,
 )

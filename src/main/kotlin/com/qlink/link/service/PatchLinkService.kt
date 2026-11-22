@@ -57,10 +57,10 @@ class PatchLinkService(
                             requestedFolderId == null -> null
                             else -> folderAccessValidator.validateWritable(folders[requestedFolderId], loginId)
                         }
-                    val publicationId =
-                        link.resolveUpdatedPublicationId(
-                            sourcePublicId = folders[sourceFolderId]?.publicId,
-                            targetPublicId = target?.publicId,
+                    val isPublic =
+                        link.resolveUpdatedVisibility(
+                            sourceIsPublic = folders[sourceFolderId]?.isPublic == true,
+                            targetIsPublic = target?.isPublic == true,
                             isPublic = request.isPublic,
                         )
                     val targetMemo = request.resolveMemo(link)
@@ -79,7 +79,7 @@ class PatchLinkService(
                             sourceType = link.sourceType,
                             previewPublicBaseUrl = urlResolver.publicBaseUrl,
                             previewEnvironment = urlResolver.environment,
-                            publicationId = publicationId,
+                            isPublic = isPublic,
                         )
 
                     val savedLink =
@@ -91,7 +91,7 @@ class PatchLinkService(
                                 folderId = updatedLink.folderId,
                                 memo = updatedLink.memo,
                                 tags = updatedLink.tags,
-                                publicationId = updatedLink.publicationId,
+                                isPublic = updatedLink.isPublic,
                             )
                         }
 
@@ -110,7 +110,7 @@ class PatchLinkService(
                                 memo = savedLink.memo,
                                 tags = savedLink.tags,
                                 todos = todoRepository.findAllByLinkIdForLinkDetail(linkId),
-                                isPublic = savedLink.isPublicIn(target?.publicId),
+                                isPublic = savedLink.isPublicIn(target?.isPublic == true),
                             ),
                         deletedTodoIds = deletedTodoIds,
                         updatedTodos = updatedTodos,
@@ -211,7 +211,7 @@ class PatchLinkService(
         folderId == other.folderId &&
             memo == other.memo &&
             tags == other.tags &&
-            publicationId == other.publicationId
+            isPublic == other.isPublic
 
     private data class TodoChangeSet(
         val todosToUpdate: List<Todo>,

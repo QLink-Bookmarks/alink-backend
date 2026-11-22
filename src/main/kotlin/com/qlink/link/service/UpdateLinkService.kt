@@ -50,10 +50,10 @@ class UpdateLinkService(
                         if (link.hasFolderChangedSince(sourceFolderId)) return@required null
 
                         val target = request.folderId?.let { folderAccessValidator.validateWritable(folders[it], loginId) }
-                        val publicationId =
-                            link.resolveUpdatedPublicationId(
-                                sourcePublicId = folders[sourceFolderId]?.publicId,
-                                targetPublicId = target?.publicId,
+                        val isPublic =
+                            link.resolveUpdatedVisibility(
+                                sourceIsPublic = folders[sourceFolderId]?.isPublic == true,
+                                targetIsPublic = target?.isPublic == true,
                                 isPublic = request.isPublic,
                             )
 
@@ -71,7 +71,7 @@ class UpdateLinkService(
                                 isVideo = request.isVideo,
                                 previewPublicBaseUrl = urlResolver.publicBaseUrl,
                                 previewEnvironment = urlResolver.environment,
-                                publicationId = publicationId,
+                                isPublic = isPublic,
                             )
 
                         val savedLink = linkRepository.update(updatedLink)
@@ -82,7 +82,7 @@ class UpdateLinkService(
                                 now = Clock.System.now(),
                             )?.let { linkContentRepository.upsertForLink(it) }
 
-                        savedLink.toResponse(isPublic = savedLink.isPublicIn(target?.publicId))
+                        savedLink.toResponse(isPublic = savedLink.isPublicIn(target?.isPublic == true))
                     }
             }
         linkContentSignal.wake()

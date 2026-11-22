@@ -84,7 +84,7 @@ class CreateLinkServiceTest :
                 val folderOwnerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 privateFolder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(writerId))
                 publicFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(FolderFixture.createPublicId()))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(true))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createMember(folderId = publicFolder.id!!, userId = writerId),
                 )
@@ -92,14 +92,14 @@ class CreateLinkServiceTest :
 
             When("공개값 생략으로 원문을 저장하면") {
                 Then("공개 폴더에서만 공개된다") {
-                    for ((folderId, expectedPublicationId) in listOf(
-                        publicFolder.id to publicFolder.publicId,
-                        privateFolder.id to null,
-                        null to null,
+                    for ((folderId, expectedVisibility) in listOf(
+                        publicFolder.id to publicFolder.isPublic,
+                        privateFolder.id to false,
+                        null to false,
                     )) {
                         val result = createLinkService.createLink(writerId, LinkFixture.createValidLinkRequest(folderId = folderId))
 
-                        linkRepository.findById(result.id)!!.publicationId shouldBe expectedPublicationId
+                        linkRepository.findById(result.id)!!.isPublic shouldBe expectedVisibility
                     }
                 }
             }
@@ -119,7 +119,7 @@ class CreateLinkServiceTest :
 
                 Then("링크와 액션은 저장되고 익명 목록은 비어 있다") {
                     val result = create()
-                    linkRepository.findById(result.id)!!.publicationId shouldBe null
+                    linkRepository.findById(result.id)!!.isPublic shouldBe false
                     todoRepository.findAllByLinkId(result.id).size shouldBe 1
                 }
             }

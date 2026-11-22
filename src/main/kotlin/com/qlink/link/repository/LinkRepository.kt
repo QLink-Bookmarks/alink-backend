@@ -10,6 +10,8 @@ import com.qlink.link.dto.SearchLinksQuery
 import kotlin.time.Instant
 
 interface LinkRepository {
+    suspend fun clearFolderVisibility(folderId: Long)
+
     suspend fun insert(link: Link): Link
 
     suspend fun insertAll(links: List<Link>): List<Link>
@@ -28,7 +30,7 @@ interface LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        publicationId: String? = null,
+        isPublic: Boolean = false,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>
@@ -66,7 +68,7 @@ interface LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
-        publicationId: String?,
+        isPublic: Boolean,
     ): Link
 
     suspend fun updateAiResult(

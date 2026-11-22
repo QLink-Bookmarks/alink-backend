@@ -79,21 +79,21 @@ class CopyLinkServiceTest :
             }
 
             When("원본 링크의 공개 상태와 복사 대상의 공개 상태가 다르면") {
-                lateinit var originalPublicId: String
-                lateinit var targetPublicId: String
+                var originalVisibility = false
+                var targetVisibility = false
                 lateinit var published: Link
 
                 beforeTest {
-                    originalPublicId = FolderFixture.createPublicId()
-                    targetPublicId = FolderFixture.createPublicId()
-                    folderRepository.update(sharedFolder.setPublic(originalPublicId))
-                    folderRepository.update(personalFolder.setPublic(targetPublicId))
+                    originalVisibility = true
+                    targetVisibility = true
+                    folderRepository.update(sharedFolder.setPublic(originalVisibility))
+                    folderRepository.update(personalFolder.setPublic(targetVisibility))
                     published =
                         linkRepository.insert(
                             LinkFixture.createRandomLinkOf(
                                 ownerId = owner.id!!,
                                 folderId = sharedFolder.id,
-                                publicationId = originalPublicId,
+                                isPublic = originalVisibility,
                             ),
                         )
                 }
@@ -113,10 +113,10 @@ class CopyLinkServiceTest :
                     folderRepository.update(personalFolder)
                     val copyIntoPrivate = copy(published.id!!, personalFolder.id)
 
-                    linkRepository.findById(publicCopy.id)!!.publicationId shouldBe targetPublicId
-                    linkRepository.findById(privateCopy.id)!!.publicationId shouldBe null
-                    linkRepository.findById(copyIntoPrivate.id)!!.publicationId shouldBe null
-                    linkRepository.findById(published.id!!)!!.publicationId shouldBe originalPublicId
+                    linkRepository.findById(publicCopy.id)!!.isPublic shouldBe targetVisibility
+                    linkRepository.findById(privateCopy.id)!!.isPublic shouldBe false
+                    linkRepository.findById(copyIntoPrivate.id)!!.isPublic shouldBe false
+                    linkRepository.findById(published.id!!)!!.isPublic shouldBe originalVisibility
                 }
             }
 

@@ -33,7 +33,7 @@ object LinkFixture {
         workModelId: Long? = null,
         favoriteAt: Instant? = null,
         createdAt: Instant? = null,
-        publicationId: String? = null,
+        isPublic: Boolean = false,
     ): Link =
         Link(
             id = id,
@@ -53,7 +53,7 @@ object LinkFixture {
             tags = tags,
             createdAt = createdAt,
             updatedAt = createdAt,
-            publicationId = publicationId,
+            isPublic = isPublic,
         )
 
     fun createValidLinkRequest(
