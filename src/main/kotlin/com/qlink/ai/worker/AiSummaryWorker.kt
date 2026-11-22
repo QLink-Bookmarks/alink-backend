@@ -15,7 +15,6 @@ import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -23,13 +22,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Clock
-import kotlin.time.Duration
 import kotlin.time.TimeSource
 
 class AiSummaryWorker(
@@ -51,12 +48,24 @@ class AiSummaryWorker(
 
     fun start() {
         log.info("[WORKER] Starting AI summary worker")
-        val processingSlot = Semaphore(1)
         scope.launch(CoroutineName("$DISPATCHER_NAME-consumer")) {
             for (jobId in channel) {
-                processingSlot.acquire()
-                launch(start = CoroutineStart.UNDISPATCHED) {
-                    processQueuedJob(jobId = jobId, processingSlot = processingSlot)
+                withContext(traceContext(traceIdLength)) {
+                    val started = TimeSource.Monotonic.markNow()
+                    log.info("[WORKER] Job has been detected: $jobId")
+                    inFlight.incrementAndGet()
+                    try {
+                        catchingFailure { proceed(jobId) }
+                            .onFailure { error ->
+                                log.warn("[WORKER] Failed to process AI summary. jobId=$jobId", error)
+                                catchingFailure { fail(jobId = jobId, reason = error.messageOrFallback(DEFAULT_FAILURE_MESSAGE)) }
+                                    .onFailure { log.warn("[WORKER] Failed to mark AI summary failed. jobId=$jobId", it) }
+                            }
+                    } finally {
+                        inFlight.decrementAndGet()
+                    }
+                    catchingFailure { refreshPending() }
+                    log.info("[WORKER] Job has been finished. jobId=$jobId, durationMs=${started.elapsedNow().inWholeMilliseconds}")
                 }
             }
         }
@@ -68,40 +77,6 @@ class AiSummaryWorker(
                 }
                 delay(config.pollInterval)
             }
-        }
-    }
-
-    private suspend fun processQueuedJob(
-        jobId: Long,
-        processingSlot: Semaphore,
-    ) {
-        var hasSlot = true
-        val started = TimeSource.Monotonic.markNow()
-        inFlight.incrementAndGet()
-        try {
-            withContext(traceContext(traceIdLength)) {
-                log.info("[WORKER] Job has been detected: $jobId")
-                catchingFailure {
-                    proceed(jobId) { retryAfter ->
-                        if (retryAfter > Duration.ZERO) {
-                            hasSlot = false
-                            processingSlot.release()
-                            delay(retryAfter)
-                            processingSlot.acquire()
-                            hasSlot = true
-                        }
-                    }
-                }.onFailure { error ->
-                    log.warn("[WORKER] Failed to process AI summary. jobId=$jobId", error)
-                    catchingFailure { fail(jobId = jobId, reason = error.messageOrFallback(DEFAULT_FAILURE_MESSAGE)) }
-                        .onFailure { log.warn("[WORKER] Failed to mark AI summary failed. jobId=$jobId", it) }
-                }
-                catchingFailure { refreshPending() }
-                log.info("[WORKER] Job has been finished. jobId=$jobId, durationMs=${started.elapsedNow().inWholeMilliseconds}")
-            }
-        } finally {
-            if (hasSlot) processingSlot.release()
-            inFlight.decrementAndGet()
         }
     }
 
@@ -121,13 +96,8 @@ class AiSummaryWorker(
         refreshPending()
     }
 
-    suspend fun proceed(jobId: Long) = proceed(jobId) { delay(it) }
-
-    private suspend fun proceed(
-        jobId: Long,
-        scheduleRetry: suspend (Duration) -> Unit,
-    ) {
-        when (val result = processAiSummaryService.proceed(jobId = jobId, scheduleRetry = scheduleRetry)) {
+    suspend fun proceed(jobId: Long) {
+        when (val result = processAiSummaryService.proceed(jobId)) {
             AiSummaryExecutionResult.Skipped -> {
                 countResult(RESULT_SKIPPED)
             }

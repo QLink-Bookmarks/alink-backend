@@ -6,6 +6,7 @@ import aws.sdk.kotlin.services.s3.S3Client
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.anthropic.backends.AnthropicBackend
+import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.OkHttpClient
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.ClaudeAiClient
@@ -19,6 +20,7 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.ClaudeConfig
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
@@ -142,12 +144,17 @@ fun externalModule(
         OkHttpClient.builder().backend(AnthropicBackend.builder().build()).build()
     }
 
+    single { ClaudeConfig(config) }
+
+    single<AnthropicClient> { get<ClaudeConfig>().client(get()) } onClose { it?.close() }
+
     single {
         ClaudeAiClient(
-            transport = get(),
+            client = get(),
+            config = get(),
             log = LoggerFactory.getLogger(ClaudeAiClient::class.java),
         )
-    } onClose { it?.close() }
+    }
 
     single {
         AiClientRouter(

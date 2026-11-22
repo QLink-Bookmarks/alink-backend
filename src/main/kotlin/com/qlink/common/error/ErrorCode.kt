@@ -132,6 +132,16 @@ enum class ErrorCode(
     AI_VENDOR_RATE_LIMITED("AI_429_0001", 429, "AI 제공자 요청이 너무 많아요"),
     AI_VENDOR_QUOTA_EXHAUSTED("AI_429_0002", 429, "AI 제공자 사용 한도를 모두 사용했어요"),
 
+    AI_SUMMARY_SOURCE_URL_INVALID("AI_400_0010", 400, "AI가 가져올 원문 주소가 올바르지 않아요"),
+    AI_SUMMARY_FETCH_FAILED("AI_502_0002", 502, "AI가 원문을 가져오지 못했어요"),
+    AI_SUMMARY_FETCH_URL_MISMATCH("AI_502_0003", 502, "AI가 요청한 주소와 다른 원문을 가져왔어요"),
+    AI_SUMMARY_REFUSED("AI_502_0004", 502, "AI가 요약 요청을 거절했어요"),
+    AI_SUMMARY_OUTPUT_LIMIT_REACHED("AI_502_0005", 502, "AI가 출력 토큰 한도에 도달했어요"),
+    AI_SUMMARY_INCOMPLETE("AI_502_0006", 502, "AI가 요약 응답을 끝내지 못했어요"),
+    AI_SUMMARY_RESPONSE_INVALID("AI_502_0007", 502, "AI 요약 응답의 형식이 올바르지 않아요"),
+    AI_SUMMARY_USAGE_INVALID("AI_502_0008", 502, "AI 응답의 토큰 사용량이 올바르지 않아요"),
+    AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE("AI_502_0009", 502, "Claude 요약의 출력 토큰 한도를 설정해 주세요"),
+
     // Todo
     TODO_TITLE_BLANK("TODO_400_0001", 400, "액션 제목이 입력되지 않았어요"),
     TODO_TITLE_OVER_MAX("TODO_400_0002", 400, "액션 제목은 최대 50자에요"),

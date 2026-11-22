@@ -78,6 +78,7 @@ internal fun putAiUserProviderDocs(): RouteConfig.() -> Unit =
                         ErrorCode.COMMON_BAD_REQUEST,
                         ErrorCode.AI_PROVIDER_NOT_SUPPORTED,
                         ErrorCode.AI_API_KEY_INVALID,
+                        ErrorCode.AI_PROVIDER_BASE_URL_INVALID,
                     )
                 }
             }

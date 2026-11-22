@@ -1,6 +1,7 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.common.error.ErrorCode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
@@ -51,6 +52,19 @@ data class AiApiKeyValidationRequest(
 class AiApiKeyValidationException(
     val statusCode: Int,
 ) : RuntimeException("AI API key validation failed. statusCode=$statusCode")
+
+internal fun aiVendorErrorCode(
+    status: Int,
+    quotaExhausted: Boolean = false,
+): ErrorCode =
+    when {
+        status == 401 -> ErrorCode.AI_API_KEY_INVALID
+        status == 403 -> ErrorCode.AI_VENDOR_PERMISSION_DENIED
+        status == 408 || status in 500..599 -> ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE
+        quotaExhausted && status in 400..499 -> ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED
+        status == 429 -> ErrorCode.AI_VENDOR_RATE_LIMITED
+        else -> ErrorCode.AI_VENDOR_REQUEST_REJECTED
+    }
 
 private val summaryJson = Json { ignoreUnknownKeys = true }
 

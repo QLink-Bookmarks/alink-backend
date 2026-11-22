@@ -47,6 +47,8 @@ class ClaudeSummaryFixture(
         fetchStatus: String? = "web_fetch_result",
         stopReason: String = "end_turn",
         includeCache: Boolean = true,
+        inputTokens: Long = 11,
+        fetchErrorCode: String? = null,
     ): String =
         buildJsonObject {
             put("stop_reason", stopReason)
@@ -67,15 +69,19 @@ class ClaudeSummaryFixture(
                         put("tool_use_id", resultId)
                         putJsonObject("content") {
                             put("type", fetchStatus)
-                            put("url", resultUrl)
-                            putJsonObject("content") {
-                                put("type", "document")
-                                put("title", PAGE_MARKER)
-                                putJsonObject("source") {
-                                    put("type", "base64")
-                                    put("media_type", "application/pdf")
-                                    put("data", PDF_MARKER)
+                            if (fetchErrorCode == null) {
+                                put("url", resultUrl)
+                                putJsonObject("content") {
+                                    put("type", "document")
+                                    put("title", PAGE_MARKER)
+                                    putJsonObject("source") {
+                                        put("type", "base64")
+                                        put("media_type", "application/pdf")
+                                        put("data", PDF_MARKER)
+                                    }
                                 }
+                            } else {
+                                put("error_code", fetchErrorCode)
                             }
                         }
                     }
@@ -86,7 +92,7 @@ class ClaudeSummaryFixture(
                 }
             }
             putJsonObject("usage") {
-                put("input_tokens", 11)
+                put("input_tokens", inputTokens)
                 put("output_tokens", 3)
                 if (includeCache) {
                     put("cache_creation_input_tokens", 5)

@@ -13,9 +13,8 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import java.net.InetSocketAddress
 import java.net.URI
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.time.TimeSource
+import java.util.concurrent.CountDownLatch
 
 class ClaudeHttpFixture : AutoCloseable {
     data class Request(
@@ -23,7 +22,6 @@ class ClaudeHttpFixture : AutoCloseable {
         val url: URI,
         val headers: Headers,
         val body: String,
-        val receivedAt: TimeSource.Monotonic.ValueTimeMark,
     )
 
     val requests = CopyOnWriteArrayList<Request>()
@@ -39,12 +37,13 @@ class ClaudeHttpFixture : AutoCloseable {
 
     @Volatile var errorBody = """{"error":{"message":"$ERROR_MARKER"}}"""
 
-    @Volatile var retryAfter: String? = null
+    @Volatile var modelsRedirect: String? = null
 
-    @Volatile var retryAfterMillis: String? = null
+    @Volatile var messagesRedirect: String? = null
 
     val pendingRequest = CompletableDeferred<Unit>()
-    val pendingResponse = CompletableFuture<HttpResponse>()
+
+    @Volatile var interrupted = false
 
     @Volatile var holdResponse = false
 
@@ -60,29 +59,29 @@ class ClaudeHttpFixture : AutoCloseable {
                             url = url,
                             headers = it.requestHeaders,
                             body = body,
-                            receivedAt = TimeSource.Monotonic.markNow(),
                         ),
                     )
                     val isModelsRequest = it.requestMethod == "GET" && url.rawPath.endsWith("/v1/models")
                     val isMessagesRequest = it.requestMethod == "POST" && url.rawPath.endsWith("/v1/messages")
                     val status =
                         when {
+                            isModelsRequest && modelsRedirect != null -> HttpStatusCode.Found
                             isModelsRequest -> modelsStatus ?: return@createContext
+                            url.rawPath == "/redirected/models" -> HttpStatusCode.OK
+                            isMessagesRequest && messagesRedirect != null -> HttpStatusCode.TemporaryRedirect
                             isMessagesRequest -> nextMessageStatus.also { nextMessageStatus = null } ?: messagesStatus
+                            url.rawPath == "/redirected/messages" -> HttpStatusCode.OK
                             else -> HttpStatusCode.NotFound
                         }
-                    if (status == HttpStatusCode.Found) {
-                        it.responseHeaders.set("Location", "http://localhost:${it.localAddress.port}/redirect")
-                    }
-                    if (status == HttpStatusCode.TooManyRequests) {
-                        retryAfter?.let { value -> it.responseHeaders.set("Retry-After", value) }
-                        retryAfterMillis?.let { value -> it.responseHeaders.set("Retry-After-Ms", value) }
+                    if (status == HttpStatusCode.Found || status == HttpStatusCode.TemporaryRedirect) {
+                        val redirect = if (isModelsRequest) modelsRedirect else messagesRedirect
+                        it.responseHeaders.set("Location", redirect ?: "http://localhost:${it.localAddress.port}/redirect")
                     }
                     it.responseHeaders.set("Content-Type", "application/json")
                     val response =
                         when {
                             status.value !in 200..299 -> errorBody
-                            isModelsRequest -> "{}"
+                            isModelsRequest || url.rawPath == "/redirected/models" -> "{}"
                             else -> messagesBody
                         }.toByteArray()
                     if (status == HttpStatusCode.NoContent) {
@@ -99,28 +98,40 @@ class ClaudeHttpFixture : AutoCloseable {
 
     val transport =
         object : HttpClient by client {
-            override fun executeAsync(
+            override fun execute(
                 request: HttpRequest,
                 requestOptions: RequestOptions,
-            ): CompletableFuture<HttpResponse> {
+            ): HttpResponse {
                 if (holdResponse) {
                     pendingRequest.complete(Unit)
-                    return pendingResponse
+                    try {
+                        CountDownLatch(1).await()
+                    } catch (e: InterruptedException) {
+                        interrupted = true
+                        throw e
+                    }
                 }
                 val url = URI(request.url())
-                if (url.host != "api.anthropic.com") {
-                    throw AssertionError("Unexpected Claude origin: ${url.host}")
+                if (url.host != "api.anthropic.com" || url.scheme != "https" || url.port !in listOf(-1, 443)) {
+                    throw AssertionError("Unexpected Claude origin: ${url.scheme}://${url.authority}")
                 }
                 sdkRequestUrls.add(url)
-                val basePath = URI(request.baseUrl).rawPath
-                val local = request.toBuilder().baseUrl("http://127.0.0.1:${server.address.port}$basePath").build()
-                val response = client.executeAsync(local, requestOptions)
-                if (request.method.name != "GET" || modelsStatus != null) return response
-                return response.exceptionally { throw AnthropicIoException(TRANSPORT_MARKER, it) }
+                val base = URI(request.baseUrl)
+                val localBase =
+                    "http://127.0.0.1:${server.address.port}${base.rawPath}" +
+                        base.rawQuery?.let { "?$it" }.orEmpty()
+                val local = request.toBuilder().baseUrl(localBase).build()
+                return try {
+                    client.execute(local, requestOptions)
+                } catch (e: AnthropicIoException) {
+                    throw AnthropicIoException(TRANSPORT_MARKER, e)
+                }
             }
         }
 
-    override fun close() = server.stop(0)
+    override fun close() {
+        server.stop(0)
+    }
 
     companion object {
         const val ERROR_MARKER = "dummy-private-provider-error"

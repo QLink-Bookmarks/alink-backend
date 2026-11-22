@@ -2,7 +2,7 @@ package com.qlink.ai.service
 
 import com.qlink.ai.client.AiApiKeyValidationException
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.AiVendorException
+import com.qlink.ai.client.aiVendorErrorCode
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
@@ -61,12 +61,8 @@ class PutAiUserProviderService(
                 this
             }
 
-            is AiVendorException -> {
-                BusinessException(errorCode)
-            }
-
             is AiApiKeyValidationException -> {
-                BusinessException(AiVendorException.fromStatus(statusCode).errorCode)
+                BusinessException(aiVendorErrorCode(statusCode))
             }
 
             is IOException -> {

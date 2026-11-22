@@ -10,12 +10,10 @@ import com.qlink.common.search.DbNowMinus
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.javatime.CurrentTimestamp
 import org.jetbrains.exposed.v1.jdbc.insertReturning
-import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.update
@@ -44,16 +42,6 @@ class DbAiJobRepository : AiJobRepository {
             .where { AiJobs.linkId eq linkId }
             .orderBy(AiJobs.id to SortOrder.ASC)
             .map { it.toAiJobDomain() }
-
-    override suspend fun hasNewerJob(
-        linkId: Long,
-        jobId: Long,
-    ): Boolean =
-        !AiJobs
-            .select(AiJobs.id)
-            .where { (AiJobs.linkId eq linkId) and (AiJobs.id greater jobId) }
-            .limit(1)
-            .empty()
 
     override suspend fun findAllByStatus(status: AiJobStatus): List<AiJob> =
         AiJobs
