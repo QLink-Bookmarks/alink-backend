@@ -471,6 +471,60 @@ class ServerTest :
                     republished shouldNotBe null
                     republished shouldNotBe linkPublication
 
+                    val privateTitle = "비공개 AI 원본 ${RandomFixture.randomId()}"
+                    val privateAction = "비공개 AI 액션 ${RandomFixture.randomId()}"
+                    val privateUrl = "https://example.test/${RandomFixture.randomId()}"
+                    val privateCreate =
+                        client.post("/api/links") {
+                            bearerAuth(token(owner))
+                            contentType(ContentType.Application.Json)
+                            setBody(
+                                """{"folderId":$folder,"url":"$privateUrl","title":"$privateTitle","tags":[],"sourceType":"INPUT",""" +
+                                    """"memo":"비공개 메모","isPublic":false,"todos":[{"title":"$privateAction"}]}""",
+                            )
+                        }
+                    privateCreate.status shouldBe HttpStatusCode.Created
+                    val privateId =
+                        Json
+                            .parseToJsonElement(privateCreate.bodyAsText())
+                            .jsonObject
+                            .getValue("data")
+                            .jsonObject
+                            .getValue("id")
+                            .jsonPrimitive.long
+                    val privatePath = "/api/links/$privateId"
+
+                    suspend fun assertPrivateAiLink() {
+                        val privateDetail = client.get(privatePath) { bearerAuth(token(owner)) }.readData()
+                        privateDetail.getValue("isPublic") shouldBe JsonPrimitive(false)
+                        privateDetail
+                            .getValue("todos")
+                            .jsonArray
+                            .single()
+                            .jsonObject
+                            .getValue("title") shouldBe
+                            JsonPrimitive(privateAction)
+                        client.get(privatePath).status shouldBe HttpStatusCode.NotFound
+                        client.get("/api/links?folderId=$folder").readContents().map { it.getValue("id").jsonPrimitive.long } shouldBe
+                            listOf(publicLink)
+                        client.get("/api/todos?folderId=$folder").readContents().map { it.getValue("title").jsonPrimitive.content } shouldBe
+                            listOf(publicTodo.title)
+                    }
+
+                    assertPrivateAiLink()
+                    val failedAi =
+                        client.put("/api/links/ai") {
+                            bearerAuth(token(owner))
+                            contentType(ContentType.Application.Json)
+                            setBody(
+                                """{"id":$privateId,"folderId":$folder,"url":"$privateUrl",""" +
+                                    """"userProviderId":${RandomFixture.randomId()},"modelId":${RandomFixture.randomId()}}""",
+                            )
+                        }
+                    failedAi.status shouldBe HttpStatusCode.NotFound
+                    apiErrorCode(failedAi.bodyAsText()) shouldBe ErrorCode.AI_USER_PROVIDER_NOT_FOUND.code
+                    assertPrivateAiLink()
+
                     val move =
                         client.patch(detailPath) {
                             bearerAuth(token(owner))
