@@ -5,8 +5,10 @@ import com.anthropic.errors.AnthropicInvalidDataException
 import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.AnthropicServiceException
 import com.anthropic.models.ErrorType
+import com.anthropic.models.messages.ContentBlock
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.ServerToolUseBlock
 import com.anthropic.models.messages.Usage
 import com.anthropic.models.models.ModelListParams
 import com.qlink.ai.domain.AiProviderType
@@ -114,37 +116,25 @@ class ClaudeSdkClient(
 
         val blocks = content()
         blocks.forEach { block ->
+            val type = block.type()
             val valid =
-                when (
-                    block
-                        .type()
-                        ._value()
-                        .asString()
-                        .getOrNull()
-                ) {
-                    "server_tool_use" -> block.isServerToolUse()
-                    "web_fetch_tool_result" -> block.isWebFetchToolResult()
-                    "text" -> block.isText()
-                    null -> false
+                when (type.value()) {
+                    ContentBlock.Type.Value.SERVER_TOOL_USE -> block.isServerToolUse()
+                    ContentBlock.Type.Value.WEB_FETCH_TOOL_RESULT -> block.isWebFetchToolResult()
+                    ContentBlock.Type.Value.TEXT -> block.isText()
+                    ContentBlock.Type.Value._UNKNOWN -> type._value().asString().isPresent
                     else -> true
                 }
             if (!valid) {
                 throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
             }
         }
-        val fetchIndex =
-            blocks.indices.singleOrNull { index ->
-                val tool = blocks[index].serverToolUse().getOrNull() ?: return@singleOrNull false
-                val name =
-                    tool
-                        .name()
-                        ._value()
-                        .asString()
-                        .getOrNull() ?: throw BusinessException(ErrorCode.AI_SUMMARY_RESPONSE_INVALID)
-                name == "web_fetch"
-            }
-                ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val fetch = blocks[fetchIndex].asServerToolUse()
+        val (fetchIndex, fetchBlock) =
+            blocks.withIndex().singleOrNull { (_, block) ->
+                val tool = block.serverToolUse().getOrNull()
+                tool?.name()?.asString() == ServerToolUseBlock.Name.WEB_FETCH.asString()
+            } ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
+        val fetch = fetchBlock.asServerToolUse()
         val fetchId = fetch.id().takeIf(String::isNotBlank) ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         val requested =
             fetch
@@ -158,15 +148,15 @@ class ClaudeSdkClient(
             throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_URL_MISMATCH)
         }
 
-        val resultIndex =
-            blocks.indices.singleOrNull { blocks[it].webFetchToolResult().isPresent }
+        val (resultIndex, resultBlock) =
+            blocks.withIndex().singleOrNull { (_, block) -> block.isWebFetchToolResult() }
                 ?: throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
-        val resultBlock = blocks[resultIndex].asWebFetchToolResult()
-        if (resultIndex <= fetchIndex || resultBlock.toolUseId() != fetchId) {
+        val fetchResult = resultBlock.asWebFetchToolResult()
+        if (resultIndex <= fetchIndex || fetchResult.toolUseId() != fetchId) {
             throw BusinessException(ErrorCode.AI_SUMMARY_FETCH_FAILED)
         }
         val result =
-            resultBlock
+            fetchResult
                 .content()
                 .webFetchBlock()
                 .getOrNull()
