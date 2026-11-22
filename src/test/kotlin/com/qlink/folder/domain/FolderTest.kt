@@ -384,9 +384,8 @@ class FolderTest :
             val ownerId = RandomFixture.randomId()
             val memberId = RandomFixture.randomId()
             val outsiderId = RandomFixture.randomId()
-            val publicId = FolderFixture.createPublicId()
             val private = FolderFixture.createValidUnsharedFolder(ownerId)
-            val public = FolderFixture.createFolderWith(ownerId = ownerId, publicId = publicId)
+            val public = FolderFixture.createFolderWith(ownerId = ownerId, isPublic = true)
 
             When("소유자와 멤버, 외부인의 소유권을 확인하면") {
                 Then("현재 소유자만 소유권을 가진다") {
@@ -397,29 +396,27 @@ class FolderTest :
             }
 
             When("비공개 폴더를 공개하면") {
-                val updated = private.setPublic(publicId)
+                val updated = private.setPublic(true)
 
-                Then("전달받은 공개 ID가 활성화된다") {
+                Then("공개 상태가 된다") {
                     updated.isPublic shouldBe true
-                    updated.publicId shouldBe publicId
                 }
             }
 
             When("공개 폴더를 다시 공개하면") {
-                val updated = public.setPublic(FolderFixture.createPublicId())
+                val updated = public.setPublic(true)
 
-                Then("기존 공개 ID가 유지된다") {
+                Then("공개 상태가 유지된다") {
                     updated.isPublic shouldBe true
-                    updated.publicId shouldBe publicId
                 }
             }
 
             When("공개 폴더를 비공개로 바꾸면") {
-                val updated = public.setPublic(null)
+                val updated = public.setPublic(false)
 
-                Then("활성 공개 ID가 제거된다") {
+                Then("비공개 상태가 되고 다시 공개할 수 있다") {
                     updated.isPublic shouldBe false
-                    updated.publicId shouldBe null
+                    updated.setPublic(true).isPublic shouldBe true
                 }
             }
         }
