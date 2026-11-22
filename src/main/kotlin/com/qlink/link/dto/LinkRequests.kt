@@ -61,3 +61,9 @@ data class CopyLinkRequest(
     val fromFolderId: Long,
     val toFolderId: Long? = null,
 )
+
+@Serializable
+data class SetLinkPrivacyRequest(
+    @Serializable(with = StrictBooleanSerializer::class)
+    val isPublic: Boolean,
+)

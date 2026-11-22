@@ -75,7 +75,7 @@ data class LinkDetailQuery(
     val hasContent: Boolean,
     val contentExcerpt: String?,
     val isContentPending: Boolean,
-    val isPublic: Boolean,
+    val turnsPublicAt: Instant?,
 )
 
 typealias LinkSearchCursor = SortCursor<LinkOrderKey, LinkSearchCursorValue>

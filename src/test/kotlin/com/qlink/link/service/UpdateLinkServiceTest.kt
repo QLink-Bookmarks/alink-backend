@@ -63,24 +63,24 @@ class UpdateLinkServiceTest :
 
             When("링크 소유자가 공개하고 공개값을 생략해 제목을 저장한 뒤 철회하면") {
                 Then("개별 공개값을 유지하며 익명 링크·액션 조회와 인증 상세에 반영한다") {
-                    val published = folder.isPublic
+                    val published = folder.isPublished
                     val linkId = link.id!!
                     val request = LinkFixture.createUpdateLinkRequestFrom(link)
 
                     suspend fun update(isPublic: Boolean?) =
                         updateLinkService.updateLink(link.ownerId, linkId, request.copy(isPublic = isPublic))
 
-                    update(true).isPublic shouldBe true
+                    update(true).turnsPublicAt shouldNotBe null
                     val title = RandomFixture.randomSentenceWithMax(300)
-                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).isPublic shouldBe true
+                    updateLinkService.updateLink(link.ownerId, linkId, request.copy(title = title)).turnsPublicAt shouldNotBe null
                     val stored = linkRepository.findById(linkId)!!
-                    stored.isPublicIn(published) shouldBe true
+                    stored.isPublishedIn(published) shouldBe true
                     stored.title shouldBe title
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe true
+                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).turnsPublicAt shouldNotBe null
 
-                    update(false).isPublic shouldBe false
-                    linkRepository.findById(linkId)!!.isPublic shouldBe false
-                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).isPublic shouldBe false
+                    update(false).turnsPublicAt shouldBe null
+                    linkRepository.findById(linkId)!!.turnsPublicAt shouldBe null
+                    linkDetail.getLinkDetail(loginId = link.ownerId, linkId = linkId).turnsPublicAt shouldBe null
                 }
             }
 
@@ -93,7 +93,37 @@ class UpdateLinkServiceTest :
 
                 Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }
-                    linkRepository.findById(link.id!!)!!.isPublic shouldBe false
+                    linkRepository.findById(link.id!!)!!.turnsPublicAt shouldBe null
+                }
+            }
+
+            When("링크 소유자가 전용 설정으로 공개, 반복 공개, 철회, 재공개하면") {
+                Then("실제 저장 시각을 반환하고 연속 공개에서 같은 시각을 유지한다") {
+                    val id = link.id!!
+
+                    suspend fun setPrivacy(isPublic: Boolean) =
+                        updateLinkService.setPrivacy(loginId = link.ownerId, linkId = id, isPublic = isPublic)
+
+                    val first = setPrivacy(true).turnsPublicAt.shouldNotBeNull()
+                    setPrivacy(true).turnsPublicAt shouldBe first
+                    linkRepository.findById(id)!!.turnsPublicAt shouldBe first
+                    setPrivacy(false).turnsPublicAt shouldBe null
+                    setPrivacy(false).turnsPublicAt shouldBe null
+                    val next = setPrivacy(true).turnsPublicAt.shouldNotBeNull()
+                    (next > first) shouldBe true
+                    val stored = linkRepository.findById(id)!!
+                    stored.turnsPublicAt shouldBe next
+                    stored.title shouldBe link.title
+                    stored.folderId shouldBe link.folderId
+                }
+            }
+
+            When("다른 사용자가 전용 설정으로 링크를 공개하면") {
+                val update = suspend { updateLinkService.setPrivacy(loginId = otherId, linkId = link.id!!, isPublic = true) }
+
+                Then("링크 소유자 오류가 발생하고 링크는 비공개다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) { update() }
+                    linkRepository.findById(link.id!!)!!.turnsPublicAt shouldBe null
                 }
             }
         }

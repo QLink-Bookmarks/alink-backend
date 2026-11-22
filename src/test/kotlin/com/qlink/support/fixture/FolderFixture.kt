@@ -20,6 +20,7 @@ object FolderFixture {
         createdAt: Instant? = null,
         id: Long = RandomFixture.randomId(),
         isPublic: Boolean = false,
+        turnsPublicAt: Instant? = if (isPublic) RandomFixture.randomPastInstant() else null,
     ): Folder =
         Folder(
             id = id,
@@ -29,7 +30,7 @@ object FolderFixture {
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = createdAt,
-            isPublic = isPublic,
+            turnsPublicAt = turnsPublicAt,
         )
 
     fun createSharedFolderOf(

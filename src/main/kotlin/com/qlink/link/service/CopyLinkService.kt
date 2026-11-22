@@ -7,6 +7,7 @@ import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
+import com.qlink.link.domain.Link
 import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CopyLinkResponse
 import com.qlink.link.repository.LinkRepository
@@ -71,11 +72,10 @@ class CopyLinkService(
                         link.addToFolder(
                             newOwnerId = loginId,
                             folderId = target?.id,
-                            isPublic =
-                                link.resolveUpdatedVisibility(
-                                    sourceIsPublic = source.isPublic,
-                                    targetIsPublic = target?.isPublic == true,
-                                    isPublic = null,
+                            turnsPublicAt =
+                                Link.resolveNewVisibility(
+                                    folderIsPublic = target?.isPublished == true,
+                                    isPublic = link.isPublishedIn(source.isPublished) && target?.isPublished == true,
                                 ),
                         ),
                     )

@@ -12,6 +12,11 @@ import kotlin.time.Instant
 interface LinkRepository {
     suspend fun clearFolderVisibility(folderId: Long)
 
+    suspend fun updateVisibility(
+        linkId: Long,
+        turnsPublicAt: Instant?,
+    ): Instant?
+
     suspend fun insert(link: Link): Link
 
     suspend fun insertAll(links: List<Link>): List<Link>
@@ -30,7 +35,7 @@ interface LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        isPublic: Boolean = false,
+        preservePublication: Boolean = false,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>
@@ -68,7 +73,7 @@ interface LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
-        isPublic: Boolean,
+        turnsPublicAt: Instant?,
     ): Link
 
     suspend fun updateAiResult(

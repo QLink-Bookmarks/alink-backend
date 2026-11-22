@@ -395,19 +395,21 @@ class FolderTest :
                 }
             }
 
+            val now = RandomFixture.randomPastInstant()
+
             When("비공개 폴더를 공개하면") {
-                val updated = private.setPublic(true)
+                val updated = private.setPublic(isPublic = true, now = now)
 
                 Then("공개 상태가 된다") {
-                    updated.isPublic shouldBe true
+                    updated.turnsPublicAt shouldBe now
                 }
             }
 
             When("공개 폴더를 다시 공개하면") {
-                val updated = public.setPublic(true)
+                val updated = public.setPublic(isPublic = true, now = now)
 
                 Then("공개 상태가 유지된다") {
-                    updated.isPublic shouldBe true
+                    updated.turnsPublicAt shouldBe public.turnsPublicAt
                 }
             }
 
@@ -415,8 +417,8 @@ class FolderTest :
                 val updated = public.setPublic(false)
 
                 Then("비공개 상태가 되고 다시 공개할 수 있다") {
-                    updated.isPublic shouldBe false
-                    updated.setPublic(true).isPublic shouldBe true
+                    updated.turnsPublicAt shouldBe null
+                    updated.setPublic(isPublic = true, now = now).turnsPublicAt shouldBe now
                 }
             }
         }
