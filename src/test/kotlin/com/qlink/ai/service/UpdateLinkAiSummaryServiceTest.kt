@@ -21,8 +21,9 @@ import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
+import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.repository.LinkRepository
-import com.qlink.link.service.SetLinkPrivacyService
+import com.qlink.link.service.CreateLinkService
 import com.qlink.link.worker.LinkPreviewFillSignal
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
@@ -69,7 +70,7 @@ import kotlin.time.Clock
 class UpdateLinkAiSummaryServiceTest :
     BaseServiceTest({
         val service = koinGet<UpdateLinkAiSummaryService>()
-        val setLinkPrivacyService = koinGet<SetLinkPrivacyService>()
+        val createLinkService = koinGet<CreateLinkService>()
         val urlResolver = koinGet<PreviewImageUrlResolver>()
         val userRepository = koinGet<UserRepository>()
         val folderRepository = koinGet<FolderRepository>()
@@ -1127,7 +1128,7 @@ class UpdateLinkAiSummaryServiceTest :
                     privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                 }
 
-                Then("새 링크는 폴더의 공개 상태를 상속하고 전용 PUT과 기존 비공개 상태가 유지된다") {
+                Then("AI 신규는 공개 상태를 상속하고 일반 생성한 비공개 원본은 같은 ID로 재정리한다") {
                     val request =
                         AiSummaryRequest(
                             folderId = publicFolder.id,
@@ -1137,15 +1138,24 @@ class UpdateLinkAiSummaryServiceTest :
                         )
                     val created = service.updateLinkAiSummary(user.id!!, request)
                     val publicJobId = withTimeout(1_000) { commandChannel.receive() }
-                    val createdPrivate =
-                        service.updateLinkAiSummary(
-                            user.id!!,
-                            request.copy(url = RandomFixture.randomUrl()),
-                        )
+                    val memo = RandomFixture.randomSentenceWithMax(50)
+                    val todoTitle = RandomFixture.randomSentenceWithMax(50)
+                    val privateRequest =
+                        LinkFixture
+                            .createValidLinkRequest(
+                                folderId = publicFolder.id,
+                                isPublic = false,
+                                todos = listOf(CreateLinkTodoRequest(title = todoTitle)),
+                            ).copy(memo = memo)
+                    val createdPrivate = createLinkService.createLink(user.id!!, privateRequest)
+                    linkRepository.findById(createdPrivate.id)!!.turnsPublicAt shouldBe null
+                    val summarizePrivate = request.copy(id = createdPrivate.id, url = privateRequest.url)
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_USER_PROVIDER_NOT_FOUND.message) {
+                        service.updateLinkAiSummary(user.id!!, summarizePrivate.copy(userProviderId = RandomFixture.randomId()))
+                    }
+                    linkRepository.findById(createdPrivate.id)!!.turnsPublicAt shouldBe null
+                    service.updateLinkAiSummary(user.id!!, summarizePrivate).id shouldBe createdPrivate.id
                     val privateJobId = withTimeout(1_000) { commandChannel.receive() }
-                    linkRepository.findById(createdPrivate.id)!!.isPublishedIn(publicFolder.isPublished) shouldBe true
-                    setLinkPrivacyService.setPrivacy(loginId = user.id!!, linkId = createdPrivate.id, isPublic = false).isPublic shouldBe
-                        false
                     val retried = service.updateLinkAiSummary(user.id!!, request.copy(id = privateLink.id, url = privateLink.url))
                     val retriedJobId = withTimeout(1_000) { commandChannel.receive() }
 
@@ -1154,6 +1164,8 @@ class UpdateLinkAiSummaryServiceTest :
                     aiJobRepository.findById(retriedJobId)?.linkId shouldBe retried.id
                     (linkRepository.findById(created.id)!!.turnsPublicAt != null) shouldBe publicFolder.isPublished
                     linkRepository.findById(createdPrivate.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(createdPrivate.id)!!.memo shouldBe memo
+                    todoRepository.findAllByLinkId(createdPrivate.id).map { it.title } shouldBe listOf(todoTitle)
                     linkRepository.findById(retried.id)!!.turnsPublicAt shouldBe null
                 }
             }

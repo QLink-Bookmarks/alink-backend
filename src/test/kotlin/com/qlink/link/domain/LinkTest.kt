@@ -15,7 +15,12 @@ import io.kotest.matchers.shouldNotBe
 class LinkTest :
     BehaviorSpec({
         Given("폴더의 현재 공개 상태와 링크의 공개 상태") {
-            val link = LinkFixture.createRandomLinkOf(ownerId = RandomFixture.randomId(), isPublic = true)
+            val link =
+                LinkFixture.createRandomLinkOf(
+                    ownerId = RandomFixture.randomId(),
+                    folderId = RandomFixture.randomId(),
+                    isPublic = true,
+                )
             val now = RandomFixture.randomPastInstant()
 
             When("신규 링크 공개값을 생략하면") {

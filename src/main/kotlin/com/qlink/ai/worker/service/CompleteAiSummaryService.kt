@@ -111,7 +111,7 @@ class CompleteAiSummaryService(
                     tags = summarizedLink.tags,
                     status = summarizedLink.status,
                     workModelId = summarizedLink.workModelId,
-                    clearPublication = link.hasFolderChangedSince(folderId) && candidate?.isPublished != true,
+                    clearPublication = link.hasFolderChangedSince(folderId) && (link.folderId == null || candidate?.isPublished != true),
                 )
                 val todos =
                     response.todos.map {
