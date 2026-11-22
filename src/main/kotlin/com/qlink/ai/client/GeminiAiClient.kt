@@ -1,6 +1,9 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import io.ktor.client.HttpClient

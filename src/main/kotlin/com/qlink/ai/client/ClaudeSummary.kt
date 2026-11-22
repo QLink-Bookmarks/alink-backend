@@ -7,8 +7,15 @@ import com.qlink.common.error.ErrorCode
 import java.net.URI
 import java.net.URISyntaxException
 
+private const val CONTRACT_SPEND_LIMIT_REACHED = "contract_spend_limit_reached"
+private const val LINKED_ORGANIZATION_BILLING_UNAVAILABLE = "linked_organization_billing_unavailable"
+private const val LINKED_ORGANIZATION_SPEND_LIMIT_REACHED = "linked_organization_spend_limit_reached"
+private const val END_TURN = "end_turn"
+private const val REFUSAL = "refusal"
+private const val MAX_TOKENS = "max_tokens"
+
 internal val claudeBillingErrorCodes =
-    setOf("contract_spend_limit_reached", "linked_organization_billing_unavailable", "linked_organization_spend_limit_reached")
+    setOf(CONTRACT_SPEND_LIMIT_REACHED, LINKED_ORGANIZATION_BILLING_UNAVAILABLE, LINKED_ORGANIZATION_SPEND_LIMIT_REACHED)
 
 internal fun validClaudeApiKey(apiKey: String): String {
     if (apiKey.isBlank() || apiKey.any { it !in ' '..'~' }) {
@@ -30,9 +37,9 @@ internal fun AiSummaryClientRequest.claudeSource(): URI {
 
 internal fun validateClaudeStopReason(stopReason: String?) {
     when (stopReason) {
-        "end_turn" -> Unit
-        "refusal" -> throw BusinessException(ErrorCode.AI_SUMMARY_REFUSED)
-        "max_tokens" -> throw BusinessException(ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED)
+        END_TURN -> Unit
+        REFUSAL -> throw BusinessException(ErrorCode.AI_SUMMARY_REFUSED)
+        MAX_TOKENS -> throw BusinessException(ErrorCode.AI_SUMMARY_OUTPUT_LIMIT_REACHED)
         else -> throw BusinessException(ErrorCode.AI_SUMMARY_INCOMPLETE)
     }
 }

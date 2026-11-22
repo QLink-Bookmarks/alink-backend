@@ -5,7 +5,6 @@ import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.OkHttpClient
 import com.anthropic.core.http.HttpClient
 import com.qlink.ai.client.AiClient
-import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.ClaudeCurlClient
 import com.qlink.ai.client.ClaudeSdkClient
 import com.qlink.config.ClaudeConfig
@@ -16,7 +15,6 @@ import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
-import org.koin.core.scope.Scope
 import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 import java.util.concurrent.Executors
@@ -55,9 +53,3 @@ internal fun Module.registerClaude(config: ApplicationConfig) {
         }
     }
 }
-
-internal fun Scope.aiClientRouter(clients: List<AiClient>): AiClientRouter =
-    AiClientRouter(
-        clients =
-            clients + get<AiClient>(named("claude")),
-    )

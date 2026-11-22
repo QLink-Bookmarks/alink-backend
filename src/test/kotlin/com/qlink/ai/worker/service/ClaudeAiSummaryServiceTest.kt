@@ -581,13 +581,14 @@ class ClaudeAiSummaryServiceTest :
                     listOf(
                         "" to "",
                         "/" to "",
-                        "/v1" to "",
-                        "/v1/" to "",
+                        "/v1" to "/v1",
+                        "/v1/" to "/v1",
                         "$prefix/" to prefix,
-                        "$prefix/v1" to prefix,
-                        ":443$prefix/v1/" to ":443$prefix",
+                        "$prefix/v1" to "$prefix/v1",
+                        ":443$prefix/v1/" to ":443$prefix/v1",
                         "$prefix//" to "$prefix/",
-                        "$prefix//v1" to "$prefix/",
+                        "$prefix//v1" to "$prefix//v1",
+                        "$prefix/v1//" to "$prefix/v1/",
                     ).forEach { (configured, expected) ->
                         When("Claude SDK 주소를 '$baseUrl$configured'로 구성하고 DB에 다른 주소를 저장하면") {
                             lateinit var job: AiJob

@@ -34,14 +34,7 @@ class ClaudeConfig(
     val sdkEndpoint: String? by lazy {
         runCatching {
             config.optionalString("ai.claude.sdkEndpoint") ?: System.getenv("AI_CLAUDE_SDK_ENDPOINT") ?: DEFAULT_BASE_URL
-        }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)?.let { configured ->
-            val endpoint = configured.trimEnd('/')
-            if (endpoint.endsWith("/v1")) {
-                endpoint.removeSuffix("/v1") + "/"
-            } else {
-                configured
-            }
-        }
+        }.getOrNull()?.takeIf(AiProviderType.CLAUDE::isAllowedBaseUrl)
     }
 
     val maxOutputTokens: Long? by lazy {
