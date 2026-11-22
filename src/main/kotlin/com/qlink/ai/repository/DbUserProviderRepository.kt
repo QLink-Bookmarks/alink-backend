@@ -62,6 +62,15 @@ class DbUserProviderRepository : UserProviderRepository {
             .orderBy(UserProviders.id to SortOrder.ASC)
             .map { it.toUserProviderDomain() }
 
+    override suspend fun findDefaultByProviderId(providerId: Long): UserProvider? =
+        UserProviders
+            .selectAll()
+            .where { (UserProviders.providerId eq providerId) and (UserProviders.userRole eq Role.SUPER_ADMIN) }
+            .orderBy(UserProviders.id to SortOrder.ASC)
+            .limit(1)
+            .singleOrNull()
+            ?.toUserProviderDomain()
+
     override suspend fun findAllByRole(userProviderRole: Role): List<UserProvider> =
         UserProviders
             .selectAll()

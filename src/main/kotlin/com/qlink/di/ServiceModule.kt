@@ -1,11 +1,15 @@
 package com.qlink.di
 
 import com.qlink.ai.service.AiAdminValidator
+import com.qlink.ai.service.AiApiKeyValidator
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.CreateAvailableModelService
+import com.qlink.ai.service.GetAiDailyUsageService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
+import com.qlink.ai.service.GetAiSharedKeyService
+import com.qlink.ai.service.PutAiSharedKeyService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
@@ -101,6 +105,31 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiClientRouter = get(),
             )
+        }
+        single {
+            GetAiSharedKeyService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                userProviderRepository = get(),
+                apiKeyCipher = get(),
+            )
+        }
+        single {
+            PutAiSharedKeyService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                userProviderRepository = get(),
+                apiKeyValidator = get(),
+                apiKeyCipher = get(),
+            )
+        }
+        single {
+            GetAiDailyUsageService(tx = get(), adminValidator = get(), dailyUsageRepository = get())
+        }
+        single {
+            AiApiKeyValidator(aiClientRouter = get())
         }
         single {
             AiAdminValidator(userRepository = get())
@@ -267,7 +296,7 @@ fun serviceModule() =
                 userRepository = get(),
                 aiProviderRepository = get(),
                 userProviderRepository = get(),
-                aiClientRouter = get(),
+                apiKeyValidator = get(),
                 apiKeyCipher = get(),
             )
         }

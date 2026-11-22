@@ -2,21 +2,27 @@ package com.qlink.ai.route
 
 import com.qlink.ai.dto.CreateAiProviderRequest
 import com.qlink.ai.dto.CreateAvailableModelRequest
+import com.qlink.ai.dto.PutAiSharedKeyRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
 import com.qlink.ai.dto.UpdateAiProviderRequest
 import com.qlink.ai.dto.UpdateAvailableModelRequest
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.CreateAvailableModelService
+import com.qlink.ai.service.GetAiDailyUsageService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
+import com.qlink.ai.service.GetAiSharedKeyService
+import com.qlink.ai.service.PutAiSharedKeyService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
 import com.qlink.ai.service.UpdateAvailableModelActiveService
 import com.qlink.ai.service.UpdateAvailableModelService
 import com.qlink.auth.domain.JwtPrincipal
+import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.respondSuccess
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.post
@@ -24,6 +30,7 @@ import io.github.smiley4.ktoropenapi.resources.put
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.receive
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
@@ -33,6 +40,9 @@ fun Route.aiRoutes() {
     val getAiProviderModelsService by inject<GetAiProviderModelsService>()
     val putAiUserProviderService by inject<PutAiUserProviderService>()
     val getAiProviderService by inject<GetAiProviderService>()
+    val getAiSharedKeyService by inject<GetAiSharedKeyService>()
+    val putAiSharedKeyService by inject<PutAiSharedKeyService>()
+    val getAiDailyUsageService by inject<GetAiDailyUsageService>()
     val createAiProviderService by inject<CreateAiProviderService>()
     val updateAiProviderService by inject<UpdateAiProviderService>()
     val updateAiProviderActiveService by inject<UpdateAiProviderActiveService>()
@@ -78,6 +88,37 @@ fun Route.aiRoutes() {
     authenticate {
         get<AiResources.Providers.ById>(getAiProviderDocs()) { resource ->
             val response = getAiProviderService.getAiProvider(loginId = call.principal<JwtPrincipal>()!!.userId, id = resource.id)
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        get<AiResources.Providers.ById.SharedKey>(getAiSharedKeyDocs()) { resource ->
+            val response =
+                getAiSharedKeyService.getAiSharedKey(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    providerId = resource.parent.id,
+                )
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        put<AiResources.Providers.ById.SharedKey>(putAiSharedKeyDocs()) { resource ->
+            val request =
+                try {
+                    call.receive<PutAiSharedKeyRequest>()
+                } catch (_: BadRequestException) {
+                    throw BusinessException(ErrorCode.COMMON_BAD_REQUEST)
+                }
+            val response =
+                putAiSharedKeyService.putAiSharedKey(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    providerId = resource.parent.id,
+                    request = request,
+                )
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+        get<AiResources.DailyUsage>(getAiDailyUsageDocs()) { resource ->
+            val response =
+                getAiDailyUsageService.getAiDailyUsage(
+                    loginId = call.principal<JwtPrincipal>()!!.userId,
+                    date = resource.date,
+                )
             call.respondSuccess(HttpStatusCode.OK, response)
         }
         post<AiResources.Providers>(createAiProviderDocs()) {

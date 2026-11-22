@@ -1,14 +1,10 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.client.AiApiKeyValidationException
-import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.aiVendorErrorCode
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
@@ -21,7 +17,7 @@ class PutAiUserProviderService(
     private val userRepository: UserRepository,
     private val aiProviderRepository: AiProviderRepository,
     private val userProviderRepository: UserProviderRepository,
-    private val aiClientRouter: AiClientRouter,
+    private val apiKeyValidator: AiApiKeyValidator,
     private val apiKeyCipher: ApiKeyCipher,
 ) {
     suspend fun putAiUserProvider(
@@ -35,13 +31,7 @@ class PutAiUserProviderService(
                     ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
 
             provider.validateActive()
-            catchingFailure {
-                aiClientRouter.validateApiKey(
-                    providerType = provider.type,
-                    baseUrl = provider.baseUrl,
-                    apiKey = request.apiKey,
-                )
-            }.onFailure { throw it.toBusinessException() }
+            apiKeyValidator.validate(provider = provider, apiKey = request.apiKey)
 
             val userProvider =
                 UserProvider(
@@ -52,20 +42,5 @@ class PutAiUserProviderService(
 
             val saved = userProviderRepository.save(userProvider)
             PutAiUserProviderResponse(id = saved.id!!)
-        }
-
-    private fun Throwable.toBusinessException(): BusinessException =
-        when (this) {
-            is BusinessException -> {
-                this
-            }
-
-            is AiApiKeyValidationException -> {
-                BusinessException(aiVendorErrorCode(statusCode))
-            }
-
-            else -> {
-                BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
-            }
         }
 }

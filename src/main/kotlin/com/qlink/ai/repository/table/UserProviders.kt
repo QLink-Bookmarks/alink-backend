@@ -15,7 +15,7 @@ import kotlin.time.toKotlinInstant
 
 object UserProviders : Table("user_providers") {
     val id = long("id").autoIncrement()
-    val userId = reference("user_id", Users.id, onDelete = ReferenceOption.CASCADE)
+    val userId = reference("user_id", Users.id, onDelete = ReferenceOption.CASCADE).nullable()
     val providerId = reference("provider_id", AiProviders.id, onDelete = ReferenceOption.CASCADE)
     val userRole = enumerationByName<Role>("user_role", 20)
     val apiKey = text("api_key")

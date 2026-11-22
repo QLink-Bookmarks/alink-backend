@@ -1,6 +1,7 @@
 package com.qlink.ai.repository
 
 import com.qlink.ai.domain.DailyUsage
+import com.qlink.ai.dto.AiDailyUsageQuery
 import java.time.LocalDate
 
 interface DailyUsageRepository {
@@ -17,6 +18,8 @@ interface DailyUsageRepository {
         modelIds: List<Long>,
         usageDate: LocalDate,
     ): List<DailyUsage>
+
+    suspend fun findSharedUsage(usageDate: LocalDate): List<AiDailyUsageQuery>
 
     suspend fun update(dailyUsage: DailyUsage): DailyUsage
 }

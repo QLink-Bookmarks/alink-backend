@@ -17,6 +17,8 @@ interface UserProviderRepository {
 
     suspend fun findAllByUserId(userId: Long): List<UserProvider>
 
+    suspend fun findDefaultByProviderId(providerId: Long): UserProvider?
+
     suspend fun findAllByRole(userProviderRole: Role): List<UserProvider>
 
     suspend fun update(userProvider: UserProvider): UserProvider
