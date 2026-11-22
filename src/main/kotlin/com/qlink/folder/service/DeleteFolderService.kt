@@ -79,27 +79,12 @@ class DeleteFolderService(
                         ids = todos.map { it.id!! },
                     )
                 val now = Clock.System.now()
-                val targetIsPublic = folders[options.targetFolderId]?.isPublic == true
-                val moveLinkIds = plan.moveLinkIds.toSet()
-                links
-                    .filter { it.id in moveLinkIds }
-                    .groupBy(
-                        keySelector = {
-                            it.resolveUpdatedVisibility(
-                                sourceIsPublic = source.isPublic,
-                                targetIsPublic = targetIsPublic,
-                                isPublic = null,
-                            )
-                        },
-                        valueTransform = { it.id!! },
-                    ).forEach { (isPublic, ids) ->
-                        linkRepository.assignFolderByIds(
-                            linkIds = ids,
-                            folderId = options.targetFolderId,
-                            now = now,
-                            isPublic = isPublic,
-                        )
-                    }
+                linkRepository.assignFolderByIds(
+                    linkIds = plan.moveLinkIds,
+                    folderId = options.targetFolderId,
+                    now = now,
+                    preservePublication = source.isPublished && folders[options.targetFolderId]?.isPublished == true,
+                )
                 linkRepository.assignFolderByIds(linkIds = plan.detachLinkIds, folderId = null, now = now)
                 linkRepository.deleteAllByIds(plan.deleteLinkIds)
                 folderRepository.deleteById(folderId)

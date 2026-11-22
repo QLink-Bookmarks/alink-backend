@@ -140,7 +140,7 @@ class CompleteAiSummaryServiceTest :
                     val stored = linkRepository.findById(link.id!!)!!
 
                     stored.folderId shouldBe candidate.id
-                    stored.isPublicIn(targetIsPublic) shouldBe false
+                    stored.isPublishedIn(targetIsPublic) shouldBe false
                     todoRepository.findAllByLinkId(link.id!!).size shouldBe completion.response.todos.size
                     publicTodos.getPublicTodos(candidate.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
@@ -162,7 +162,7 @@ class CompleteAiSummaryServiceTest :
                     service.complete(completion)
                     val stored = linkRepository.findById(link.id!!)!!
                     stored.folderId shouldBe candidate.id
-                    stored.isPublic shouldBe false
+                    stored.turnsPublicAt shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
                         publicTodos.getPublicTodos(candidate.id!!, null, null, ScrollRequest())
                     }

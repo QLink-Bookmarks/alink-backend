@@ -11,6 +11,7 @@ import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.SetLinkFavoriteRequest
+import com.qlink.link.dto.SetLinkPrivacyRequest
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.service.CopyLinkService
 import com.qlink.link.service.CreateLinkService
@@ -116,6 +117,17 @@ fun Route.linkRoutes() {
             val principal = call.principal<JwtPrincipal>()!!
             val request = call.receive<PatchLinkRequest>()
             val response = patchLinkService.patchLink(principal.userId, resource.id, request)
+
+            call.respondSuccess(HttpStatusCode.OK, response)
+        }
+    }
+
+    authenticate {
+        put<LinkResources.ById.Privacy>(setLinkPrivacyDocs()) { resource ->
+            val principal = call.principal<JwtPrincipal>()!!
+            val request = call.receive<SetLinkPrivacyRequest>()
+            val response =
+                updateLinkService.setPrivacy(loginId = principal.userId, linkId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }

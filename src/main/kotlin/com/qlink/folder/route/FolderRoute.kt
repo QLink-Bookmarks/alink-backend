@@ -8,6 +8,7 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.dto.AcceptFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderInvitationRequest
 import com.qlink.folder.dto.CreateFolderRequest
+import com.qlink.folder.dto.SetFolderPrivacyRequest
 import com.qlink.folder.dto.TransferFolderOwnerRequest
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.service.AcceptFolderInvitationService
@@ -16,7 +17,6 @@ import com.qlink.folder.service.CreateFolderService
 import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.GetFolderMembersService
-import com.qlink.folder.service.GetFolderPrivacyService
 import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
 import com.qlink.folder.service.TransferFolderOwnerService
@@ -43,7 +43,6 @@ fun Route.folderRoutes() {
     val getFoldersService by inject<GetFoldersService>()
     val updateFolderService by inject<UpdateFolderService>()
     val transferFolderOwnerService by inject<TransferFolderOwnerService>()
-    val getFolderPrivacyService by inject<GetFolderPrivacyService>()
 
     authenticate(optional = true) {
         get<FolderResources.ById>(getFolderDocs()) { resource ->
@@ -128,9 +127,11 @@ fun Route.folderRoutes() {
             call.respondSuccess(HttpStatusCode.OK, response)
         }.install(ReadNoStore)
 
-        get<FolderResources.ById.Privacy>(getFolderPrivacyDocs()) { resource ->
+        put<FolderResources.ById.Privacy>(setFolderPrivacyDocs()) { resource ->
             val principal = call.principal<JwtPrincipal>()!!
-            val response = getFolderPrivacyService.getPrivacy(loginId = principal.userId, folderId = resource.parent.id)
+            val request = call.receive<SetFolderPrivacyRequest>()
+            val response =
+                updateFolderService.setPrivacy(loginId = principal.userId, folderId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
         }.install(ReadNoStore)

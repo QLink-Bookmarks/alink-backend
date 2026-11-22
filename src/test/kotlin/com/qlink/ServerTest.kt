@@ -71,7 +71,8 @@ class ServerTest :
             testApplication {
                 environment { this.config = config }
 
-                val unauthorized = client.get(path)
+                client.get(path).status shouldBe HttpStatusCode.NotFound
+                val unauthorized = client.put(path)
                 unauthorized.status shouldBe HttpStatusCode.Unauthorized
                 unauthorized.headers[HttpHeaders.CacheControl] shouldBe "no-store"
 
@@ -92,6 +93,25 @@ class ServerTest :
                     badRequest.status shouldBe HttpStatusCode.BadRequest
                     badRequest.headers[HttpHeaders.CacheControl] shouldBe "no-store"
                     apiErrorCode(badRequest.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
+                }
+
+                for (privacyPath in listOf(path, "/api/links/${RandomFixture.randomId()}/privacy")) {
+                    for (body in listOf(
+                        "{}",
+                        """{"isPublic":null}""",
+                        """{"isPublic":"true"}""",
+                        """{"isPublic":1}""",
+                        """{"isPublic":[]}""",
+                    )) {
+                        val response =
+                            client.put(privacyPath) {
+                                bearerAuth(token)
+                                contentType(ContentType.Application.Json)
+                                setBody(body)
+                            }
+                        response.status shouldBe HttpStatusCode.BadRequest
+                        apiErrorCode(response.bodyAsText()) shouldBe ErrorCode.COMMON_BAD_REQUEST.code
+                    }
                 }
 
                 val validRequest =

@@ -113,10 +113,10 @@ class CopyLinkServiceTest :
                     folderRepository.update(personalFolder)
                     val copyIntoPrivate = copy(published.id!!, personalFolder.id)
 
-                    linkRepository.findById(publicCopy.id)!!.isPublic shouldBe targetVisibility
-                    linkRepository.findById(privateCopy.id)!!.isPublic shouldBe false
-                    linkRepository.findById(copyIntoPrivate.id)!!.isPublic shouldBe false
-                    linkRepository.findById(published.id!!)!!.isPublic shouldBe originalVisibility
+                    (linkRepository.findById(publicCopy.id)!!.turnsPublicAt != null) shouldBe targetVisibility
+                    linkRepository.findById(privateCopy.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(copyIntoPrivate.id)!!.turnsPublicAt shouldBe null
+                    linkRepository.findById(published.id!!)!!.turnsPublicAt shouldBe published.turnsPublicAt
                 }
             }
 

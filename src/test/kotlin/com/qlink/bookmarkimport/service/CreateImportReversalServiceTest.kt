@@ -169,7 +169,7 @@ class CreateImportReversalServiceTest :
                             runWhileFolderLocked(
                                 tx = tx,
                                 holdLock = { folderRepository.findAllByIdsForKeyShare(listOf(folderId)) },
-                                afterWaiting = { patchLinkService.patchLink(ownerId, linkId, patch).isPublic shouldBe true },
+                                afterWaiting = { (patchLinkService.patchLink(ownerId, linkId, patch).turnsPublicAt != null) shouldBe true },
                                 action = {
                                     createImportReversalService.createReversal(
                                         loginId = ownerId,
@@ -183,7 +183,7 @@ class CreateImportReversalServiceTest :
                                 folderRepository.findById(folderId) shouldBe null
                                 val stored = linkRepository.findById(linkId).shouldNotBeNull()
                                 stored.folderId shouldBe null
-                                stored.isPublic shouldBe false
+                                stored.turnsPublicAt shouldBe null
                             }
                         }.await()
                 }

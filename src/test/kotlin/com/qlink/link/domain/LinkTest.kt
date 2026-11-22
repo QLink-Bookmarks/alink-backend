@@ -16,17 +16,18 @@ class LinkTest :
     BehaviorSpec({
         Given("폴더의 현재 공개 상태와 링크의 공개 상태") {
             val link = LinkFixture.createRandomLinkOf(ownerId = RandomFixture.randomId(), isPublic = true)
+            val now = RandomFixture.randomPastInstant()
 
             When("신규 링크 공개값을 생략하면") {
                 Then("목적지의 활성 공개 상태가 있으면 그대로 사용한다") {
-                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = null) shouldBe true
-                    Link.resolveNewVisibility(folderIsPublic = false, isPublic = null) shouldBe false
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = null, now = now) shouldBe now
+                    Link.resolveNewVisibility(folderIsPublic = false, isPublic = null) shouldBe null
                 }
             }
 
             When("신규 링크에 비공개를 지정하면") {
                 Then("공개 폴더에서도 링크에 공개 상태가 없다") {
-                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = false) shouldBe false
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = false) shouldBe null
                 }
             }
 
@@ -43,15 +44,24 @@ class LinkTest :
                         sourceIsPublic = true,
                         targetIsPublic = true,
                         isPublic = null,
-                    ) shouldBe
-                        true
+                    ) shouldBe link.turnsPublicAt
                     link.resolveUpdatedVisibility(
                         sourceIsPublic = false,
                         targetIsPublic = true,
                         isPublic = null,
-                    ) shouldBe
-                        false
-                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = null) shouldBe false
+                    ) shouldBe null
+                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = null) shouldBe null
+                }
+            }
+
+            When("이미 공개된 링크를 다시 공개하면") {
+                Then("기존 공개 시각을 보존한다") {
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = true,
+                        targetIsPublic = true,
+                        isPublic = true,
+                        now = now,
+                    ) shouldBe link.turnsPublicAt
                 }
             }
 

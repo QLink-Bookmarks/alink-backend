@@ -18,16 +18,20 @@ import com.qlink.folder.dto.CreateFolderResponse
 import com.qlink.folder.dto.FolderPrivacyResponse
 import com.qlink.folder.dto.GetFolderMembersResponse
 import com.qlink.folder.dto.GetFoldersContentResponse
+import com.qlink.folder.dto.SetFolderPrivacyRequest
 import com.qlink.folder.dto.TransferFolderOwnerRequest
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.dto.UpdateFolderResponse
 import io.github.smiley4.ktoropenapi.config.RouteConfig
 import io.ktor.http.HttpStatusCode
 
-internal fun getFolderPrivacyDocs(): RouteConfig.() -> Unit =
+internal fun setFolderPrivacyDocs(): RouteConfig.() -> Unit =
     {
-        summary = "폴더 공개 설정 조회 API"
-        request { pathParameter<Long>("id") { description = "폴더 ID" } }
+        summary = "폴더 공개 설정 API"
+        request {
+            pathParameter<Long>("id") { description = "폴더 ID" }
+            body<SetFolderPrivacyRequest>()
+        }
         response {
             code(HttpStatusCode.OK) {
                 body<ApiResponse<FolderPrivacyResponse>>()
@@ -37,7 +41,7 @@ internal fun getFolderPrivacyDocs(): RouteConfig.() -> Unit =
             }
             authErrorResponse()
             code(HttpStatusCode.NotFound) {
-                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_NOT_FOUND) }
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.FOLDER_OWNER_NOT_FOUND, ErrorCode.FOLDER_NOT_FOUND) }
             }
         }
     }

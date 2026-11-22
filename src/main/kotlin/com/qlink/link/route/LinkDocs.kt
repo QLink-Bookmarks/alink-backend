@@ -14,9 +14,11 @@ import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CopyLinkResponse
 import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkResponse
+import com.qlink.link.dto.LinkPrivacyResponse
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkResponse
 import com.qlink.link.dto.SetLinkFavoriteRequest
+import com.qlink.link.dto.SetLinkPrivacyRequest
 import com.qlink.link.dto.UpdateLinkRequest
 import com.qlink.link.dto.UpdateLinkResponse
 import io.github.smiley4.ktoropenapi.config.ResponsesConfig
@@ -338,6 +340,31 @@ private fun ResponsesConfig.linkPublicationErrorResponse() {
         }
     }
 }
+
+internal fun setLinkPrivacyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "링크 공개 설정 API"
+        request {
+            pathParameter<Long>("id") { description = "링크 ID" }
+            body<SetLinkPrivacyRequest>()
+        }
+        response {
+            code(HttpStatusCode.OK) {
+                body<ApiResponse<LinkPrivacyResponse>>()
+            }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
+            }
+            authErrorResponse()
+            code(HttpStatusCode.Forbidden) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.LINK_DIFFERENT_OWNER) }
+            }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.LINK_OWNER_NOT_FOUND, ErrorCode.LINK_NOT_FOUND) }
+            }
+            linkPublicationErrorResponse()
+        }
+    }
 
 internal fun setLinkFavoriteDocs(): RouteConfig.() -> Unit =
     {
