@@ -108,6 +108,17 @@ class AiProviderAdminServicesTest :
                     models.findById(model.id!!)!!.providerId shouldBe provider.id
                 }
             }
+            When("관리자가 경로 중간에 빈 세그먼트가 있는 제공자 주소를 저장하면") {
+                Then("저장된 주소에 접두 경로와 빈 세그먼트가 남는다") {
+                    updateProvider.updateAiProvider(
+                        loginId = admin.id!!,
+                        id = provider.id!!,
+                        request = UpdateAiProviderRequest(baseUrl = "https://api.openai.com/gateway//v1/"),
+                    )
+
+                    providers.findById(provider.id!!).shouldNotBeNull().baseUrl shouldBe "https://api.openai.com/gateway//v1"
+                }
+            }
             When("활성화·비활성화의 멱등과 id 보존") {
                 lateinit var key: UserProvider
                 lateinit var link: Link

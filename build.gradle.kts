@@ -138,6 +138,9 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.firebase.admin)
     implementation(libs.expo.server.sdk)
+    implementation(libs.openai.java)
+    implementation(libs.google.genai)
+    implementation(libs.okhttp)
 
     // Storage
     implementation(libs.aws.s3)

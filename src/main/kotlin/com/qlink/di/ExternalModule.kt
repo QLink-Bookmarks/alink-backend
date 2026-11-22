@@ -7,8 +7,8 @@ import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.client.ClaudeSdkClient
-import com.qlink.ai.client.GeminiAiClient
-import com.qlink.ai.client.OpenAiClient
+import com.qlink.ai.client.GeminiSdkClient
+import com.qlink.ai.client.OpenAiSdkClient
 import com.qlink.auth.client.AppleAuthResourceClient
 import com.qlink.auth.client.AuthResourceClientRouter
 import com.qlink.auth.client.GoogleAuthResourceClient
@@ -17,10 +17,13 @@ import com.qlink.auth.client.NaverAuthResourceClient
 import com.qlink.auth.client.OidcIdTokenVerifier
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
+import com.qlink.config.AiSdkHttpTransport
+import com.qlink.config.GeminiConfig
 import com.qlink.config.LinkContentConfig
 import com.qlink.config.LinkPreviewConfig
 import com.qlink.config.MonitoringConfig
 import com.qlink.config.NotificationConfig
+import com.qlink.config.OpenAiConfig
 import com.qlink.config.S3Config
 import com.qlink.config.string
 import com.qlink.image.service.PreviewImageUrlResolver
@@ -43,6 +46,7 @@ import io.ktor.server.config.ApplicationConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import org.slf4j.LoggerFactory
 
 fun externalModule(
@@ -82,15 +86,27 @@ fun externalModule(
         ApiKeyCipher(keyBase64 = keyBase64, invalidKeyErrorCode = ErrorCode.CONFIG_AI_API_KEY_ENCRYPTION_KEY_INVALID)
     }
 
+    single { GeminiConfig(config) }
+
+    single { OpenAiConfig(config) }
+
+    single { AiSdkHttpTransport() } onClose { it?.close() }
+
+    single { get<GeminiConfig>().client(get()) } onClose { it?.close() }
+
+    single { get<OpenAiConfig>().client(get()) } onClose { it?.close() }
+
     single {
-        GeminiAiClient(
-            httpClient = get(),
-        )
+        GeminiSdkClient(client = get(), transport = get(), config = get<GeminiConfig>().summary)
     }
 
     single {
-        OpenAiClient(
-            httpClient = get(),
+        val openAiConfig = get<OpenAiConfig>()
+        OpenAiSdkClient(
+            client = get(),
+            transport = get(),
+            textConfig = openAiConfig.summary,
+            webSearch = openAiConfig.webSearch,
         )
     }
 
@@ -140,8 +156,8 @@ fun externalModule(
         AiClientRouter(
             clients =
                 listOf(
-                    get<GeminiAiClient>(),
-                    get<OpenAiClient>(),
+                    get<GeminiSdkClient>(),
+                    get<OpenAiSdkClient>(),
                     get<ClaudeSdkClient>(),
                 ),
         )
