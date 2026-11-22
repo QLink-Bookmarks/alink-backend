@@ -11,7 +11,7 @@ import com.anthropic.core.http.QueryParams
 import com.anthropic.models.messages.CitationsConfigParam
 import com.anthropic.models.messages.JsonOutputFormat
 import com.anthropic.models.messages.OutputConfig
-import com.anthropic.models.messages.WebFetchTool20250910
+import com.anthropic.models.messages.WebFetchTool20260318
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.qlink.ai.client.AiSummarySpec
 import com.qlink.ai.domain.AiProviderType
@@ -49,10 +49,11 @@ class ClaudeConfig(
                 ),
             ).build()
 
-    fun webFetch(sourceHost: String): WebFetchTool20250910 =
-        WebFetchTool20250910
+    fun webFetch(sourceHost: String): WebFetchTool20260318 =
+        WebFetchTool20260318
             .builder()
             .maxUses(1)
+            .addAllowedCaller(WebFetchTool20260318.AllowedCaller.DIRECT)
             .addAllowedDomain(sourceHost)
             .citations(CitationsConfigParam.builder().enabled(false).build())
             .build()

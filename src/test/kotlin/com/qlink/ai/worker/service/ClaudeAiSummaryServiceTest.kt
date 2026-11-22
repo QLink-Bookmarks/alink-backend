@@ -975,9 +975,16 @@ private fun verifyMessagesRequest(
             .jsonArray
             .single()
             .jsonObject
-    tool.getValue("type").jsonPrimitive.content shouldBe "web_fetch_20250910"
+    tool.getValue("type").jsonPrimitive.content shouldBe "web_fetch_20260318"
     tool.getValue("name").jsonPrimitive.content shouldBe "web_fetch"
     tool.getValue("max_uses").jsonPrimitive.int shouldBe 1
+    tool
+        .getValue("allowed_callers")
+        .jsonArray
+        .single()
+        .jsonPrimitive.content shouldBe "direct"
+    tool.containsKey("response_inclusion") shouldBe false
+    tool.containsKey("use_cache") shouldBe false
     tool
         .getValue("allowed_domains")
         .jsonArray
