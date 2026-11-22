@@ -195,7 +195,6 @@ enum class ErrorCode(
     FOLDER_TRANSFER_FOLDER_NOT_FOUND("FOLDER_404_0004", 404, "폴더를 찾을 수 없어요"),
     FOLDER_TRANSFER_MEMBER_NOT_FOUND("FOLDER_404_0005", 404, "선택한 멤버가 폴더에 없어요"),
     FOLDER_DELETE_TARGET_NOT_FOUND("FOLDER_404_0006", 404, "옮길 폴더를 찾을 수 없어요"),
-    FOLDER_PUBLIC_NOT_FOUND("FOLDER_404_0007", 404, "공개 폴더를 찾을 수 없어요"),
     FOLDER_TRANSFER_DUPLICATE_NAME("FOLDER_409_0002", 409, "지금 이 폴더 이름으로는 위임할 수 없어요. 폴더 이름을 바꾼 뒤 다시 시도해주세요"),
     FOLDER_TRANSFER_NOT_SHARED("FOLDER_422_0003", 422, "공유 폴더만 위임할 수 있어요"),
     FOLDER_OWNER_CANNOT_LEAVE("FOLDER_422_0004", 422, "공유 폴더 소유자는 나갈 수 없어요. 폴더를 삭제하거나 소유권을 먼저 옮겨주세요"),

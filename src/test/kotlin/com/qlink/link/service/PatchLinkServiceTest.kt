@@ -6,11 +6,10 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
-import com.qlink.folder.service.GetPublicFolderLinksService
-import com.qlink.folder.service.GetPublicFolderTodosService
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
 import com.qlink.notification.service.ScheduleTodoNotificationService
@@ -20,6 +19,8 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicLinks
+import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.support.runWhileLinkLocked
@@ -28,6 +29,7 @@ import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
+import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -53,8 +55,8 @@ class PatchLinkServiceTest :
         val todoRepository = koinGet<TodoRepository>()
         val notificationRepository = koinGet<NotificationRepository>()
         val scheduleTodoNotificationService = koinGet<ScheduleTodoNotificationService>()
-        val publicLinks = koinGet<GetPublicFolderLinksService>()
-        val publicTodos = koinGet<GetPublicFolderTodosService>()
+        val publicLinks = koinGet<GetLinksService>()
+        val publicTodos = koinGet<GetTodosService>()
 
         Given("공개 폴더 두 개와 개인 비공개 폴더") {
             lateinit var source: Folder
@@ -65,13 +67,13 @@ class PatchLinkServiceTest :
 
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                source = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 publicTarget =
-                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(FolderFixture.createPublicId()))
+                    folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 privateTarget = folderRepository.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 publicLink =
                     linkRepository.insert(
-                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, publicationId = source.publicId),
+                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id, isPublic = source.isPublic),
                     )
                 privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = source.id))
                 for (link in listOf(publicLink, privateLink)) {
@@ -91,7 +93,7 @@ class PatchLinkServiceTest :
                     val stored = linkRepository.findById(id)!!
 
                     response.isPublic shouldBe true
-                    stored.publicationId shouldBe source.publicId
+                    stored.isPublic shouldBe source.isPublic
                     stored.folderId shouldBe privateLink.folderId
                     stored.memo shouldBe privateLink.memo
                 }
@@ -109,7 +111,7 @@ class PatchLinkServiceTest :
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { patch() }
                     val stored = linkRepository.findById(publicLink.id!!)!!
                     stored.folderId shouldBe publicLink.folderId
-                    stored.publicationId shouldBe publicLink.publicationId
+                    stored.isPublic shouldBe publicLink.isPublic
                     stored.memo shouldBe publicLink.memo
                 }
             }
@@ -126,9 +128,9 @@ class PatchLinkServiceTest :
 
                     response.isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe publicTarget.id
-                    linkRepository.findById(id)!!.publicationId shouldBe null
-                    publicLinks.getLinks(publicTarget.publicId!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    publicTodos.getTodos(publicTarget.publicId!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    linkRepository.findById(id)!!.isPublic shouldBe false
+                    publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    publicTodos.getPublicTodos(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
@@ -144,13 +146,13 @@ class PatchLinkServiceTest :
                         )
 
                     patch(null).isPublic shouldBe true
-                    linkRepository.findById(id)!!.publicationId shouldBe source.publicId
+                    linkRepository.findById(id)!!.isPublic shouldBe source.isPublic
                     patch(publicTarget.id).isPublic shouldBe true
-                    linkRepository.findById(id)!!.publicationId shouldBe publicTarget.publicId
+                    linkRepository.findById(id)!!.isPublic shouldBe publicTarget.isPublic
                     patch(privateTarget.id).isPublic shouldBe false
-                    linkRepository.findById(id)!!.publicationId shouldBe null
-                    publicLinks.getLinks(publicTarget.publicId!!, null, null, ScrollRequest()).contents shouldBe emptyList()
-                    publicTodos.getTodos(publicTarget.publicId!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    linkRepository.findById(id)!!.isPublic shouldBe false
+                    publicLinks.getPublicLinks(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    publicTodos.getPublicTodos(publicTarget.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                     patch(0).isPublic shouldBe false
                     linkRepository.findById(id)!!.folderId shouldBe null
                 }

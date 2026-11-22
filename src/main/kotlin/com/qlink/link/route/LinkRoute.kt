@@ -3,6 +3,8 @@ package com.qlink.link.route
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.domain.JwtPrincipal
+import com.qlink.common.response.ReadNoStore
+import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.link.dto.CopyLinkRequest
@@ -18,12 +20,14 @@ import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.PatchLinkService
 import com.qlink.link.service.SetLinkFavoriteService
 import com.qlink.link.service.UpdateLinkService
+import com.qlink.plugin.respondMissingAccessToken
 import io.github.smiley4.ktoropenapi.resources.delete
 import io.github.smiley4.ktoropenapi.resources.get
 import io.github.smiley4.ktoropenapi.resources.patch
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
@@ -51,35 +55,40 @@ fun Route.linkRoutes() {
         }
     }
 
-    authenticate {
+    authenticate(optional = true) {
         get<LinkResources>(getLinksDocs()) { resource ->
-            val principal = call.principal<JwtPrincipal>()!!
+            val viewerId = call.principal<JwtPrincipal>()?.userId
+            if (viewerId == null && (resource.folderId == null || resource.folderId == 0L)) {
+                call.respondMissingAccessToken()
+                return@get
+            }
             val response =
-                getLinksService.getLinks(
-                    loginId = principal.userId,
+                getLinksService.getVisibleLinks(
+                    viewerId = viewerId,
                     query = resource.query,
                     folderId = resource.folderId,
                     isFavorite = resource.isFavorite,
                     orderKey = resource.orderKey,
                     order = resource.order,
-                    scrollRequest =
-                        ScrollRequest(
-                            cursor = resource.cursor,
-                            size = resource.size,
-                        ),
+                    scrollRequest = ScrollRequest(cursor = resource.cursor, size = resource.size),
                 )
+            when (response) {
+                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
+                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
+            }
+        }.install(ReadNoStore)
 
-            call.respondSuccess(HttpStatusCode.OK, response)
-        }
-    }
-
-    authenticate {
         get<LinkResources.ById>(getLinkDetailDocs()) { resource ->
-            val principal = call.principal<JwtPrincipal>()!!
-            val response = getLinkDetailService.getLinkDetail(principal.userId, resource.id)
-
-            call.respondSuccess(HttpStatusCode.OK, response)
-        }
+            val response =
+                getLinkDetailService.getVisibleLinkDetail(
+                    linkId = resource.id,
+                    viewerId = call.principal<JwtPrincipal>()?.userId,
+                )
+            when (response) {
+                is ReadResult.Member -> call.respondSuccess(HttpStatusCode.OK, response.data)
+                is ReadResult.Guest -> call.respondSuccess(HttpStatusCode.OK, response.data)
+            }
+        }.install(ReadNoStore)
     }
 
     authenticate {

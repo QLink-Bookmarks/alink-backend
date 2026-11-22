@@ -4,7 +4,6 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.SourceType
-import com.qlink.support.fixture.FolderFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import io.kotest.assertions.throwables.shouldNotThrow
@@ -15,52 +14,50 @@ import io.kotest.matchers.shouldNotBe
 
 class LinkTest :
     BehaviorSpec({
-        Given("폴더의 현재 공개 ID와 링크의 공개 세대") {
-            val sourcePublicId = FolderFixture.createPublicId()
-            val targetPublicId = FolderFixture.createPublicId()
-            val link = LinkFixture.createRandomLinkOf(ownerId = RandomFixture.randomId(), publicationId = sourcePublicId)
+        Given("폴더의 현재 공개 상태와 링크의 공개 상태") {
+            val link = LinkFixture.createRandomLinkOf(ownerId = RandomFixture.randomId(), isPublic = true)
 
             When("신규 링크 공개값을 생략하면") {
-                Then("목적지의 활성 공개 ID가 있으면 그대로 사용한다") {
-                    Link.resolveNewPublicationId(folderPublicId = targetPublicId, isPublic = null) shouldBe targetPublicId
-                    Link.resolveNewPublicationId(folderPublicId = null, isPublic = null) shouldBe null
+                Then("목적지의 활성 공개 상태가 있으면 그대로 사용한다") {
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = null) shouldBe true
+                    Link.resolveNewVisibility(folderIsPublic = false, isPublic = null) shouldBe false
                 }
             }
 
             When("신규 링크에 비공개를 지정하면") {
-                Then("공개 폴더에서도 링크에 공개 ID가 없다") {
-                    Link.resolveNewPublicationId(folderPublicId = targetPublicId, isPublic = false) shouldBe null
+                Then("공개 폴더에서도 링크에 공개 상태가 없다") {
+                    Link.resolveNewVisibility(folderIsPublic = true, isPublic = false) shouldBe false
                 }
             }
 
             When("비공개 목적지의 새 링크에 공개를 지정하면") {
-                val create = { Link.resolveNewPublicationId(folderPublicId = null, isPublic = true) }
+                val create = { Link.resolveNewVisibility(folderIsPublic = false, isPublic = true) }
                 Then("공개 조건 오류가 발생한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { create() }
                 }
             }
 
             When("공개값 지정 없이 이동 또는 복사하면") {
-                Then("출발지에서 유효하고 목적지도 공개 중일 때만 목적지 ID를 사용한다") {
-                    link.resolveUpdatedPublicationId(
-                        sourcePublicId = sourcePublicId,
-                        targetPublicId = targetPublicId,
+                Then("출발지에서 유효하고 목적지도 공개 중일 때만 링크를 공개한다") {
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = true,
+                        targetIsPublic = true,
                         isPublic = null,
                     ) shouldBe
-                        targetPublicId
-                    link.resolveUpdatedPublicationId(
-                        sourcePublicId = targetPublicId,
-                        targetPublicId = sourcePublicId,
+                        true
+                    link.resolveUpdatedVisibility(
+                        sourceIsPublic = false,
+                        targetIsPublic = true,
                         isPublic = null,
                     ) shouldBe
-                        null
-                    link.resolveUpdatedPublicationId(sourcePublicId = sourcePublicId, targetPublicId = null, isPublic = null) shouldBe null
+                        false
+                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = null) shouldBe false
                 }
             }
 
             When("공개 링크를 비공개 폴더로 이동하면서 공개를 지정하면") {
                 val update = {
-                    link.resolveUpdatedPublicationId(sourcePublicId = sourcePublicId, targetPublicId = null, isPublic = true)
+                    link.resolveUpdatedVisibility(sourceIsPublic = true, targetIsPublic = false, isPublic = true)
                 }
                 Then("공개 조건 오류가 발생한다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED.message) { update() }

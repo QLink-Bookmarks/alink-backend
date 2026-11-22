@@ -11,9 +11,7 @@ import com.qlink.folder.domain.FolderOrderKey
 import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
-import com.qlink.folder.dto.PublicFolderQuery
 import com.qlink.folder.dto.SearchFoldersQuery
-import com.qlink.folder.dto.toPublicFolderQuery
 import com.qlink.folder.repository.table.Folders
 import com.qlink.folder.repository.table.fromDomain
 import com.qlink.folder.repository.table.fromDomainForInsert
@@ -62,20 +60,13 @@ class DbFolderRepository : FolderRepository {
             .singleOrNull()
             ?.toFolderDomain()
 
-    override suspend fun findPublicByPublicId(publicId: String): PublicFolderQuery? =
+    override suspend fun findByIdForShare(folderId: Long): Folder? =
         Folders
-            .select(Folders.name, Folders.emoji)
-            .where { Folders.publicId eq publicId }
-            .singleOrNull()
-            ?.toPublicFolderQuery()
-
-    override suspend fun findIdByPublicIdForShare(publicId: String): Long? =
-        Folders
-            .select(Folders.id)
-            .where { Folders.publicId eq publicId }
+            .selectAll()
+            .where { Folders.id eq folderId }
             .forUpdate(ForUpdateOption.PostgreSQL.ForShare)
             .singleOrNull()
-            ?.get(Folders.id)
+            ?.toFolderDomain()
 
     override suspend fun findAllByIds(ids: List<Long>): List<Folder> =
         Folders
@@ -160,6 +151,7 @@ class DbFolderRepository : FolderRepository {
         sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
+        folderId: Long?,
     ): List<SearchFoldersQuery> {
         val normalizedQuery = query?.trim()?.takeIf { it.isNotEmpty() }
         val loweredQuery = normalizedQuery?.lowercase()
@@ -193,7 +185,7 @@ class DbFolderRepository : FolderRepository {
                     Folders.name,
                     Folders.emoji,
                     Folders.sharedAt,
-                    Folders.publicId,
+                    Folders.isPublic,
                     Folders.createdAt,
                     score,
                 ).where {
@@ -203,6 +195,7 @@ class DbFolderRepository : FolderRepository {
                                 Folders.sharedAt.isNotNull()
                         )
                 }.apply {
+                    folderId?.let { andWhere { Folders.id eq it } }
                     loweredQuery?.let { keyword ->
                         andWhere { lowerText(Folders.name) like "%$keyword%" }
                     }
@@ -341,7 +334,7 @@ class DbFolderRepository : FolderRepository {
             name = this[Folders.name],
             emoji = this[Folders.emoji],
             sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
-            isPublic = this[Folders.publicId] != null,
+            isPublic = this[Folders.isPublic],
             createdAt = this[Folders.createdAt].toKotlinInstant(),
             shareCounts = 0,
             linkCounts = 0,

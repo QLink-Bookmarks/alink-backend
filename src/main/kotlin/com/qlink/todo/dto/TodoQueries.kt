@@ -63,6 +63,7 @@ data class SearchTodosQuery(
 
 data class PublicTodoQuery(
     val id: Long,
+    val linkId: Long,
     val title: String,
     val isCompleted: Boolean,
 )
@@ -72,6 +73,7 @@ fun ResultRow.toPublicTodoQuery(completed: Expression<Boolean>): PublicTodoQuery
         id = this[Todos.id],
         title = this[Todos.title],
         isCompleted = this[completed],
+        linkId = this[Todos.linkId],
     )
 
 fun ResultRow.toLinkDetailTodoQuery(): LinkDetailTodoQuery =

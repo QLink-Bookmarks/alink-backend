@@ -11,6 +11,16 @@ class FolderAccessValidator(
     private val folderRepository: FolderRepository,
     private val folderMemberRepository: FolderMemberRepository,
 ) {
+    suspend fun lockForRead(folderId: Long): Folder =
+        folderRepository.findByIdForShare(folderId) ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
+
+    suspend fun canReadAsMember(
+        folder: Folder,
+        userId: Long,
+    ): Boolean =
+        folder.isOwnedBy(userId) ||
+            (folder.isShared && folderMemberRepository.findByFolderIdAndUserId(folder.id!!, userId) != null)
+
     suspend fun validateWritable(
         folderId: Long,
         userId: Long,

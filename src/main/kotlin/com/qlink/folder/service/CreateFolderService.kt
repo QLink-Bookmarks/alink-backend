@@ -11,7 +11,6 @@ import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.FolderMember
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.user.repository.UserRepository
-import java.util.UUID
 import kotlin.time.Clock
 
 class CreateFolderService(
@@ -35,7 +34,7 @@ class CreateFolderService(
                         name = request.name,
                         emoji = request.emoji,
                         sharedAt = request.sharedAtOrNull(),
-                    ).setPublic(newPublicId = if (request.isPublic) UUID.randomUUID().toString() else null)
+                    ).setPublic(request.isPublic)
             val created = folderRepository.insert(folder)
 
             if (created.sharedAt != null) {

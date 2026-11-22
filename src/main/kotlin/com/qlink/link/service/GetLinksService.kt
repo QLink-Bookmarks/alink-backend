@@ -3,11 +3,17 @@ package com.qlink.link.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.error.requireTrue
+import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.domain.PublicFolderSort
+import com.qlink.folder.dto.PublicFolderCursor
+import com.qlink.folder.service.FolderAccessValidator
+import com.qlink.folder.service.PublicFolderCursorCodec
 import com.qlink.link.domain.LinkOrderKey
 import com.qlink.link.domain.LinkSort
 import com.qlink.link.domain.MatchedField
@@ -17,6 +23,8 @@ import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.HighlightRange
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.LinkSearchCursorValue
+import com.qlink.link.dto.PublicFolderLinkResponse
+import com.qlink.link.dto.PublicLinkCursor
 import com.qlink.link.dto.SearchLinksQuery
 import com.qlink.link.dto.SnippetResponse
 import com.qlink.link.dto.TodoCountsResponse
@@ -32,7 +40,86 @@ class GetLinksService(
     private val linkRepository: LinkRepository,
     private val todoRepository: TodoRepository,
     private val userRepository: UserRepository,
+    private val folderAccessValidator: FolderAccessValidator,
+    private val cursorCodec: PublicFolderCursorCodec,
 ) {
+    suspend fun getVisibleLinks(
+        viewerId: Long?,
+        query: String?,
+        folderId: Long?,
+        isFavorite: Boolean?,
+        orderKey: String?,
+        order: String?,
+        scrollRequest: ScrollRequest,
+    ): ReadResult<ScrollResponse<GetLinksContentResponse>, ScrollResponse<PublicFolderLinkResponse>> =
+        tx.required {
+            val folder = folderId?.takeUnless { it == 0L }?.let { folderAccessValidator.lockForRead(it) }
+            val canRead =
+                viewerId != null &&
+                    (
+                        folder == null || folderAccessValidator.canReadAsMember(folder, viewerId) ||
+                            linkRepository.hasOwnedLinkInFolder(ownerId = viewerId, folderId = folder.id!!)
+                    )
+            if (viewerId != null && canRead) {
+                ReadResult.Member(getLinks(viewerId, query, folderId, isFavorite, orderKey, order, scrollRequest))
+            } else {
+                val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
+                folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+                (query == null && isFavorite == null).requireTrue(ErrorCode.COMMON_INVALID_FILTER)
+                ReadResult.Guest(readPublicLinks(publicFolderId, orderKey, order, scrollRequest))
+            }
+        }
+
+    private suspend fun readPublicLinks(
+        folderId: Long,
+        orderKey: String?,
+        order: String?,
+        scrollRequest: ScrollRequest,
+    ): ScrollResponse<PublicFolderLinkResponse> {
+        val size = scrollRequest.size
+        (size > 0).requireTrue(ErrorCode.COMMON_BAD_REQUEST)
+        val sort = PublicFolderSort.from(orderKey = orderKey, order = order)
+        val cursor =
+            scrollRequest.cursor?.let {
+                val decoded = cursorCodec.decode(encoded = it, folderId = folderId, collection = "links", sort = sort)
+                PublicLinkCursor(
+                    id = decoded.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
+                    createdAt = decoded.createdAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
+                )
+            }
+        val rows =
+            linkRepository.findPublicByFolderId(
+                folderId = folderId,
+                direction = sort.direction,
+                cursor = cursor,
+                limit = (size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            )
+        val hasNext = rows.size > size
+        val page = rows.take(size)
+        val nextCursor =
+            if (hasNext) {
+                val last = page.last()
+                cursorCodec.encode(
+                    PublicFolderCursor(
+                        folderId = folderId,
+                        collection = "links",
+                        direction = sort.direction,
+                        id = last.id,
+                        createdAt = last.createdAt,
+                    ),
+                )
+            } else {
+                null
+            }
+
+        return ScrollResponse(
+            isEmpty = page.isEmpty(),
+            contents = page.map { PublicFolderLinkResponse(id = it.id, title = it.title, url = it.url) },
+            nextCursor = nextCursor,
+            hasNext = hasNext,
+        )
+    }
+
     suspend fun getLinks(
         loginId: Long,
         query: String?,

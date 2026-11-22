@@ -24,9 +24,13 @@ interface TodoRepository {
 
     suspend fun findAllByLinkId(linkId: Long): List<Todo>
 
+    suspend fun hasOwnedTodoInFolder(
+        ownerId: Long,
+        folderId: Long,
+    ): Boolean
+
     suspend fun findPublicByFolderId(
         folderId: Long,
-        publicId: String,
         direction: SortDirection,
         cursorId: Long?,
         limit: Int,
@@ -52,6 +56,7 @@ interface TodoRepository {
         isCompleted: Boolean?,
         reminderAt: TodoReminderFilter?,
         now: Instant,
+        folderId: Long? = null,
     ): List<SearchTodosQuery>
 
     suspend fun update(todo: Todo): Todo

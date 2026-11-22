@@ -50,7 +50,7 @@ class CreateFolderServiceTest :
                     actual.emoji shouldBe request.emoji
                     actual.sharedAt shouldNotBe null
                     actual.isPublic shouldBe false
-                    actual.publicId shouldBe null
+                    actual.isPublic shouldBe false
 
                     val member = folderMemberRepository.findByFolderIdAndUserId(response.id, user.id!!)
                     member shouldNotBe null
@@ -71,7 +71,7 @@ class CreateFolderServiceTest :
                     val result = createFolderService.createFolder(user.id!!, request)
                     val stored = folderRepository.findById(result.id)!!
 
-                    stored.publicId shouldNotBe null
+                    stored.isPublic shouldBe true
                     stored.isShared shouldBe false
                 }
             }

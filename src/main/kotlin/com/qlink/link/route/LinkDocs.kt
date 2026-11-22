@@ -4,17 +4,16 @@ import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.dto.AiSummaryResponse
 import com.qlink.common.docs.authErrorResponse
 import com.qlink.common.docs.examples
+import com.qlink.common.docs.optionalReadAuth
+import com.qlink.common.docs.readResponseSchema
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ApiResponse
 import com.qlink.common.response.EmptySuccessResponse
 import com.qlink.common.response.ErrorDetail
-import com.qlink.common.scroll.ScrollResponse
 import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CopyLinkResponse
 import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkResponse
-import com.qlink.link.dto.GetLinkDetailResponse
-import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.PatchLinkRequest
 import com.qlink.link.dto.PatchLinkResponse
 import com.qlink.link.dto.SetLinkFavoriteRequest
@@ -148,21 +147,19 @@ internal fun getLinkDetailDocs(): RouteConfig.() -> Unit =
         summary = "링크 상세 조회 API"
         description =
             "content는 링크 본문의 발췌예요. 본문 기록이 없으면 null이고, 수집 중이면 isPending이 true예요. " +
-            "본문 전체와 수집 상태는 내보내지 않아요. isOwner는 로그인한 사용자가 링크를 소유하면 true예요."
+            "isOwner는 로그인한 사용자가 링크를 소유하면 true예요. 외부 열람자에게는 공개 링크와 연결된 액션의 최소 정보만 반환해요."
+        optionalReadAuth()
         request {
             pathParameter<Long>("id") { description = "링크 ID" }
         }
         response {
             code(HttpStatusCode.OK) {
                 description = "링크 상세 조회 성공"
-                body<ApiResponse<GetLinkDetailResponse>>()
+                body(readResponseSchema("Link"))
             }
             authErrorResponse()
-            code(HttpStatusCode.Forbidden) {
-                description = "링크 상세 조회 권한 검증 실패"
-                body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.LINK_DIFFERENT_OWNER, ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
-                }
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) }
             }
             code(HttpStatusCode.NotFound) {
                 description = "링크 상세 조회 대상 리소스 조회 실패"
@@ -179,7 +176,8 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
         description =
             "query가 있으면 본문까지 찾고 메타데이터가 일치한 링크를 먼저 둬요. " +
             "%·_·역슬래시는 글자 그대로 찾고, 1자 검색어는 본문을 찾지 않아요. " +
-            "이 기능 이전에 발급된 검색 커서는 COMMON_CURSOR_FIELD_MISSING으로 거절돼요."
+            "외부 열람은 folderId와 created_at 정렬을 지원하며 공개된 링크만 반환해요. 전체 개인 목록은 인증이 필요해요."
+        optionalReadAuth()
         request {
             queryParameter<String?>("query") { description = "검색어 (1자면 본문 미검색, %·_·역슬래시는 글자 그대로)" }
             queryParameter<Long?>("folderId") { description = "폴더 ID 필터" }
@@ -200,12 +198,14 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
         response {
             code(HttpStatusCode.OK) {
                 description = "링크 검색 성공"
-                body<ApiResponse<ScrollResponse<GetLinksContentResponse>>>()
+                body(readResponseSchema("Links"))
             }
             code(HttpStatusCode.BadRequest) {
                 description = "링크 검색 요청이 올바르지 않음"
                 body<ApiResponse<ErrorDetail>> {
                     examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
+                        ErrorCode.COMMON_INVALID_FILTER,
                         ErrorCode.COMMON_INVALID_SORT_ORDER,
                         ErrorCode.COMMON_CURSOR_MALFORMED,
                         ErrorCode.COMMON_CURSOR_ORDER_MISMATCH,
@@ -217,7 +217,7 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.NotFound) {
                 description = "링크 검색에 필요한 리소스 조회 실패"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.LINK_OWNER_NOT_FOUND)
+                    examples(ErrorCode.LINK_OWNER_NOT_FOUND, ErrorCode.FOLDER_NOT_FOUND)
                 }
             }
         }

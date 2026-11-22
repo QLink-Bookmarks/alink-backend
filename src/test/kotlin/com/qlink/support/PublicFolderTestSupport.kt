@@ -1,5 +1,9 @@
 package com.qlink.support
 
+import com.qlink.common.response.ReadResult
+import com.qlink.common.scroll.ScrollRequest
+import com.qlink.link.service.GetLinksService
+import com.qlink.todo.service.GetTodosService
 import io.kotest.matchers.shouldBe
 import java.util.Base64
 
@@ -22,3 +26,38 @@ fun assertPublicCursorHidesIds(
         readable.any(idToken::containsMatchIn) shouldBe false
     }
 }
+
+suspend fun GetLinksService.getPublicLinks(
+    folderId: Long,
+    orderKey: String?,
+    order: String?,
+    scroll: ScrollRequest,
+) = (
+    getVisibleLinks(
+        viewerId = null,
+        query = null,
+        folderId = folderId,
+        isFavorite = null,
+        orderKey = orderKey,
+        order = order,
+        scrollRequest = scroll,
+    ) as ReadResult.Guest
+).data
+
+suspend fun GetTodosService.getPublicTodos(
+    folderId: Long,
+    orderKey: String?,
+    order: String?,
+    scroll: ScrollRequest,
+) = (
+    getVisibleTodos(
+        viewerId = null,
+        folderId = folderId,
+        status = null,
+        orderKey = orderKey,
+        order = order,
+        scrollRequest = scroll,
+        isCompleted = null,
+        reminderAt = null,
+    ) as ReadResult.Guest
+).data

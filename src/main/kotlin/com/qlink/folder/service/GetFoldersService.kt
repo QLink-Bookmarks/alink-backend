@@ -3,6 +3,8 @@ package com.qlink.folder.service
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requireFalse
+import com.qlink.common.error.requireTrue
+import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
 import com.qlink.common.scroll.ScrollRequest
@@ -13,6 +15,7 @@ import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
 import com.qlink.folder.dto.FolderSearchCursorValue
 import com.qlink.folder.dto.GetFoldersContentResponse
+import com.qlink.folder.dto.PublicFolderResponse
 import com.qlink.folder.dto.SearchFoldersQuery
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.user.repository.UserRepository
@@ -21,7 +24,32 @@ class GetFoldersService(
     private val tx: TransactionRunner,
     private val folderRepository: FolderRepository,
     private val userRepository: UserRepository,
+    private val folderAccessValidator: FolderAccessValidator,
 ) {
+    suspend fun getFolder(
+        folderId: Long,
+        viewerId: Long?,
+    ): ReadResult<GetFoldersContentResponse, PublicFolderResponse> =
+        tx.required {
+            val folder = folderAccessValidator.lockForRead(folderId)
+            if (viewerId != null && folderAccessValidator.canReadAsMember(folder, viewerId)) {
+                val detail =
+                    folderRepository
+                        .search(
+                            ownerId = viewerId,
+                            query = null,
+                            sort = FolderSort.of(orderKey = null, order = null),
+                            cursor = null,
+                            size = 1,
+                            folderId = folderId,
+                        ).singleOrNull() ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
+                ReadResult.Member(detail.toResponse())
+            } else {
+                folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+                ReadResult.Guest(PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji))
+            }
+        }
+
     suspend fun getFolders(
         loginId: Long,
         query: String?,
@@ -48,25 +76,25 @@ class GetFoldersService(
 
             ScrollResponse(
                 isEmpty = contents.isEmpty(),
-                contents =
-                    contents.map { folder ->
-                        GetFoldersContentResponse(
-                            id = folder.id,
-                            ownerId = folder.ownerId,
-                            ownerNickname = folder.ownerNickname,
-                            name = folder.name,
-                            emoji = folder.emoji,
-                            isShared = folder.sharedAt != null,
-                            isPublic = folder.isPublic,
-                            shareCounts = folder.shareCounts,
-                            linkCounts = folder.linkCounts,
-                            myLinkCounts = folder.myLinkCounts,
-                        )
-                    },
+                contents = contents.map { it.toResponse() },
                 nextCursor = contents.lastOrNull()?.takeIf { hasNext }?.let { encodeCursor(query = it, sort = sort) },
                 hasNext = hasNext,
             )
         }
+
+    private fun SearchFoldersQuery.toResponse(): GetFoldersContentResponse =
+        GetFoldersContentResponse(
+            id = id,
+            ownerId = ownerId,
+            ownerNickname = ownerNickname,
+            name = name,
+            emoji = emoji,
+            isShared = sharedAt != null,
+            isPublic = isPublic,
+            shareCounts = shareCounts,
+            linkCounts = linkCounts,
+            myLinkCounts = myLinkCounts,
+        )
 
     private suspend fun decodeCursor(
         encoded: String,

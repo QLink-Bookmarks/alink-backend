@@ -12,6 +12,21 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
 
+data class PublicLinkDetailQuery(
+    val id: Long,
+    val folderId: Long,
+    val title: String,
+    val url: String,
+    val folderName: String,
+    val folderEmoji: String?,
+    val todos: List<PublicLinkTodoQuery>,
+)
+
+data class PublicLinkTodoQuery(
+    val title: String,
+    val isCompleted: Boolean,
+)
+
 data class PublicLinkQuery(
     val id: Long,
     val createdAt: Instant,

@@ -32,15 +32,15 @@ class GetFolderPrivacyServiceTest :
             lateinit var shared: Folder
             var memberId = 0L
             var outsiderId = 0L
-            lateinit var publicId: String
+            var published = false
 
             beforeTest {
-                publicId = FolderFixture.createPublicId()
+                published = true
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
                 memberId = users.insert(UserFixture.createRandomValidUser()).id!!
                 outsiderId = users.insert(UserFixture.createRandomValidUser()).id!!
                 private = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId))
-                shared = folders.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(publicId))
+                shared = folders.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(published))
                 members.insertIfAbsent(FolderMemberFixture.createMember(folderId = shared.id!!, userId = memberId))
             }
 
@@ -49,8 +49,8 @@ class GetFolderPrivacyServiceTest :
                     val response = service.getPrivacy(loginId = private.ownerId, folderId = private.id!!)
 
                     response.isPublic shouldBe false
-                    response.publicId shouldBe null
-                    folders.findById(private.id!!)?.publicId shouldBe null
+                    response.isPublic shouldBe false
+                    folders.findById(private.id!!)?.isPublic shouldBe false
                 }
             }
 
@@ -59,8 +59,8 @@ class GetFolderPrivacyServiceTest :
                     val response = service.getPrivacy(loginId = shared.ownerId, folderId = shared.id!!)
 
                     response.isPublic shouldBe true
-                    response.publicId shouldBe publicId
-                    response.publicId shouldBe folders.findById(shared.id!!)?.publicId
+                    response.isPublic shouldBe published
+                    response.isPublic shouldBe folders.findById(shared.id!!)?.isPublic
                 }
             }
 
@@ -70,15 +70,15 @@ class GetFolderPrivacyServiceTest :
                 Then("저장된 상태를 그대로 반환한다") {
                     val ownerId = private.ownerId
                     val created = createFolder.createFolder(ownerId, CreateFolderRequest(name = name, isPublic = true))
-                    val storedPublicId = folders.findById(created.id)?.publicId
-                    val expected = FolderPrivacyResponse(isPublic = true, publicId = storedPublicId)
+                    val storedPublic = folders.findById(created.id)!!.isPublic
+                    val expected = FolderPrivacyResponse(isPublic = storedPublic)
                     service.getPrivacy(loginId = ownerId, folderId = created.id) shouldBe expected
                     service.getPrivacy(loginId = ownerId, folderId = created.id) shouldBe expected
 
                     updateFolder.updateFolder(ownerId, created.id, UpdateFolderRequest(name = name, isPublic = false))
                     service.getPrivacy(loginId = ownerId, folderId = created.id) shouldBe
-                        FolderPrivacyResponse(isPublic = false, publicId = null)
-                    folders.findById(created.id)?.publicId shouldBe null
+                        FolderPrivacyResponse(isPublic = false)
+                    folders.findById(created.id)?.isPublic shouldBe false
                 }
             }
 

@@ -3,16 +3,13 @@ package com.qlink.folder.repository
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.domain.FolderSort
 import com.qlink.folder.dto.FolderSearchCursor
-import com.qlink.folder.dto.PublicFolderQuery
 import com.qlink.folder.dto.SearchFoldersQuery
 import kotlin.time.Instant
 
 interface FolderRepository {
     suspend fun findById(id: Long): Folder?
 
-    suspend fun findPublicByPublicId(publicId: String): PublicFolderQuery?
-
-    suspend fun findIdByPublicIdForShare(publicId: String): Long?
+    suspend fun findByIdForShare(folderId: Long): Folder?
 
     suspend fun findAllByIds(ids: List<Long>): List<Folder>
 
@@ -47,6 +44,7 @@ interface FolderRepository {
         sort: FolderSort,
         cursor: FolderSearchCursor?,
         size: Int,
+        folderId: Long? = null,
     ): List<SearchFoldersQuery>
 
     suspend fun update(folder: Folder): Folder

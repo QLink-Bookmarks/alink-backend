@@ -10,12 +10,12 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
-import com.qlink.folder.service.GetPublicFolderLinksService
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.dto.LinkContentResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentFailureCode
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.repository.LinkContentRepository
@@ -28,6 +28,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.domain.Todo
@@ -51,7 +52,7 @@ import kotlin.time.toKotlinInstant
 class GetLinkDetailServiceTest :
     BaseServiceTest({
         val getLinkDetailService = koinGet<GetLinkDetailService>()
-        val getPublicFolderLinksService = koinGet<GetPublicFolderLinksService>()
+        val getPublicFolderLinksService = koinGet<GetLinksService>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
         val folderRepository = koinGet<FolderRepository>()
@@ -235,15 +236,15 @@ class GetLinkDetailServiceTest :
             lateinit var member: User
             lateinit var outsider: User
             lateinit var sharedLink: Link
-            lateinit var publicId: String
+            var published = false
 
             beforeTest {
                 val owner = userRepository.insert(UserFixture.createRandomValidUser())
                 member = userRepository.insert(UserFixture.createRandomValidUser())
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
-                publicId = FolderFixture.createPublicId()
+                published = true
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(publicId))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(owner.id!!).setPublic(published))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )
@@ -258,7 +259,7 @@ class GetLinkDetailServiceTest :
                             thumbnailUrl = RandomFixture.randomPreviewUrl(),
                             faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
                             isVideo = true,
-                            publicationId = publicId,
+                            isPublic = published,
                         ),
                     )
             }
@@ -285,14 +286,14 @@ class GetLinkDetailServiceTest :
             }
 
             When("게스트가 같은 공개 링크를 조회하면") {
-                Then("공개 응답에는 제목과 원문 URL만 들어간다") {
-                    val result = getPublicFolderLinksService.getLinks(publicId, null, null, ScrollRequest())
+                Then("공개 목록에는 ID, 제목, 원문 URL만 들어간다") {
+                    val result = getPublicFolderLinksService.getPublicLinks(sharedLink.folderId!!, null, null, ScrollRequest())
                     val stored = linkRepository.findById(sharedLink.id!!).shouldNotBeNull()
                     val item = result.contents.single()
 
                     item.title shouldBe stored.title
                     item.url shouldBe stored.url
-                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe setOf("title", "url")
+                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe setOf("id", "title", "url")
                 }
             }
         }

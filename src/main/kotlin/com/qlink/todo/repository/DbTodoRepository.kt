@@ -98,9 +98,19 @@ class DbTodoRepository : TodoRepository {
             .orderBy(Todos.id to SortOrder.ASC)
             .map { it.toTodoDomain() }
 
+    override suspend fun hasOwnedTodoInFolder(
+        ownerId: Long,
+        folderId: Long,
+    ): Boolean =
+        !Todos
+            .join(otherTable = Links, joinType = JoinType.INNER, onColumn = Todos.linkId, otherColumn = Links.id)
+            .select(Todos.id)
+            .where { (Todos.ownerId eq ownerId) and (Links.folderId eq folderId) }
+            .limit(1)
+            .empty()
+
     override suspend fun findPublicByFolderId(
         folderId: Long,
-        publicId: String,
         direction: SortDirection,
         cursorId: Long?,
         limit: Int,
@@ -110,8 +120,8 @@ class DbTodoRepository : TodoRepository {
             Todos
                 .join(otherTable = Links, joinType = JoinType.INNER, onColumn = Todos.linkId, otherColumn = Links.id)
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
-                .select(Todos.id, Todos.title, completed)
-                .where { (Folders.id eq folderId) and (Folders.publicId eq publicId) and (Links.publicationId eq Folders.publicId) }
+                .select(Todos.id, Todos.linkId, Todos.title, completed)
+                .where { (Folders.id eq folderId) and (Folders.isPublic eq true) and (Links.isPublic eq true) }
         if (cursorId != null) {
             query.andWhere { beyond(expression = Todos.id, cursorValue = longLiteral(cursorId), direction = direction) }
         }
@@ -175,6 +185,7 @@ class DbTodoRepository : TodoRepository {
         isCompleted: Boolean?,
         reminderAt: TodoReminderFilter?,
         now: Instant,
+        folderId: Long?,
     ): List<SearchTodosQuery> {
         val joined =
             Todos.join(
@@ -202,6 +213,7 @@ class DbTodoRepository : TodoRepository {
                 Links.faviconUrl,
             ).where { Todos.ownerId eq ownerId }
             .apply {
+                folderId?.let { andWhere { Links.folderId eq it } }
                 status?.let { filter ->
                     andWhere { filter.condition(nowValue) }
                 }

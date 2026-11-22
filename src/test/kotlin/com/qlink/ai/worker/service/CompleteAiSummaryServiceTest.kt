@@ -15,7 +15,6 @@ import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
-import com.qlink.folder.service.GetPublicFolderTodosService
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.domain.Link
@@ -36,11 +35,13 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicTodos
 import com.qlink.support.insertAiContext
 import com.qlink.support.koinGet
 import com.qlink.support.searchTextOf
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
+import com.qlink.todo.service.GetTodosService
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -69,7 +70,7 @@ class CompleteAiSummaryServiceTest :
         val notificationRepository = koinGet<NotificationRepository>()
         val resolver = koinGet<PreviewImageUrlResolver>()
         val patchLink = koinGet<PatchLinkService>()
-        val publicTodos = koinGet<GetPublicFolderTodosService>()
+        val publicTodos = koinGet<GetTodosService>()
 
         Given("진행 중인 AI 작업과 작업 시작 snapshot") {
             lateinit var source: Folder
@@ -122,13 +123,13 @@ class CompleteAiSummaryServiceTest :
             }
 
             When("비공개 링크를 AI가 공개 폴더로 분류하면") {
-                lateinit var targetPublicId: String
+                var targetIsPublic = false
 
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    targetPublicId = FolderFixture.createPublicId()
-                    folderRepository.update(candidate.setPublic(targetPublicId))
-                    folderRepository.update(source.setPublic(FolderFixture.createPublicId()))
+                    targetIsPublic = true
+                    folderRepository.update(candidate.setPublic(targetIsPublic))
+                    folderRepository.update(source.setPublic(true))
                     val request = LinkFixture.createPatchLinkRequest()
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = true))
                     patchLink.patchLink(link.ownerId, link.id!!, request.copy(isPublic = false))
@@ -139,20 +140,20 @@ class CompleteAiSummaryServiceTest :
                     val stored = linkRepository.findById(link.id!!)!!
 
                     stored.folderId shouldBe candidate.id
-                    stored.isPublicIn(targetPublicId) shouldBe false
+                    stored.isPublicIn(targetIsPublic) shouldBe false
                     todoRepository.findAllByLinkId(link.id!!).size shouldBe completion.response.todos.size
-                    publicTodos.getTodos(targetPublicId, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    publicTodos.getPublicTodos(candidate.id!!, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
             When("추천 목적지를 철회한 뒤 AI 결과를 저장하면") {
-                lateinit var oldPublicId: String
+                var wasPublic = false
 
                 beforeTest {
                     if (it.type != TestType.Test) return@beforeTest
-                    oldPublicId = FolderFixture.createPublicId()
-                    folderRepository.update(candidate.setPublic(oldPublicId))
-                    folderRepository.update(source.setPublic(FolderFixture.createPublicId()))
+                    wasPublic = true
+                    folderRepository.update(candidate.setPublic(wasPublic))
+                    folderRepository.update(source.setPublic(true))
                     patchLink.patchLink(link.ownerId, link.id!!, LinkFixture.createPatchLinkRequest().copy(isPublic = true))
                     folderRepository.update(candidate)
                 }
@@ -161,9 +162,9 @@ class CompleteAiSummaryServiceTest :
                     service.complete(completion)
                     val stored = linkRepository.findById(link.id!!)!!
                     stored.folderId shouldBe candidate.id
-                    stored.publicationId shouldBe null
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                        publicTodos.getTodos(oldPublicId, null, null, ScrollRequest())
+                    stored.isPublic shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicTodos.getPublicTodos(candidate.id!!, null, null, ScrollRequest())
                     }
                 }
             }

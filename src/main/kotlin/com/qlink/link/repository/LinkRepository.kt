@@ -8,11 +8,14 @@ import com.qlink.link.domain.SearchKeyword
 import com.qlink.link.dto.LinkDetailQuery
 import com.qlink.link.dto.LinkSearchCursor
 import com.qlink.link.dto.PublicLinkCursor
+import com.qlink.link.dto.PublicLinkDetailQuery
 import com.qlink.link.dto.PublicLinkQuery
 import com.qlink.link.dto.SearchLinksQuery
 import kotlin.time.Instant
 
 interface LinkRepository {
+    suspend fun clearFolderVisibility(folderId: Long)
+
     suspend fun insert(link: Link): Link
 
     suspend fun insertAll(links: List<Link>): List<Link>
@@ -25,9 +28,15 @@ interface LinkRepository {
 
     suspend fun findAllByFolderIdForUpdate(folderId: Long): List<Link>
 
+    suspend fun hasOwnedLinkInFolder(
+        ownerId: Long,
+        folderId: Long,
+    ): Boolean
+
+    suspend fun findPublicDetailById(linkId: Long): PublicLinkDetailQuery?
+
     suspend fun findPublicByFolderId(
         folderId: Long,
-        publicId: String,
         direction: SortDirection,
         cursor: PublicLinkCursor?,
         limit: Int,
@@ -39,7 +48,7 @@ interface LinkRepository {
         linkIds: List<Long>,
         folderId: Long?,
         now: Instant,
-        publicationId: String? = null,
+        isPublic: Boolean = false,
     )
 
     suspend fun findAllByIds(linkIds: List<Long>): List<Link>
@@ -77,7 +86,7 @@ interface LinkRepository {
         folderId: Long?,
         memo: String?,
         tags: List<String>,
-        publicationId: String?,
+        isPublic: Boolean,
     ): Link
 
     suspend fun updateAiResult(
@@ -88,7 +97,7 @@ interface LinkRepository {
         tags: List<String>,
         status: LinkStatus,
         workModelId: Long?,
-        publicationId: String? = null,
+        isPublic: Boolean = false,
     )
 
     suspend fun updateAiFailure(

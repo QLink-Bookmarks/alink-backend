@@ -16,7 +16,7 @@ class PublicFolderCursorCodec(
 
     fun decode(
         encoded: String,
-        publicId: String,
+        folderId: Long,
         collection: String,
         sort: PublicFolderSort,
     ): PublicFolderCursor {
@@ -28,7 +28,7 @@ class PublicFolderCursorCodec(
                 throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED, e)
             }
 
-        (cursor.publicId == publicId && cursor.collection == collection).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
+        (cursor.folderId == folderId && cursor.collection == collection).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
         sort.validateCursor(cursor.direction)
 
         return cursor

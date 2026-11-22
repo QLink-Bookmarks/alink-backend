@@ -6,14 +6,13 @@ import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
-import com.qlink.folder.service.GetPublicFolderLinksService
-import com.qlink.folder.service.GetPublicFolderTodosService
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.image.service.PreviewImageUrlResolver
 import com.qlink.link.dto.CreateLinkRequest
 import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.CreateLinkService
+import com.qlink.link.service.GetLinksService
 import com.qlink.link.worker.LinkPreviewFillSignal
 import com.qlink.linkcontent.domain.ContentPriority
 import com.qlink.linkcontent.domain.ContentStatus
@@ -27,10 +26,13 @@ import com.qlink.support.fixture.FolderMemberFixture
 import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicLinks
+import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.truncatedToSecond
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.repository.TodoRepository
+import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -60,8 +62,8 @@ class CreateLinkServiceTest :
         val linkContentRepository = koinGet<LinkContentRepository>()
         val previewFillSignal = koinGet<LinkPreviewFillSignal>()
         val tx = koinGet<TransactionRunner>()
-        val publicLinks = koinGet<GetPublicFolderLinksService>()
-        val publicTodos = koinGet<GetPublicFolderTodosService>()
+        val publicLinks = koinGet<GetLinksService>()
+        val publicTodos = koinGet<GetTodosService>()
 
         suspend fun <T> withCommittedUser(block: suspend (User) -> T): T =
             CoroutineScope(Dispatchers.IO)
@@ -89,7 +91,7 @@ class CreateLinkServiceTest :
                 val folderOwnerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 privateFolder = folderRepository.insert(FolderFixture.createValidUnsharedFolder(writerId))
                 publicFolder =
-                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(FolderFixture.createPublicId()))
+                    folderRepository.insert(FolderFixture.createSharedFolderOf(folderOwnerId).setPublic(true))
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createMember(folderId = publicFolder.id!!, userId = writerId),
                 )
@@ -97,14 +99,14 @@ class CreateLinkServiceTest :
 
             When("공개값 생략으로 원문을 저장하면") {
                 Then("공개 폴더에서만 공개된다") {
-                    for ((folderId, expectedPublicationId) in listOf(
-                        publicFolder.id to publicFolder.publicId,
-                        privateFolder.id to null,
-                        null to null,
+                    for ((folderId, expectedVisibility) in listOf(
+                        publicFolder.id to publicFolder.isPublic,
+                        privateFolder.id to false,
+                        null to false,
                     )) {
                         val result = createLinkService.createLink(writerId, LinkFixture.createValidLinkRequest(folderId = folderId))
 
-                        linkRepository.findById(result.id)!!.publicationId shouldBe expectedPublicationId
+                        linkRepository.findById(result.id)!!.isPublic shouldBe expectedVisibility
                     }
                 }
             }
@@ -124,10 +126,10 @@ class CreateLinkServiceTest :
 
                 Then("링크와 액션은 저장되고 익명 목록은 비어 있다") {
                     val result = create()
-                    linkRepository.findById(result.id)!!.publicationId shouldBe null
+                    linkRepository.findById(result.id)!!.isPublic shouldBe false
                     todoRepository.findAllByLinkId(result.id).size shouldBe 1
-                    publicLinks.getLinks(publicFolder.publicId!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
-                    publicTodos.getTodos(publicFolder.publicId!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
+                    publicLinks.getPublicLinks(publicFolder.id!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
+                    publicTodos.getPublicTodos(publicFolder.id!!, null, null, ScrollRequest()).contents.shouldBeEmpty()
                 }
             }
 

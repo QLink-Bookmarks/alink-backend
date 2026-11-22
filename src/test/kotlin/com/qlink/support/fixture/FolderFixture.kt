@@ -4,8 +4,6 @@ import com.qlink.folder.domain.Folder
 import kotlin.time.Instant
 
 object FolderFixture {
-    fun createPublicId(): String = RandomFixture.randomUuid()
-
     fun createValidUnsharedFolder(ownerId: Long): Folder =
         Folder(
             id = RandomFixture.randomId(),
@@ -21,7 +19,7 @@ object FolderFixture {
         sharedAt: Instant? = null,
         createdAt: Instant? = null,
         id: Long = RandomFixture.randomId(),
-        publicId: String? = null,
+        isPublic: Boolean = false,
     ): Folder =
         Folder(
             id = id,
@@ -31,7 +29,7 @@ object FolderFixture {
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = createdAt,
-            publicId = publicId,
+            isPublic = isPublic,
         )
 
     fun createSharedFolderOf(

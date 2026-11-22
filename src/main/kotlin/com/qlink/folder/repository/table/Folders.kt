@@ -20,14 +20,13 @@ object Folders : Table("folders") {
     val sharedAt = timestamp("shared_at").nullable()
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
     val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
-    val publicId = varchar("public_id", 36).nullable()
+    val isPublic = bool("is_public").default(false)
 
     override val primaryKey = PrimaryKey(id)
 
     init {
         index("folders_owner_id_idx", false, ownerId)
         index("folders_owner_id_created_at_id_idx", false, ownerId, createdAt, id)
-        uniqueIndex("folders_public_id_idx", publicId)
     }
 }
 
@@ -40,7 +39,7 @@ fun ResultRow.toFolderDomain(): Folder =
         sharedAt = this[Folders.sharedAt]?.toKotlinInstant(),
         createdAt = this[Folders.createdAt].toKotlinInstant(),
         updatedAt = this[Folders.updatedAt].toKotlinInstant(),
-        publicId = this[Folders.publicId],
+        isPublic = this[Folders.isPublic],
     )
 
 fun UpdateBuilder<*>.fromDomain(folder: Folder) {
@@ -48,7 +47,7 @@ fun UpdateBuilder<*>.fromDomain(folder: Folder) {
     this[Folders.name] = folder.name
     this[Folders.emoji] = folder.emoji
     this[Folders.sharedAt] = folder.sharedAt?.toJavaInstant()
-    this[Folders.publicId] = folder.publicId
+    this[Folders.isPublic] = folder.isPublic
 }
 
 fun UpdateBuilder<*>.fromDomainForInsert(folder: Folder) {

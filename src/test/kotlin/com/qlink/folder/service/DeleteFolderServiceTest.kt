@@ -12,12 +12,13 @@ import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
-import com.qlink.folder.dto.PublicFolderLinkResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.folderinvite.repository.table.FolderInvites
 import com.qlink.foldermember.repository.FolderMemberRepository
 import com.qlink.link.domain.Link
+import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.notification.domain.Notification
 import com.qlink.notification.domain.NotificationContext
 import com.qlink.notification.repository.NotificationRepository
@@ -30,6 +31,7 @@ import com.qlink.support.fixture.NotificationFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.Todo
 import com.qlink.todo.repository.TodoRepository
@@ -61,7 +63,7 @@ class DeleteFolderServiceTest :
         val models = koinGet<AvailableModelRepository>()
         val userProviders = koinGet<UserProviderRepository>()
         val usages = koinGet<DailyUsageRepository>()
-        val publicLinks = koinGet<GetPublicFolderLinksService>()
+        val publicLinks = koinGet<GetLinksService>()
 
         Given("공개 링크와 비공개 링크가 있는 개인 공개 폴더") {
             lateinit var folder: Folder
@@ -70,9 +72,9 @@ class DeleteFolderServiceTest :
 
             beforeTest {
                 val userId = users.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folders.insert(FolderFixture.createValidUnsharedFolder(userId).setPublic(FolderFixture.createPublicId()))
+                folder = folders.insert(FolderFixture.createValidUnsharedFolder(userId).setPublic(true))
                 publicLink =
-                    links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, publicationId = folder.publicId))
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id, isPublic = folder.isPublic))
                 privateLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = userId, folderId = folder.id))
             }
 
@@ -86,9 +88,9 @@ class DeleteFolderServiceTest :
                     shouldNotThrow<BusinessException> { delete() }
                     val stored = links.findById(publicLink.id!!)!!
                     stored.folderId shouldBe null
-                    stored.publicationId shouldBe null
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                        publicLinks.getLinks(folder.publicId!!, null, null, ScrollRequest())
+                    stored.isPublic shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest())
                     }
                 }
             }
@@ -97,7 +99,7 @@ class DeleteFolderServiceTest :
                 lateinit var target: Folder
                 beforeTest {
                     target =
-                        folders.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId).setPublic(FolderFixture.createPublicId()))
+                        folders.insert(FolderFixture.createValidUnsharedFolder(folder.ownerId).setPublic(true))
                 }
                 val delete =
                     suspend {
@@ -112,10 +114,10 @@ class DeleteFolderServiceTest :
                 Then("두 링크 모두 옮기고 목적지에서 이전에 공개했던 링크만 보여준다") {
                     shouldNotThrow<BusinessException> { delete() }
                     links.findById(privateLink.id!!)!!.folderId shouldBe target.id
-                    links.findById(privateLink.id!!)!!.publicationId shouldBe null
-                    links.findById(publicLink.id!!)!!.publicationId shouldBe target.publicId
-                    publicLinks.getLinks(target.publicId!!, null, null, ScrollRequest()).contents shouldBe
-                        listOf(PublicFolderLinkResponse(title = publicLink.title, url = publicLink.url))
+                    links.findById(privateLink.id!!)!!.isPublic shouldBe false
+                    links.findById(publicLink.id!!)!!.isPublic shouldBe target.isPublic
+                    publicLinks.getPublicLinks(target.id!!, null, null, ScrollRequest()).contents shouldBe
+                        listOf(PublicFolderLinkResponse(id = publicLink.id!!, title = publicLink.title, url = publicLink.url))
                 }
             }
 
@@ -136,10 +138,10 @@ class DeleteFolderServiceTest :
                     shouldNotThrow<BusinessException> { delete() }
                     val stored = links.findById(publicLink.id!!)!!
                     stored.folderId shouldBe target.id
-                    stored.publicationId shouldBe null
-                    stored.isPublicIn(folders.findById(target.id!!)?.publicId) shouldBe false
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                        publicLinks.getLinks(folder.publicId!!, null, null, ScrollRequest())
+                    stored.isPublic shouldBe false
+                    stored.isPublicIn(folders.findById(target.id!!)?.isPublic == true) shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folder.id!!, null, null, ScrollRequest())
                     }
                 }
             }

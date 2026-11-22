@@ -5,7 +5,6 @@ package com.qlink.folder.dto
 import com.qlink.common.search.SortCursor
 import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.FolderOrderKey
-import com.qlink.folder.repository.table.Folders
 import com.qlink.foldermember.repository.table.FolderMembers
 import com.qlink.user.repository.table.Users
 import kotlinx.serialization.Serializable
@@ -37,22 +36,11 @@ data class FolderMemberQuery(
     val joinedAt: Instant,
 )
 
-data class PublicFolderQuery(
-    val name: String,
-    val emoji: String?,
-)
-
-fun ResultRow.toPublicFolderQuery(): PublicFolderQuery =
-    PublicFolderQuery(
-        name = this[Folders.name],
-        emoji = this[Folders.emoji],
-    )
-
 typealias FolderSearchCursor = SortCursor<FolderOrderKey, FolderSearchCursorValue>
 
 @Serializable
 data class PublicFolderCursor(
-    val publicId: String,
+    val folderId: Long,
     val collection: String,
     val direction: SortDirection,
     val id: Long? = null,

@@ -41,10 +41,6 @@ import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
 import com.qlink.folder.service.GetFolderPrivacyService
 import com.qlink.folder.service.GetFoldersService
-import com.qlink.folder.service.GetPublicFolderLinksService
-import com.qlink.folder.service.GetPublicFolderService
-import com.qlink.folder.service.GetPublicFolderTodosService
-import com.qlink.folder.service.PublicFolderAccessValidator
 import com.qlink.folder.service.PublicFolderCursorCodec
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
@@ -318,6 +314,7 @@ fun serviceModule() =
                 tx = get(),
                 folderRepository = get(),
                 userRepository = get(),
+                folderAccessValidator = get(),
             )
         }
 
@@ -327,6 +324,7 @@ fun serviceModule() =
                 folderRepository = get(),
                 folderMemberRepository = get(),
                 userRepository = get(),
+                linkRepository = get(),
             )
         }
 
@@ -350,30 +348,6 @@ fun serviceModule() =
                     invalidKeyErrorCode = ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
                 )
             PublicFolderCursorCodec(cipher)
-        }
-
-        single { PublicFolderAccessValidator(folderRepository = get()) }
-
-        single {
-            GetPublicFolderService(tx = get(), folderRepository = get())
-        }
-
-        single {
-            GetPublicFolderLinksService(
-                tx = get(),
-                publicFolderAccessValidator = get(),
-                linkRepository = get(),
-                cursorCodec = get(),
-            )
-        }
-
-        single {
-            GetPublicFolderTodosService(
-                tx = get(),
-                publicFolderAccessValidator = get(),
-                todoRepository = get(),
-                cursorCodec = get(),
-            )
         }
 
         single {
@@ -464,6 +438,8 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderAccessValidator = get(),
+                cursorCodec = get(),
             )
         }
 
@@ -625,6 +601,8 @@ fun serviceModule() =
                 tx = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderAccessValidator = get(),
+                cursorCodec = get(),
             )
         }
 

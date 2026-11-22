@@ -2,6 +2,7 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.domain.Folder
@@ -16,6 +17,7 @@ import com.qlink.link.dto.CreateLinkTodoRequest
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.CopyLinkService
 import com.qlink.link.service.CreateLinkService
+import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.PatchLinkService
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.fixture.FolderFixture
@@ -24,9 +26,12 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getPublicLinks
+import com.qlink.support.getPublicTodos
 import com.qlink.support.koinGet
 import com.qlink.support.runWhileFolderLocked
 import com.qlink.todo.repository.TodoRepository
+import com.qlink.todo.service.GetTodosService
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
 import io.kotest.assertions.throwables.shouldThrowWithMessage
@@ -48,8 +53,9 @@ class UpdateFolderServiceTest :
         val createLinkService = koinGet<CreateLinkService>()
         val patchLinkService = koinGet<PatchLinkService>()
         val copyLinkService = koinGet<CopyLinkService>()
-        val publicLinks = koinGet<GetPublicFolderLinksService>()
-        val publicTodos = koinGet<GetPublicFolderTodosService>()
+        val foldersService = koinGet<GetFoldersService>()
+        val publicLinks = koinGet<GetLinksService>()
+        val publicTodos = koinGet<GetTodosService>()
         val todoRepository = koinGet<TodoRepository>()
         val tx = koinGet<TransactionRunner>()
 
@@ -80,35 +86,35 @@ class UpdateFolderServiceTest :
             }
 
             When("최초 공개하고 새 링크를 저장한 뒤 반복 공개, 철회, 재공개하면") {
-                Then("반복 공개는 유지하고 철회와 재공개는 이전 주소와 링크를 비활성화한다") {
+                Then("반복 공개는 유지하고 철회와 재공개는 기존 링크를 비공개로 전환한다") {
                     val folderId = folder.id!!
-                    val first = setPublic(folder, true).publicId!!
+                    val first = setPublic(folder, true).isPublic
                     linkRepository.findById(existing.id!!)!!.isPublicIn(first) shouldBe false
                     val created = createLinkService.createLink(memberId, LinkFixture.createValidLinkRequest(folderId = folderId))
 
-                    setPublic(folder, true).publicId shouldBe first
+                    setPublic(folder, true).isPublic shouldBe first
                     linkRepository.findById(created.id)!!.isPublicIn(first) shouldBe true
-                    setPublic(folder, false).publicId shouldBe null
-                    setPublic(folder, false).publicId shouldBe null
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                        publicLinks.getLinks(first, null, null, ScrollRequest())
+                    setPublic(folder, false).isPublic shouldBe false
+                    setPublic(folder, false).isPublic shouldBe false
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                        publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                     }
-                    val next = setPublic(folder, true).publicId!!
-                    next shouldNotBe first
-                    folderRepository.findById(folderId)?.publicId shouldBe next
+                    val next = setPublic(folder, true).isPublic
+                    next shouldBe true
+                    folderRepository.findById(folderId)?.isPublic shouldBe next
                     folderRepository.findById(folderId)?.sharedAt shouldBe folder.sharedAt
                     folderMemberRepository.findByFolderIdAndUserId(folderId, memberId)?.role shouldBe MemberRole.MEMBER
                     linkRepository.findAllByFolderIds(listOf(folderId)).none { it.isPublicIn(next) } shouldBe true
-                    publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                    publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                 }
             }
 
             When("공개 상태를 철회하면서 중복 이름으로 폴더를 수정하면") {
                 var createdId = 0L
-                lateinit var originalPublicId: String
+                var originalVisibility = false
 
                 beforeTest {
-                    originalPublicId = setPublic(folder, true).publicId!!
+                    originalVisibility = setPublic(folder, true).isPublic
                     createdId = createLinkService.createLink(memberId, LinkFixture.createValidLinkRequest(folderId = folder.id)).id
                 }
                 val update =
@@ -120,12 +126,12 @@ class UpdateFolderServiceTest :
                         )
                     }
 
-                Then("이름·활성 ID·링크 공개 상태가 이전과 같다") {
+                Then("이름·공개 상태·링크 공개 상태가 이전과 같다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_DUPLICATE_NAME.message) { update() }
                     val stored = folderRepository.findById(folder.id!!)!!
                     stored.name shouldBe folder.name
-                    stored.publicId shouldBe originalPublicId
-                    linkRepository.findById(createdId)!!.isPublicIn(originalPublicId) shouldBe true
+                    stored.isPublic shouldBe originalVisibility
+                    linkRepository.findById(createdId)!!.isPublicIn(originalVisibility) shouldBe true
                 }
             }
 
@@ -141,7 +147,7 @@ class UpdateFolderServiceTest :
 
                 Then("폴더를 찾을 수 없고 공개 상태가 유지된다") {
                     shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) { update() }
-                    folderRepository.findById(folder.id!!)?.publicId shouldBe null
+                    folderRepository.findById(folder.id!!)?.isPublic shouldBe false
                 }
             }
         }
@@ -167,27 +173,27 @@ class UpdateFolderServiceTest :
             }
 
             When("두 공개 요청이 겹치면") {
-                Then("같은 활성 ID를 반환한다") {
+                Then("두 요청이 모두 공개 상태를 반환한다") {
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
-                            var first: String? = null
+                            var first = false
                             val second =
                                 runWhileFolderLocked(
                                     tx = tx,
                                     holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folderId)) },
-                                    afterWaiting = { first = setPublic(folder, true).publicId },
+                                    afterWaiting = { first = setPublic(folder, true).isPublic },
                                     action = { setPublic(folder, true) },
                                 )
-                            first shouldNotBe null
-                            second.publicId shouldBe first
-                            tx.readOnly { folderRepository.findById(folderId)?.publicId } shouldBe first
+                            first shouldBe true
+                            second.isPublic shouldBe first
+                            tx.readOnly { folderRepository.findById(folderId)?.isPublic } shouldBe first
                         }.await()
                 }
             }
 
             When("링크 생성과 최초 공개·철회가 서로 경합하면") {
-                Then("선행 트랜잭션의 공개 상태를 기준으로 저장하며 철회한 세대의 링크는 재공개해도 비공개다") {
+                Then("선행 트랜잭션의 공개 상태를 기준으로 저장하며 철회한 폴더의 링크는 재공개해도 비공개다") {
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
@@ -202,7 +208,7 @@ class UpdateFolderServiceTest :
                                     holdLock = { folderRepository.findAllByIdsForKeyShare(listOf(folderId)) },
                                     afterWaiting = { createdBeforePublish = create().id },
                                     action = { setPublic(folder, true) },
-                                ).publicId!!
+                                ).isPublic
                             val createdWhilePublic = create().id
                             val createdPrivate =
                                 createLinkService
@@ -218,16 +224,17 @@ class UpdateFolderServiceTest :
                                     action = create,
                                 ).id
                             val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).associateBy { it.id } }
-                            stored.getValue(createdBeforePublish).publicationId shouldBe null
-                            stored.getValue(createdWhilePublic).publicationId shouldBe published
-                            stored.getValue(createdPrivate).publicationId shouldBe null
-                            stored.getValue(createdAfterRevoke).publicationId shouldBe null
-                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                                publicLinks.getLinks(published, null, null, ScrollRequest())
+                            stored.getValue(createdBeforePublish).isPublic shouldBe false
+                            published shouldBe true
+                            stored.getValue(createdWhilePublic).isPublic shouldBe false
+                            stored.getValue(createdPrivate).isPublic shouldBe false
+                            stored.getValue(createdAfterRevoke).isPublic shouldBe false
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                             }
-                            val next = setPublic(folder, true).publicId!!
+                            val next = setPublic(folder, true).isPublic
                             tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).none { it.isPublicIn(next) } } shouldBe true
-                            publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -246,19 +253,19 @@ class UpdateFolderServiceTest :
                                         }
                                     }
                                 val folderId = privateFolder.id!!
-                                var publicId: String? = null
+                                var published = false
                                 val request = LinkFixture.createValidLinkRequest(folderId = folderId, isPublic = visibility)
                                 val result =
                                     runWhileFolderLocked(
                                         tx = tx,
                                         holdLock = { folderRepository.findAllByIdsForUpdate(listOf(folderId)) },
-                                        afterWaiting = { publicId = setPublic(privateFolder, true).publicId },
+                                        afterWaiting = { published = setPublic(privateFolder, true).isPublic },
                                         action = { createLinkService.createLink(folder.ownerId, request) },
                                     )
 
-                                publicId shouldNotBe null
+                                published shouldBe true
                                 val stored = tx.readOnly { linkRepository.findById(result.id)!! }
-                                stored.publicationId shouldBe publicId.takeIf { visibility == null }
+                                stored.isPublic shouldBe (visibility == null)
                             }
                         }.await()
                 }
@@ -269,7 +276,7 @@ class UpdateFolderServiceTest :
                     CoroutineScope(Dispatchers.IO)
                         .async {
                             val folderId = folder.id!!
-                            val oldPublicId = setPublic(folder, true).publicId!!
+                            setPublic(folder, true).isPublic shouldBe true
                             val request =
                                 LinkFixture.createValidLinkRequest(
                                     folderId = folderId,
@@ -284,21 +291,21 @@ class UpdateFolderServiceTest :
                                     action = { setPublic(folder, false) },
                                 )
                             val linkId = createdId!!
-                            result.publicId shouldBe null
+                            result.isPublic shouldBe false
                             tx.readOnly {
-                                linkRepository.findById(linkId)!!.publicationId shouldBe oldPublicId
+                                linkRepository.findById(linkId)!!.isPublic shouldBe false
                                 todoRepository.findAllByLinkId(linkId).size shouldBe 1
                             }
-                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                                publicLinks.getLinks(oldPublicId, null, null, ScrollRequest())
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                             }
-                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                                publicTodos.getTodos(oldPublicId, null, null, ScrollRequest())
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicTodos.getPublicTodos(folderId, null, null, ScrollRequest())
                             }
-                            val next = setPublic(folder, true).publicId!!
+                            val next = setPublic(folder, true).isPublic
                             tx.readOnly { linkRepository.findById(linkId)!!.isPublicIn(next) } shouldBe false
-                            publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
-                            publicTodos.getTodos(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -309,7 +316,7 @@ class UpdateFolderServiceTest :
                         .async {
                             val folderId = folder.id!!
                             for (revokeFirst in listOf(true, false)) {
-                                val activeId = setPublic(folder, true).publicId!!
+                                setPublic(folder, true).isPublic shouldBe true
                                 val linkId =
                                     createLinkService
                                         .createLink(
@@ -348,14 +355,14 @@ class UpdateFolderServiceTest :
                                         action = { setPublic(folder, false) },
                                     )
                                 }
-                                tx.readOnly { folderRepository.findById(folderId)?.publicId } shouldBe null
-                                shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                                    publicTodos.getTodos(activeId, null, null, ScrollRequest())
+                                tx.readOnly { folderRepository.findById(folderId)?.isPublic } shouldBe false
+                                shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                    publicTodos.getPublicTodos(folderId, null, null, ScrollRequest())
                                 }
-                                val next = setPublic(folder, true).publicId!!
+                                val next = setPublic(folder, true).isPublic
                                 tx.readOnly { linkRepository.findById(linkId)!!.isPublicIn(next) } shouldBe false
-                                publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
-                                publicTodos.getTodos(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
+                                publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                             }
                         }.await()
                 }
@@ -371,7 +378,7 @@ class UpdateFolderServiceTest :
                                 tx.required {
                                     val source =
                                         folderRepository.insert(
-                                            FolderFixture.createSharedFolderOf(ownerId).setPublic(FolderFixture.createPublicId()),
+                                            FolderFixture.createSharedFolderOf(ownerId).setPublic(true),
                                         )
                                     folderMemberRepository.insertIfAbsent(
                                         FolderMemberFixture.createOwnerMember(folderId = source.id!!, userId = ownerId),
@@ -381,13 +388,13 @@ class UpdateFolderServiceTest :
                                             LinkFixture.createRandomLinkOf(
                                                 ownerId = ownerId,
                                                 folderId = source.id,
-                                                publicationId = source.publicId,
+                                                isPublic = source.isPublic,
                                             ),
                                         )
                                     todoRepository.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
                                     source to link
                                 }
-                            val publishedForCopy = setPublic(folder, true).publicId!!
+                            setPublic(folder, true).isPublic shouldBe true
                             val copy =
                                 runWhileFolderLocked(
                                     tx = tx,
@@ -401,7 +408,7 @@ class UpdateFolderServiceTest :
                                         )
                                     },
                                 )
-                            val publishedForMove = setPublic(folder, true).publicId!!
+                            setPublic(folder, true).isPublic shouldBe true
                             val move =
                                 runWhileFolderLocked(
                                     tx = tx,
@@ -416,15 +423,13 @@ class UpdateFolderServiceTest :
                             move.isPublic shouldBe false
                             val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)) }
                             stored.map { it.id }.toSet() shouldBe setOf(link.id, copy.id)
-                            stored.all { it.publicationId == null } shouldBe true
-                            for (revoked in listOf(publishedForCopy, publishedForMove)) {
-                                shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_PUBLIC_NOT_FOUND.message) {
-                                    publicLinks.getLinks(revoked, null, null, ScrollRequest())
-                                }
+                            stored.none { it.isPublic } shouldBe true
+                            shouldThrowWithMessage<BusinessException>(ErrorCode.FOLDER_NOT_FOUND.message) {
+                                publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                             }
-                            val next = setPublic(folder, true).publicId!!
-                            publicLinks.getLinks(next, null, null, ScrollRequest()).contents shouldBe emptyList()
-                            publicTodos.getTodos(next, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            val next = setPublic(folder, true).isPublic
+                            publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
+                            publicTodos.getPublicTodos(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }
             }
@@ -630,7 +635,7 @@ class UpdateFolderServiceTest :
             beforeTest {
                 val ownerId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
                 recipientId = userRepository.insert(UserFixture.createRandomValidUser()).id!!
-                folder = folderRepository.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(FolderFixture.createPublicId()))
+                folder = folderRepository.insert(FolderFixture.createSharedFolderOf(ownerId).setPublic(true))
                 folderMemberRepository.insertIfAbsent(FolderMemberFixture.createOwnerMember(folderId = folder.id!!, userId = ownerId))
                 folderMemberRepository.insertIfAbsent(FolderMemberFixture.createMember(folderId = folder.id!!, userId = recipientId))
                 staleRequest = UpdateFolderRequest(name = folder.name, emoji = folder.emoji, isPublic = false)
@@ -648,8 +653,8 @@ class UpdateFolderServiceTest :
                     val stored = folderRepository.findById(folder.id!!)!!
                     stored.ownerId shouldBe recipientId
                     stored.isPublic shouldBe true
-                    stored.publicId shouldBe folder.publicId
-                    folderRepository.findPublicByPublicId(folder.publicId!!)?.name shouldBe folder.name
+                    stored.isPublic shouldBe folder.isPublic
+                    (foldersService.getFolder(folderId = folder.id!!, viewerId = null) as ReadResult.Guest).data.name shouldBe folder.name
                 }
             }
         }

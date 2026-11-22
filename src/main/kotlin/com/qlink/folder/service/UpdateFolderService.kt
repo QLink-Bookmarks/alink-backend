@@ -10,8 +10,8 @@ import com.qlink.folder.dto.UpdateFolderResponse
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.domain.FolderMember
 import com.qlink.foldermember.repository.FolderMemberRepository
+import com.qlink.link.repository.LinkRepository
 import com.qlink.user.repository.UserRepository
-import java.util.UUID
 import kotlin.time.Clock
 
 class UpdateFolderService(
@@ -19,6 +19,7 @@ class UpdateFolderService(
     private val folderRepository: FolderRepository,
     private val folderMemberRepository: FolderMemberRepository,
     private val userRepository: UserRepository,
+    private val linkRepository: LinkRepository,
 ) {
     suspend fun updateFolder(
         loginId: Long,
@@ -52,9 +53,12 @@ class UpdateFolderService(
                 )
             val publication =
                 request.isPublic?.let {
-                    updated.setPublic(newPublicId = if (it) UUID.randomUUID().toString() else null)
+                    updated.setPublic(it)
                 } ?: updated
             val saved = folderRepository.update(publication)
+            if (folder.isPublic && !saved.isPublic) {
+                linkRepository.clearFolderVisibility(folderId)
+            }
 
             if (saved.sharedAt != null && folderMemberRepository.existsByFolderId(folderId).not()) {
                 folderMemberRepository.insertIfAbsent(
@@ -67,7 +71,7 @@ class UpdateFolderService(
                 )
             }
 
-            UpdateFolderResponse(id = saved.id!!, isPublic = saved.isPublic, publicId = saved.publicId)
+            UpdateFolderResponse(id = saved.id!!, isPublic = saved.isPublic)
         }
 
     private fun UpdateFolderRequest.sharedAtOrExisting(current: kotlin.time.Instant?): kotlin.time.Instant? =

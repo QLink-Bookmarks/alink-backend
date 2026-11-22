@@ -1119,7 +1119,7 @@ class UpdateLinkAiSummaryServiceTest :
                     if (it.type != TestType.Test) return@beforeTest
                     publicFolder =
                         folderRepository.insert(
-                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(FolderFixture.createPublicId()),
+                            FolderFixture.createValidUnsharedFolder(user.id!!).setPublic(true),
                         )
                     privateLink = linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = user.id!!, folderId = publicFolder.id))
                 }
@@ -1146,9 +1146,9 @@ class UpdateLinkAiSummaryServiceTest :
                     aiJobRepository.findById(publicJobId)?.linkId shouldBe created.id
                     aiJobRepository.findById(privateJobId)?.linkId shouldBe createdPrivate.id
                     aiJobRepository.findById(retriedJobId)?.linkId shouldBe retried.id
-                    linkRepository.findById(created.id)!!.publicationId shouldBe publicFolder.publicId
-                    linkRepository.findById(createdPrivate.id)!!.publicationId shouldBe null
-                    linkRepository.findById(retried.id)!!.publicationId shouldBe null
+                    linkRepository.findById(created.id)!!.isPublic shouldBe publicFolder.isPublic
+                    linkRepository.findById(createdPrivate.id)!!.isPublic shouldBe false
+                    linkRepository.findById(retried.id)!!.isPublic shouldBe false
                 }
             }
 

@@ -6,6 +6,7 @@ import com.qlink.link.domain.LinkStatus
 import com.qlink.link.domain.MatchedField
 import com.qlink.link.domain.SourceType
 import com.qlink.todo.dto.LinkDetailTodoQuery
+import com.qlink.todo.dto.PublicLinkTodoResponse
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
@@ -103,4 +104,22 @@ data class UpdateLinkResponse(
     val thumbnailUrl: String?,
     val sourceType: SourceType,
     val isPublic: Boolean,
+)
+
+@Serializable
+data class PublicFolderLinkResponse(
+    val id: Long,
+    val title: String,
+    val url: String,
+)
+
+@Serializable
+data class PublicLinkDetailResponse(
+    val id: Long,
+    val folderId: Long,
+    val title: String,
+    val url: String,
+    val folderName: String,
+    val folderEmoji: String?,
+    val todos: List<PublicLinkTodoResponse>,
 )
