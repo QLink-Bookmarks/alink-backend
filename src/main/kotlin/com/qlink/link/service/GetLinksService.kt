@@ -7,6 +7,7 @@ import com.qlink.common.error.requireTrue
 import com.qlink.common.response.ReadResult
 import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.DEFAULT_SCROLL_SIZE
+import com.qlink.common.scroll.EncryptedCursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.scroll.ScrollResponse
 import com.qlink.common.transaction.TransactionRunner
@@ -22,9 +23,11 @@ import com.qlink.link.domain.Snippet
 import com.qlink.link.dto.GetLinksContentResponse
 import com.qlink.link.dto.HighlightRange
 import com.qlink.link.dto.LinkSearchCursor
+import com.qlink.link.dto.LinkSearchCursorScope
 import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.dto.PublicLinkCursor
+import com.qlink.link.dto.ScopedLinkSearchCursor
 import com.qlink.link.dto.SearchLinksQuery
 import com.qlink.link.dto.SnippetResponse
 import com.qlink.link.dto.TodoCountsResponse
@@ -42,6 +45,7 @@ class GetLinksService(
     private val userRepository: UserRepository,
     private val folderAccessValidator: FolderAccessValidator,
     private val cursorCodec: PublicFolderCursorCodec,
+    private val encryptedCursorCodec: EncryptedCursorCodec,
 ) {
     suspend fun getLinks(
         viewerId: Long?,
@@ -51,16 +55,28 @@ class GetLinksService(
         orderKey: String?,
         order: String?,
         scrollRequest: ScrollRequest,
+        isPublic: Boolean? = null,
     ): ReadResult<ScrollResponse<GetLinksContentResponse>, ScrollResponse<PublicFolderLinkResponse>> =
         tx.required {
             val folder = folderId?.takeUnless { it == 0L }?.let { folderAccessValidator.lockForRead(it) }
             if (viewerId != null && (folder == null || folderAccessValidator.canReadAsMember(folder, viewerId))) {
-                ReadResult.Member(readMemberLinks(viewerId, query, folderId, isFavorite, orderKey, order, scrollRequest))
+                ReadResult.Member(
+                    readMemberLinks(
+                        loginId = viewerId,
+                        query = query,
+                        folderId = folderId,
+                        isFavorite = isFavorite,
+                        orderKey = orderKey,
+                        order = order,
+                        scrollRequest = scrollRequest,
+                        isPublic = isPublic,
+                    ),
+                )
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
-                folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+                folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
                 (query == null && isFavorite == null).requireTrue(ErrorCode.COMMON_INVALID_FILTER)
-                ReadResult.Guest(readPublicLinks(publicFolderId, orderKey, order, scrollRequest))
+                ReadResult.Guest(readPublicLinks(publicFolderId, orderKey, order, scrollRequest, isPublic))
             }
         }
 
@@ -69,25 +85,30 @@ class GetLinksService(
         orderKey: String?,
         order: String?,
         scrollRequest: ScrollRequest,
+        isPublic: Boolean?,
     ): ScrollResponse<PublicFolderLinkResponse> {
         val size = scrollRequest.size
         (size > 0).requireTrue(ErrorCode.COMMON_BAD_REQUEST)
         val sort = PublicFolderSort.from(orderKey = orderKey, order = order)
         val cursor =
             scrollRequest.cursor?.let {
-                val decoded = cursorCodec.decode(encoded = it, folderId = folderId, collection = "links", sort = sort)
+                val decoded = cursorCodec.decode(encoded = it, folderId = folderId, collection = "links", sort = sort, isPublic = isPublic)
                 PublicLinkCursor(
                     id = decoded.id ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
                     createdAt = decoded.createdAt ?: throw BusinessException(ErrorCode.COMMON_CURSOR_FIELD_MISSING),
                 )
             }
         val rows =
-            linkRepository.findPublicByFolderId(
-                folderId = folderId,
-                direction = sort.direction,
-                cursor = cursor,
-                limit = (size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            )
+            if (isPublic == false) {
+                emptyList()
+            } else {
+                linkRepository.findPublicByFolderId(
+                    folderId = folderId,
+                    direction = sort.direction,
+                    cursor = cursor,
+                    limit = (size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                )
+            }
         val hasNext = rows.size > size
         val page = rows.take(size)
         val nextCursor =
@@ -100,6 +121,7 @@ class GetLinksService(
                         direction = sort.direction,
                         id = last.id,
                         createdAt = last.createdAt,
+                        isPublic = isPublic,
                     ),
                 )
             } else {
@@ -122,23 +144,45 @@ class GetLinksService(
         orderKey: String?,
         order: String?,
         scrollRequest: ScrollRequest,
+        isPublic: Boolean?,
     ): ScrollResponse<GetLinksContentResponse> {
         userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
 
         val sort = LinkSort.of(orderKey = orderKey, order = order)
         val keyword = SearchKeyword.of(query).takeUnless { it.isBlank }
-        val cursor = scrollRequest.cursor?.let { decodeCursor(encoded = it, sort = sort, hasKeyword = keyword != null) }
-        val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
-        val queries =
-            linkRepository.search(
-                ownerId = loginId,
-                keyword = keyword,
+        val scope =
+            LinkSearchCursorScope(
+                viewerId = loginId,
                 folderId = folderId,
+                keyword = keyword?.value,
                 isFavorite = isFavorite,
-                sort = sort,
-                cursor = cursor,
-                size = size,
+                isPublic = isPublic,
             )
+
+        suspend fun search(
+            size: Int,
+            cursor: LinkSearchCursor? = null,
+            linkId: Long? = null,
+        ) = linkRepository.search(
+            ownerId = loginId,
+            keyword = keyword,
+            folderId = folderId,
+            isFavorite = isFavorite,
+            sort = sort,
+            cursor = cursor,
+            size = size,
+            isPublic = isPublic,
+            linkId = linkId,
+        )
+
+        val cursor =
+            scrollRequest.cursor?.let { encoded ->
+                decodeCursor(encoded = encoded, sort = sort, scope = scope) { id ->
+                    search(size = 1, linkId = id).singleOrNull()
+                }
+            }
+        val size = scrollRequest.size.takeIf { it > 0 } ?: DEFAULT_SCROLL_SIZE
+        val queries = search(size = size, cursor = cursor)
         val hasNext = queries.size > size
         val contents = queries.take(size)
         val todosByLinkId = todoRepository.findAllByLinkIds(contents.map { it.id }).groupBy { it.linkId }
@@ -167,13 +211,14 @@ class GetLinksService(
                         contentExcerpt = queryRow.contentExcerpt,
                         matchedFields = queryRow.matchedFields(),
                         contentSnippet = keyword?.let { queryRow.toSnippetResponse(it) },
+                        turnsPublicAt = queryRow.turnsPublicAt,
                     )
                 },
             nextCursor =
                 contents
                     .lastOrNull()
                     ?.takeIf { hasNext }
-                    ?.let { encodeCursor(query = it, sort = sort, hasKeyword = keyword != null) },
+                    ?.let { encodeCursor(query = it, sort = sort, scope = scope) },
             hasNext = hasNext,
         )
     }
@@ -181,13 +226,29 @@ class GetLinksService(
     private suspend fun decodeCursor(
         encoded: String,
         sort: LinkSort,
-        hasKeyword: Boolean,
+        scope: LinkSearchCursorScope,
+        findLegacyBoundary: suspend (Long) -> SearchLinksQuery?,
     ): LinkSearchCursor {
-        val cursor = Base64CursorCodec.decode<LinkSearchCursor>(encoded)
+        val legacy = ':' !in encoded
+        val cursor =
+            if (legacy) {
+                (scope.isPublic == null).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
+                Base64CursorCodec.decode<LinkSearchCursor>(encoded)
+            } else {
+                val scoped = encryptedCursorCodec.decode<ScopedLinkSearchCursor>(encoded)
+                (scoped.scope == scope).requireTrue(ErrorCode.COMMON_CURSOR_MALFORMED)
+                scoped.cursor
+            }
         sort.validateCursor(orderKey = cursor.orderKey, direction = cursor.direction, order = cursor.order)
-        validateCursorValue(value = cursor.value, orderKey = sort.orderKey, hasKeyword = hasKeyword)
+        validateCursorValue(value = cursor.value, orderKey = sort.orderKey, hasKeyword = scope.keyword != null)
 
-        return cursor.withCreatedAt(sort.orderKey)
+        if (!legacy) return cursor
+        val row = findLegacyBoundary(cursor.value.id!!) ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
+        return if (sort.orderKey == LinkOrderKey.CREATED_AT && cursor.value.createdAt == null) {
+            cursor.copy(value = cursor.value.copy(createdAt = row.createdAt))
+        } else {
+            cursor
+        }
     }
 
     private fun validateCursorValue(
@@ -219,42 +280,32 @@ class GetLinksService(
         }
     }
 
-    private suspend fun LinkSearchCursor.withCreatedAt(orderKey: LinkOrderKey): LinkSearchCursor =
-        when {
-            orderKey != LinkOrderKey.CREATED_AT || value.createdAt != null -> {
-                this
-            }
-
-            else -> {
-                linkRepository
-                    .findCreatedAtById(value.id!!)
-                    ?.let { copy(value = value.copy(createdAt = it)) }
-                    ?: throw BusinessException(ErrorCode.COMMON_CURSOR_MALFORMED)
-            }
-        }
-
     private fun encodeCursor(
         query: SearchLinksQuery,
         sort: LinkSort,
-        hasKeyword: Boolean,
+        scope: LinkSearchCursorScope,
     ): String =
-        Base64CursorCodec.encode(
-            LinkSearchCursor(
-                orderKey = sort.orderKey,
-                direction = sort.direction,
-                value =
-                    LinkSearchCursorValue(
-                        id = query.id,
-                        createdAt = query.createdAt,
-                        title = query.title,
-                        score = query.score,
-                        titleScore = query.titleScore,
-                        urlScore = query.urlScore,
-                        tagsScore = query.tagsScore,
-                        summaryScore = query.summaryScore,
-                        memoScore = query.memoScore,
-                        isMetadataMatched = query.isMetadataMatched.takeIf { hasKeyword },
-                        contentScore = query.contentScore.takeIf { hasKeyword },
+        encryptedCursorCodec.encode(
+            ScopedLinkSearchCursor(
+                scope = scope,
+                cursor =
+                    LinkSearchCursor(
+                        orderKey = sort.orderKey,
+                        direction = sort.direction,
+                        value =
+                            LinkSearchCursorValue(
+                                id = query.id,
+                                createdAt = query.createdAt,
+                                title = query.title,
+                                score = query.score,
+                                titleScore = query.titleScore,
+                                urlScore = query.urlScore,
+                                tagsScore = query.tagsScore,
+                                summaryScore = query.summaryScore,
+                                memoScore = query.memoScore,
+                                isMetadataMatched = query.isMetadataMatched.takeIf { scope.keyword != null },
+                                contentScore = query.contentScore.takeIf { scope.keyword != null },
+                            ),
                     ),
             ),
         )

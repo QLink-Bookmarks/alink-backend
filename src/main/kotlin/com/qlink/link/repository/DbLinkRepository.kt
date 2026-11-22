@@ -95,7 +95,7 @@ class DbLinkRepository : LinkRepository {
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
                 .join(otherTable = Todos, joinType = JoinType.LEFT, additionalConstraint = { Links.id eq Todos.linkId })
                 .select(Links.id, Folders.id, Links.title, Links.url, folderName, Folders.emoji, Todos.title, Todos.completedAt)
-                .where { (Links.id eq linkId) and (Folders.isPublic eq true) and (Links.isPublic eq true) }
+                .where { (Links.id eq linkId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
                 .orderBy(Todos.id to SortOrder.DESC)
                 .toList()
         val row = rows.firstOrNull() ?: return null
@@ -126,7 +126,7 @@ class DbLinkRepository : LinkRepository {
             Links
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
                 .select(Links.id, Links.createdAt, Links.title, Links.url)
-                .where { (Folders.id eq folderId) and (Folders.isPublic eq true) and (Links.isPublic eq true) }
+                .where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
         if (cursor != null) {
             val position = LinkSearchCursorValue(id = cursor.id, createdAt = cursor.createdAt)
             val keys = createdAtSortKeys(order)
@@ -240,13 +240,6 @@ class DbLinkRepository : LinkRepository {
             .where { Links.ownerId eq ownerId }
             .map { it[Links.url] }
 
-    override suspend fun findCreatedAtById(linkId: Long): Instant? =
-        Links
-            .select(Links.createdAt)
-            .where { Links.id eq linkId }
-            .singleOrNull()
-            ?.let { it[Links.createdAt].toKotlinInstant() }
-
     override suspend fun findDetailById(
         linkId: Long,
         loginId: Long,
@@ -334,6 +327,8 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         if (keyword == null) {
             return searchAll(
@@ -343,6 +338,8 @@ class DbLinkRepository : LinkRepository {
                 sort = sort,
                 cursor = cursor,
                 size = size,
+                isPublic = isPublic,
+                linkId = linkId,
             )
         }
 
@@ -355,6 +352,8 @@ class DbLinkRepository : LinkRepository {
                 sort = sort,
                 cursor = cursor,
                 size = size,
+                isPublic = isPublic,
+                linkId = linkId,
             )
         val snippets =
             findSnippets(
@@ -504,6 +503,8 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         val columns = SearchColumns.withoutKeyword()
         val joined =
@@ -517,7 +518,14 @@ class DbLinkRepository : LinkRepository {
         return selectPage(
             joined = joined,
             columns = columns,
-            condition = accessibleWith(ownerId = ownerId, folderId = folderId, isFavorite = isFavorite),
+            condition =
+                accessibleWith(
+                    ownerId = ownerId,
+                    folderId = folderId,
+                    isFavorite = isFavorite,
+                    isPublic = isPublic,
+                    linkId = linkId,
+                ),
             sortKeys = sortKeys(sort = sort, columns = columns, hasKeyword = false),
             cursor = cursor,
             size = size,
@@ -532,9 +540,18 @@ class DbLinkRepository : LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): List<SearchLinksQuery> {
         val pattern = likeQuery(keyword.value)
-        val accessible = accessibleWith(ownerId = ownerId, folderId = folderId, isFavorite = isFavorite)
+        val accessible =
+            accessibleWith(
+                ownerId = ownerId,
+                folderId = folderId,
+                isFavorite = isFavorite,
+                isPublic = isPublic,
+                linkId = linkId,
+            )
         val candidateLinkId = Links.id.alias("link_id")
         val candidateMetaHit = booleanLiteral(true).alias("meta_hit")
         val candidateContentHit = booleanLiteral(false).alias("content_hit")
@@ -665,11 +682,13 @@ class DbLinkRepository : LinkRepository {
                     Links.createdAt,
                     Links.favoriteAt,
                     LinkContents.excerpt,
+                    Folders.turnsPublicAt,
+                    Links.turnsPublicAt,
                 ) + columns.aliases,
             ).where {
                 condition and (cursor?.value?.let { keysetAfter(sortKeys, it) } ?: Op.TRUE)
             }.orderBy(*sortKeys.map { it.expression to it.sortOrder }.toTypedArray())
-            .limit(size + 1)
+            .limit((size.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             .map { row ->
                 row.toSearchLinksQuery(
                     folderName = folderName,
@@ -734,6 +753,8 @@ class DbLinkRepository : LinkRepository {
         ownerId: Long,
         folderId: Long?,
         isFavorite: Boolean?,
+        isPublic: Boolean?,
+        linkId: Long?,
     ): Op<Boolean> =
         listOfNotNull(
             (Links.ownerId eq ownerId) or ((FolderMembers.userId eq ownerId) and Folders.sharedAt.isNotNull()),
@@ -741,6 +762,14 @@ class DbLinkRepository : LinkRepository {
                 when (requestedFolderId) {
                     0L -> Links.folderId.isNull()
                     else -> Links.folderId eq requestedFolderId
+                }
+            },
+            linkId?.let { Links.id eq it },
+            isPublic?.let { published ->
+                if (published) {
+                    Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull()
+                } else {
+                    Folders.turnsPublicAt.isNull() or Links.turnsPublicAt.isNull()
                 }
             },
             isFavorite?.let { favorite ->
@@ -956,6 +985,7 @@ class DbLinkRepository : LinkRepository {
             tags = this[Links.tags],
             createdAt = this[Links.createdAt].toKotlinInstant(),
             favoriteAt = this[Links.favoriteAt]?.toKotlinInstant(),
+            turnsPublicAt = effectivePublicationAt(),
             score = this[columns.scoreAlias],
             titleScore = this[columns.titleScoreAlias],
             urlScore = this[columns.urlScoreAlias],
@@ -1007,8 +1037,11 @@ class DbLinkRepository : LinkRepository {
             hasContent = this[hasContent],
             contentExcerpt = this[contentExcerpt],
             isContentPending = this[isContentPending],
-            turnsPublicAt = this[Links.turnsPublicAt]?.takeIf { this.getOrNull(Folders.turnsPublicAt) != null }?.toKotlinInstant(),
+            turnsPublicAt = effectivePublicationAt(),
         )
+
+    private fun ResultRow.effectivePublicationAt(): Instant? =
+        this[Links.turnsPublicAt]?.takeIf { this.getOrNull(Folders.turnsPublicAt) != null }?.toKotlinInstant()
 }
 
 private val TAGS_TEXT = arrayToString(Links.tags, " ")

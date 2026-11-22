@@ -57,8 +57,6 @@ interface LinkRepository {
 
     suspend fun findAllUrlsByOwnerId(ownerId: Long): List<String>
 
-    suspend fun findCreatedAtById(linkId: Long): Instant?
-
     suspend fun findDetailById(
         linkId: Long,
         loginId: Long,
@@ -72,6 +70,8 @@ interface LinkRepository {
         sort: LinkSort,
         cursor: LinkSearchCursor?,
         size: Int,
+        isPublic: Boolean? = null,
+        linkId: Long? = null,
     ): List<SearchLinksQuery>
 
     suspend fun update(link: Link): Link

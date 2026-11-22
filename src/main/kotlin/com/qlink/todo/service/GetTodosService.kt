@@ -52,7 +52,7 @@ class GetTodosService(
                 ReadResult.Member(readMemberTodos(viewerId, status, orderKey, order, scrollRequest, isCompleted, reminderAt, folderId))
             } else {
                 val publicFolderId = folder?.id ?: throw BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_MISSING)
-                folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+                folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
                 (status == null && isCompleted == null && reminderAt == null).requireTrue(ErrorCode.COMMON_INVALID_FILTER)
                 ReadResult.Guest(readPublicTodos(publicFolderId, orderKey, order, scrollRequest))
             }

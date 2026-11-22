@@ -66,7 +66,7 @@ internal fun SearchFoldersQuery.toFoldersContentResponse(): GetFoldersContentRes
         name = name,
         emoji = emoji,
         isShared = sharedAt != null,
-        isPublic = isPublic,
+        turnsPublicAt = turnsPublicAt,
         shareCounts = shareCounts,
         linkCounts = linkCounts,
         myLinkCounts = myLinkCounts,

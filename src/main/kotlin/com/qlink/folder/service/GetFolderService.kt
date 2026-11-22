@@ -35,7 +35,7 @@ class GetFolderService(
                         ).singleOrNull() ?: throw BusinessException(ErrorCode.FOLDER_NOT_FOUND)
                 ReadResult.Member(detail.toFoldersContentResponse())
             } else {
-                folder.isPublic.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
+                folder.isPublished.requireTrue(ErrorCode.FOLDER_NOT_FOUND)
                 ReadResult.Guest(PublicFolderResponse(id = folderId, name = folder.name, emoji = folder.emoji))
             }
         }

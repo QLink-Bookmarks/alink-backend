@@ -227,7 +227,7 @@ class UpdateFolderServiceTest :
                                 ).id
                             val stored = tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).associateBy { it.id } }
                             stored.getValue(createdBeforePublish).turnsPublicAt shouldBe null
-                            published shouldBe true
+                            published shouldNotBe null
                             stored.getValue(createdWhilePublic).turnsPublicAt shouldBe null
                             stored.getValue(createdPrivate).turnsPublicAt shouldBe null
                             stored.getValue(createdAfterRevoke).turnsPublicAt shouldBe null
@@ -235,7 +235,13 @@ class UpdateFolderServiceTest :
                                 publicLinks.getPublicLinks(folderId, null, null, ScrollRequest())
                             }
                             val next = setPublic(folder, true).turnsPublicAt
-                            tx.readOnly { linkRepository.findAllByFolderIds(listOf(folderId)).none { it.isPublishedIn(next != null) } } shouldBe true
+                            tx.readOnly {
+                                linkRepository
+                                    .findAllByFolderIds(
+                                        listOf(folderId),
+                                    ).none { it.isPublishedIn(next != null) }
+                            } shouldBe
+                                true
                             publicLinks.getPublicLinks(folderId, null, null, ScrollRequest()).contents shouldBe emptyList()
                         }.await()
                 }

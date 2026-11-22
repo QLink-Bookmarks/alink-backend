@@ -2,6 +2,8 @@ package com.qlink.folder.service
 
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.response.ReadResult
+import com.qlink.common.scroll.Base64CursorCodec
 import com.qlink.common.scroll.ScrollRequest
 import com.qlink.common.search.SortDirection
 import com.qlink.folder.domain.Folder
@@ -9,6 +11,9 @@ import com.qlink.folder.dto.PublicFolderCursor
 import com.qlink.folder.dto.UpdateFolderRequest
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.link.domain.Link
+import com.qlink.link.domain.LinkOrderKey
+import com.qlink.link.dto.LinkSearchCursor
+import com.qlink.link.dto.LinkSearchCursorValue
 import com.qlink.link.dto.PublicFolderLinkResponse
 import com.qlink.link.repository.LinkRepository
 import com.qlink.link.service.GetLinksService
@@ -57,7 +62,7 @@ class GetPublicFolderLinksServiceTest :
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
                 folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 other = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
-                links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = other.id, isPublic = other.isPublic))
+                links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = other.id, isPublic = other.isPublished))
                 links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = null))
                 val createdAt = RandomFixture.randomPastInstant()
                 links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, createdAt = createdAt))
@@ -67,7 +72,7 @@ class GetPublicFolderLinksServiceTest :
                             LinkFixture.createRandomLinkOf(
                                 ownerId = ownerId,
                                 folderId = folder.id,
-                                isPublic = folder.isPublic,
+                                isPublic = folder.isPublished,
                                 createdAt = it,
                                 memo = RandomFixture.randomSentenceWithMax(50),
                             ),
@@ -87,6 +92,122 @@ class GetPublicFolderLinksServiceTest :
                         stored.map { PublicFolderLinkResponse(id = it.id!!, title = it.title, url = it.url) }.toSet()
                     result.contents.forEach { Json.encodeToJsonElement(it).jsonObject.keys shouldBe setOf("id", "title", "url") }
                     result.hasNext shouldBe false
+                }
+            }
+
+            When("회원과 외부인이 공개 필터로 각각 조회하면") {
+                Then("페이지 경계 전에 필터링하고 커서를 해당 권한과 필터에 묶는다") {
+                    val folderId = folder.id!!
+
+                    suspend fun read(
+                        viewerId: Long?,
+                        isPublic: Boolean?,
+                        cursor: String? = null,
+                        query: String? = null,
+                    ) = service.getLinks(
+                        viewerId = viewerId,
+                        query = query,
+                        folderId = folderId,
+                        isFavorite = null,
+                        orderKey = null,
+                        order = null,
+                        scrollRequest = ScrollRequest(cursor = cursor, size = size),
+                        isPublic = isPublic,
+                    )
+
+                    val ownerId = folder.ownerId
+                    val ownerPage = (read(viewerId = ownerId, isPublic = true) as ReadResult.Member).data
+                    val ownerCursor = ownerPage.nextCursor.shouldNotBeNull()
+                    val ownerNext = (read(viewerId = ownerId, isPublic = true, cursor = ownerCursor) as ReadResult.Member).data
+                    val publicIds = savedLinks.map { it.id }.toSet()
+                    (ownerPage.contents + ownerNext.contents).forEach {
+                        (it.id in publicIds) shouldBe true
+                        it.turnsPublicAt shouldBe links.findById(it.id)?.turnsPublicAt
+                    }
+                    val private = (read(viewerId = ownerId, isPublic = false) as ReadResult.Member).data
+                    private.hasNext shouldBe false
+                    private.contents.single().turnsPublicAt shouldBe null
+                    val query = savedLinks.first().title
+                    val matching = (read(viewerId = ownerId, isPublic = true, query = query) as ReadResult.Member).data
+                    matching.contents.single().id shouldBe savedLinks.first().id
+                    val excluded = (read(viewerId = ownerId, isPublic = false, query = query) as ReadResult.Member).data
+                    excluded.isEmpty shouldBe true
+
+                    val guest = (read(viewerId = null, isPublic = true) as ReadResult.Guest).data
+                    guest.contents.single().id shouldBe ownerPage.contents.single().id
+                    val guestCursor = guest.nextCursor.shouldNotBeNull()
+                    val guestNext = (read(viewerId = null, isPublic = true, cursor = guestCursor) as ReadResult.Guest).data
+                    guestNext.contents.single().id shouldBe ownerNext.contents.single().id
+                    val empty = (read(viewerId = null, isPublic = false) as ReadResult.Guest).data
+                    empty.contents shouldBe emptyList()
+                    empty.isEmpty shouldBe true
+                    empty.hasNext shouldBe false
+                    empty.nextCursor shouldBe null
+
+                    for (filter in listOf(null, false)) {
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                            read(viewerId = ownerId, isPublic = filter, cursor = ownerCursor)
+                        }
+                        shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                            read(viewerId = null, isPublic = filter, cursor = guestCursor)
+                        }
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(viewerId = null, isPublic = true, cursor = ownerCursor)
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(viewerId = ownerId, isPublic = true, cursor = ownerCursor + RandomFixture.randomId())
+                    }
+                }
+            }
+
+            When("이전 인증 커서가 범위 밖 ID로 생성 시각을 복원하려고 하면") {
+                Then("다른 폴더, 다른 소유자, 현재 검색 범위 밖 ID가 모두 없는 행과 같은 오류를 반환한다") {
+                    val otherOwner = users.insert(UserFixture.createRandomValidUser()).id!!
+                    val otherOwnerLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = otherOwner))
+                    val wrongFolderLink = links.findAllByFolderIds(listOf(other.id!!)).single()
+
+                    suspend fun read(
+                        id: Long,
+                        folderId: Long? = null,
+                        isFavorite: Boolean? = null,
+                        isPublic: Boolean? = null,
+                    ) = service.getLinks(
+                        viewerId = folder.ownerId,
+                        query = null,
+                        folderId = folderId,
+                        isFavorite = isFavorite,
+                        orderKey = null,
+                        order = null,
+                        scrollRequest =
+                            ScrollRequest(
+                                cursor =
+                                    Base64CursorCodec.encode(
+                                        LinkSearchCursor(
+                                            orderKey = LinkOrderKey.CREATED_AT,
+                                            direction = SortDirection.DESC,
+                                            value = LinkSearchCursorValue(id = id),
+                                        ),
+                                    ),
+                            ),
+                        isPublic = isPublic,
+                    )
+
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(id = otherOwnerLink.id!!)
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(id = wrongFolderLink.id!!, folderId = folder.id)
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(id = RandomFixture.randomId(), folderId = folder.id)
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(id = savedLinks.first().id!!, folderId = folder.id, isFavorite = true)
+                    }
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.COMMON_CURSOR_MALFORMED.message) {
+                        read(id = savedLinks.first().id!!, folderId = folder.id, isPublic = true)
+                    }
                 }
             }
 
@@ -126,7 +247,7 @@ class GetPublicFolderLinksServiceTest :
                         request = UpdateFolderRequest(name = folder.name, isPublic = true),
                     )
                     service.getPublicLinks(folderId, null, null, next).contents shouldBe emptyList()
-                    links.findAllByFolderIds(listOf(folderId)).none { it.isPublic } shouldBe true
+                    links.findAllByFolderIds(listOf(folderId)).none { it.turnsPublicAt != null } shouldBe true
                 }
             }
 

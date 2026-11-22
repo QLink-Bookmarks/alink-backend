@@ -55,9 +55,9 @@ class GetPublicFolderTodosServiceTest :
                 folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 other = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId))
                 movedLink =
-                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublic))
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished))
                 deletedLink =
-                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublic))
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished))
                 val otherLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = other.id))
                 val privateLink = links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id))
                 completed = todos.insert(TodoFixture.createOverdueCompletedTodoOf(linkId = movedLink.id!!, ownerId = ownerId))
@@ -116,7 +116,7 @@ class GetPublicFolderTodosServiceTest :
                 folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 val link =
                     links.insert(
-                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublic),
+                        LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished),
                     )
                 todo = todos.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))
             }
@@ -144,7 +144,7 @@ class GetPublicFolderTodosServiceTest :
                 val ownerId = users.insert(UserFixture.createRandomValidUser()).id!!
                 folder = folders.insert(FolderFixture.createValidUnsharedFolder(ownerId).setPublic(true))
                 link =
-                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublic))
+                    links.insert(LinkFixture.createRandomLinkOf(ownerId = ownerId, folderId = folder.id, isPublic = folder.isPublished))
                 savedTodos =
                     List(DEFAULT_SCROLL_SIZE + 2) {
                         todos.insert(TodoFixture.createRandomTodoOf(linkId = link.id!!, ownerId = ownerId))

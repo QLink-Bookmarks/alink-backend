@@ -195,7 +195,17 @@ internal fun getLinksDocs(): RouteConfig.() -> Unit =
                     "정렬 방향 (asc / desc). orderKey가 없을 때만 기존 latest(= created_at desc) / earliest(= created_at asc) / " +
                     "laxico(= title asc) / similar(= similarity desc)도 받아요"
             }
-            queryParameter<String?>("cursor") { description = "페이지네이션 커서" }
+            queryParameter<Boolean?>("isPublic") {
+                description =
+                    "공개 필터. 소문자 true 또는 false를 한 번만 보내요. " +
+                    "공개 폴더의 외부 열람자가 false를 지정하면 빈 목록을 반환해요. " +
+                    "잘못된 값이나 중복 값은 400 COMMON_INVALID_FILTER (COM_400_0003)을 반환해요."
+            }
+            queryParameter<String?>("cursor") {
+                description =
+                    "현재 권한 범위와 공개 필터에 해당하는 페이지네이션 커서. " +
+                    "다른 범위나 공개 필터의 커서는 400 COMMON_CURSOR_MALFORMED (COM_400_0004)을 반환해요."
+            }
             queryParameter<Int>("size") { description = "페이지 크기, 기본값: 15" }
         }
         response {

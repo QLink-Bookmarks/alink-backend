@@ -45,6 +45,7 @@ data class PublicFolderCursor(
     val direction: SortDirection,
     val id: Long? = null,
     val createdAt: Instant? = null,
+    val isPublic: Boolean? = null,
 )
 
 @Serializable

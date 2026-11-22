@@ -21,6 +21,7 @@ import com.qlink.todo.repository.TodoRepository
 import com.qlink.user.repository.UserRepository
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -39,6 +40,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -207,6 +209,9 @@ class ServerTest :
                             owner
                         val detail = client.get(detailPath) { bearerAuth(token(viewer)) }.readData()
                         detail.containsKey("memo") shouldBe true
+                        detail.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
+                            tx.readOnly { links.findById(publicLink)?.turnsPublicAt.toString() }
+                        detail.containsKey("isPublic") shouldBe false
                         detail.getValue("isOwner").jsonPrimitive.content shouldBe (viewer == owner).toString()
                         client.get("/api/links/$privateLink") { bearerAuth(token(viewer)) }.status shouldBe HttpStatusCode.OK
                     }
@@ -237,6 +242,50 @@ class ServerTest :
                     listedLink.getValue("id").jsonPrimitive.long shouldBe publicLink
                     val memberLinks = client.get(linksPath) { bearerAuth(token(member)) }.readData()
                     memberLinks.getValue("hasNext").jsonPrimitive.content shouldBe "true"
+                    for ((filter, id) in listOf(true to publicLink, false to privateLink)) {
+                        val filtered = client.get("$linksPath&isPublic=$filter") { bearerAuth(token(member)) }
+                        filtered.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        filtered
+                            .readData()
+                            .getValue("contents")
+                            .jsonArray
+                            .single()
+                            .jsonObject
+                            .getValue("id")
+                            .jsonPrimitive.long shouldBe id
+                    }
+                    client.get("$linksPath&isPublic=true").readData() shouldBe guestLinks
+                    for (viewer in listOf<Long?>(null, outsider)) {
+                        val filtered = client.get("$linksPath&isPublic=false") { viewer?.let { bearerAuth(token(it)) } }
+                        filtered.status shouldBe HttpStatusCode.OK
+                        filtered
+                            .readData()
+                            .getValue("contents")
+                            .jsonArray
+                            .isEmpty() shouldBe true
+                        filtered.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                    }
+                    for (filter in listOf(
+                        "isPublic",
+                        "isPublic=",
+                        "isPublic=TRUE",
+                        "isPublic=1",
+                        "isPublic=true&isPublic=true",
+                        "isPublic=true&isPublic=false",
+                    )) {
+                        val rejected = client.get("$linksPath&$filter")
+                        rejected.status shouldBe HttpStatusCode.BadRequest
+                        rejected.headers[HttpHeaders.CacheControl] shouldBe "no-store"
+                        apiErrorCode(rejected.bodyAsText()) shouldBe ErrorCode.COMMON_INVALID_FILTER.code
+                    }
+                    val previousCursor = memberLinks.getValue("nextCursor").jsonPrimitive.content
+                    val wrongCursor =
+                        client.get("$linksPath&isPublic=true") {
+                            bearerAuth(token(member))
+                            url.parameters.append("cursor", previousCursor)
+                        }
+                    wrongCursor.status shouldBe HttpStatusCode.BadRequest
+                    apiErrorCode(wrongCursor.bodyAsText()) shouldBe ErrorCode.COMMON_CURSOR_MALFORMED.code
 
                     val guestTodos = client.get(todosPath).readData()
                     client.get(todosPath) { bearerAuth(token(outsider)) }.readData() shouldBe guestTodos
@@ -281,6 +330,35 @@ class ServerTest :
                         .jsonArray.size shouldBe 0
                     val api = Json.parseToJsonElement(client.get("/openapi").bodyAsText()).jsonObject
                     val apiPaths = api.getValue("paths").jsonObject
+                    for (path in listOf("/api/folders/{id}/privacy", "/api/links/{id}/privacy")) {
+                        apiPaths.getValue(path).jsonObject.containsKey("put") shouldBe true
+                        apiPaths.getValue(path).jsonObject.containsKey("get") shouldBe false
+                    }
+                    val linkListOperation =
+                        apiPaths
+                            .getValue("/api/links")
+                            .jsonObject
+                            .getValue("get")
+                            .jsonObject
+                    val publicFilter =
+                        linkListOperation
+                            .getValue("parameters")
+                            .jsonArray
+                            .single {
+                                it.jsonObject
+                                    .getValue("name")
+                                    .jsonPrimitive.content == "isPublic"
+                            }.jsonObject
+                    publicFilter
+                        .getValue("description")
+                        .jsonPrimitive.content
+                        .contains("COM_400_0003") shouldBe true
+                    linkListOperation
+                        .getValue("responses")
+                        .jsonObject
+                        .getValue("400")
+                        .toString()
+                        .contains("COM_400_0004") shouldBe true
                     val apiSchemas =
                         api
                             .getValue("components")
@@ -331,10 +409,10 @@ class ServerTest :
                         HttpMethod.Get to "/api/links?folderId=0",
                         HttpMethod.Get to "/api/todos",
                         HttpMethod.Get to "/api/todos/counts",
-                        HttpMethod.Get to "$folderPath/privacy",
                         HttpMethod.Get to "$folderPath/members",
                         HttpMethod.Post to "/api/folders",
                         HttpMethod.Put to folderPath,
+                        HttpMethod.Put to "$folderPath/privacy",
                         HttpMethod.Delete to folderPath,
                         HttpMethod.Post to folderPath,
                         HttpMethod.Put to "$folderPath/members",
@@ -343,6 +421,7 @@ class ServerTest :
                         HttpMethod.Post to "/api/links",
                         HttpMethod.Put to "/api/links/ai",
                         HttpMethod.Put to detailPath,
+                        HttpMethod.Put to "$detailPath/privacy",
                         HttpMethod.Patch to detailPath,
                         HttpMethod.Delete to detailPath,
                         HttpMethod.Put to "$detailPath/favorite",
@@ -364,6 +443,27 @@ class ServerTest :
                             setBody("""{"isPublic":false}""")
                         }
                     outsiderWrite.status shouldBe HttpStatusCode.Forbidden
+
+                    suspend fun setPrivacy(
+                        path: String,
+                        isPublic: Boolean,
+                    ) = client
+                        .put("$path/privacy") {
+                            bearerAuth(token(owner))
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"isPublic":$isPublic}""")
+                        }.readData()
+
+                    val folderPublication = setPrivacy(folderPath, true)
+                    folderPublication.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
+                        tx.readOnly { folders.findById(folder)?.turnsPublicAt.toString() }
+                    val linkPublication = setPrivacy(detailPath, true)
+                    linkPublication.getValue("turnsPublicAt").jsonPrimitive.content shouldBe
+                        tx.readOnly { links.findById(publicLink)?.turnsPublicAt.toString() }
+                    setPrivacy(detailPath, true) shouldBe linkPublication
+                    setPrivacy(detailPath, false).getValue("turnsPublicAt") shouldBe JsonNull
+                    client.get(detailPath).status shouldBe HttpStatusCode.NotFound
+                    setPrivacy(detailPath, true).getValue("turnsPublicAt") shouldNotBe linkPublication.getValue("turnsPublicAt")
 
                     val move =
                         client.patch(detailPath) {
@@ -476,12 +576,12 @@ class ServerTest :
                                 }
                             } else {
                                 client.delete("$folderPath/members/$member") {
-                                    bearerAuth(if (folder.isPublic) ownerToken else memberToken)
+                                    bearerAuth(if (folder.isPublished) ownerToken else memberToken)
                                 }
                             }
                         accessChange.status shouldBe HttpStatusCode.OK
 
-                        if (folder.isPublic) {
+                        if (folder.isPublished) {
                             client.get(folderPath) { bearerAuth(memberToken) }.readData() shouldBe client.get(folderPath).readData()
                             val guestLinks = client.get(linksPath).readContents()
                             val guestActions = client.get(todosPath).readContents()
@@ -513,7 +613,7 @@ class ServerTest :
                         ownedDetail shouldBe beforeOwnedDetail
                         ownedDetail.getValue("id").jsonPrimitive.long shouldBe memberLinkId
                         ownedDetail.getValue("isOwner").jsonPrimitive.content shouldBe "true"
-                        ownedDetail.getValue("isPublic").jsonPrimitive.content shouldBe "false"
+                        ownedDetail.getValue("turnsPublicAt").jsonPrimitive.content shouldBe "null"
                         ownedDetail.containsKey("memo") shouldBe true
                         client.get(ownedLinkPath).status shouldBe HttpStatusCode.NotFound
 

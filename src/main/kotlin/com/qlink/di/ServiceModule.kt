@@ -29,6 +29,7 @@ import com.qlink.bookmarkimport.service.GetImportReversalPreviewService
 import com.qlink.bookmarkimport.service.GetImportsService
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.EncryptedCursorCodec
 import com.qlink.config.SecurityConfig
 import com.qlink.device.service.DeleteDeviceService
 import com.qlink.device.service.PutDeviceService
@@ -347,8 +348,10 @@ fun serviceModule() =
                     keyBase64 = Base64.getEncoder().encodeToString(key),
                     invalidKeyErrorCode = ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
                 )
-            PublicFolderCursorCodec(cipher)
+            EncryptedCursorCodec(cipher)
         }
+
+        single { PublicFolderCursorCodec(get()) }
 
         single {
             DeleteFolderService(
@@ -440,6 +443,7 @@ fun serviceModule() =
                 userRepository = get(),
                 folderAccessValidator = get(),
                 cursorCodec = get(),
+                encryptedCursorCodec = get(),
             )
         }
 

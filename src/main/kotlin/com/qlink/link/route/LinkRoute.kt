@@ -3,6 +3,8 @@ package com.qlink.link.route
 import com.qlink.ai.dto.AiSummaryRequest
 import com.qlink.ai.service.UpdateLinkAiSummaryService
 import com.qlink.auth.domain.JwtPrincipal
+import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
 import com.qlink.common.response.ReadNoStore
 import com.qlink.common.response.ReadResult
 import com.qlink.common.response.respondSuccess
@@ -28,9 +30,11 @@ import io.github.smiley4.ktoropenapi.resources.patch
 import io.github.smiley4.ktoropenapi.resources.post
 import io.github.smiley4.ktoropenapi.resources.put
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.decodeURLQueryComponent
 import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
+import io.ktor.server.request.queryString
 import io.ktor.server.request.receive
 import io.ktor.server.routing.Route
 import org.koin.ktor.ext.inject
@@ -63,12 +67,28 @@ fun Route.linkRoutes() {
                 call.respondMissingAccessToken()
                 return@get
             }
+            val filterCount =
+                call.request
+                    .queryString()
+                    .splitToSequence('&')
+                    .count { it.substringBefore('=').decodeURLQueryComponent() == "isPublic" }
+            val isPublic =
+                if (filterCount == 0) {
+                    null
+                } else {
+                    resource.isPublic
+                        .singleOrNull()
+                        ?.toBooleanStrictOrNull()
+                        ?.takeIf { filterCount == 1 }
+                        ?: throw BusinessException(ErrorCode.COMMON_INVALID_FILTER)
+                }
             val response =
                 getLinksService.getLinks(
                     viewerId = viewerId,
                     query = resource.query,
                     folderId = resource.folderId,
                     isFavorite = resource.isFavorite,
+                    isPublic = isPublic,
                     orderKey = resource.orderKey,
                     order = resource.order,
                     scrollRequest = ScrollRequest(cursor = resource.cursor, size = resource.size),
@@ -130,7 +150,7 @@ fun Route.linkRoutes() {
                 updateLinkService.setPrivacy(loginId = principal.userId, linkId = resource.parent.id, isPublic = request.isPublic)
 
             call.respondSuccess(HttpStatusCode.OK, response)
-        }
+        }.install(ReadNoStore)
     }
 
     authenticate {

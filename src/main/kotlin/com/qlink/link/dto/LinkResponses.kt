@@ -71,6 +71,7 @@ data class GetLinksContentResponse(
     val contentExcerpt: String?,
     val matchedFields: List<MatchedField>,
     val contentSnippet: SnippetResponse?,
+    val turnsPublicAt: Instant?,
 )
 
 @Serializable

@@ -110,7 +110,7 @@ class DbTodoRepository : TodoRepository {
                 .join(otherTable = Links, joinType = JoinType.INNER, onColumn = Todos.linkId, otherColumn = Links.id)
                 .join(otherTable = Folders, joinType = JoinType.INNER, additionalConstraint = { Links.folderId eq Folders.id })
                 .select(Todos.id, Todos.linkId, Todos.title, completed)
-                .where { (Folders.id eq folderId) and (Folders.isPublic eq true) and (Links.isPublic eq true) }
+                .where { (Folders.id eq folderId) and Folders.turnsPublicAt.isNotNull() and Links.turnsPublicAt.isNotNull() }
         if (cursorId != null) {
             query.andWhere { beyond(expression = Todos.id, cursorValue = longLiteral(cursorId), direction = direction) }
         }

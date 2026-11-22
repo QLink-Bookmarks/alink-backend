@@ -62,6 +62,7 @@ data class SearchLinksQuery(
     val tags: List<String>,
     val createdAt: Instant,
     val favoriteAt: Instant?,
+    val turnsPublicAt: Instant?,
     val score: Double,
     val titleScore: Double,
     val urlScore: Double,
@@ -117,6 +118,21 @@ data class LinkDetailQuery(
 )
 
 typealias LinkSearchCursor = SortCursor<LinkOrderKey, LinkSearchCursorValue>
+
+@Serializable
+data class LinkSearchCursorScope(
+    val viewerId: Long,
+    val folderId: Long?,
+    val keyword: String?,
+    val isFavorite: Boolean?,
+    val isPublic: Boolean?,
+)
+
+@Serializable
+data class ScopedLinkSearchCursor(
+    val scope: LinkSearchCursorScope,
+    val cursor: LinkSearchCursor,
+)
 
 @Serializable
 data class LinkSearchCursorValue(
