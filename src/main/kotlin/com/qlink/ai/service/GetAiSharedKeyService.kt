@@ -1,6 +1,5 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiSharedKeyResponse
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.UserProviderRepository
@@ -26,8 +25,7 @@ class GetAiSharedKeyService(
 
             val lastFour =
                 userProviderRepository
-                    .findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = providerId)
-                    ?.takeIf { it.isDefault }
+                    .findFirstSharedByProviderId(providerId)
                     ?.let { credential ->
                         val key =
                             apiKeyCipher.decrypt(credential.apiKey)?.takeIf { it.length > 4 }

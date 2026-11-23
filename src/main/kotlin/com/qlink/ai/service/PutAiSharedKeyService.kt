@@ -28,23 +28,31 @@ class PutAiSharedKeyService(
     ): PutAiSharedKeyResponse =
         tx.required {
             adminValidator.validate(loginId)
-            val provider =
-                aiProviderRepository.findById(providerId) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
-
             (request.apiKey.length > 4 && request.apiKey.isNotBlank()).requireTrue(ErrorCode.AI_API_KEY_INVALID)
+            val provider =
+                aiProviderRepository.findById(providerId = providerId, forUpdate = true)
+                    ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
+
             aiClientRouter.validateApiKey(
                 providerType = provider.type,
                 baseUrl = provider.baseUrl,
                 apiKey = request.apiKey,
             )
-            userProviderRepository.save(
-                UserProvider(
-                    userId = UserProvider.SHARED_OWNER_ID,
-                    providerId = providerId,
-                    userRole = Role.SUPER_ADMIN,
-                    apiKey = apiKeyCipher.encrypt(request.apiKey),
-                ),
-            )
+            val encryptedKey = apiKeyCipher.encrypt(request.apiKey)
+            val existing = userProviderRepository.findFirstSharedByProviderId(providerId)
+            if (existing != null) {
+                userProviderRepository.update(existing.replaceApiKey(encryptedKey))
+            } else {
+                userProviderRepository
+                    .insertIfAbsent(
+                        UserProvider(
+                            userId = loginId,
+                            providerId = providerId,
+                            userRole = Role.SUPER_ADMIN,
+                            apiKey = encryptedKey,
+                        ),
+                    ).requireTrue(ErrorCode.AI_SHARED_KEY_PERSONAL_CONFLICT)
+            }
             PutAiSharedKeyResponse(request.apiKey.takeLast(4))
         }
 }

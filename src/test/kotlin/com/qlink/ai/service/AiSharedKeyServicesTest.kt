@@ -35,11 +35,10 @@ class AiSharedKeyServicesTest :
         val cipher = koinGet<ApiKeyCipher>()
         val vendor = koinGet<FakeAiClient>()
 
-        Given("개인 자격증명을 가진 관리자와 공용 키가 없는 제공자") {
+        Given("두 관리자와 공용 키가 없는 제공자") {
             lateinit var admin: User
             lateinit var nextAdmin: User
             lateinit var provider: AiProvider
-            lateinit var personal: UserProvider
             lateinit var validKey: String
 
             beforeTest {
@@ -49,9 +48,7 @@ class AiSharedKeyServicesTest :
                 vendor.reset()
                 nextAdmin = users.insert(UserFixture.createRandomValidSuperAdmin())
                 admin = users.insert(UserFixture.createRandomValidUser().copyForTestRole(Role.ADMIN))
-                AiFixture.insertSharedKeyOwnerIfAbsent()
                 provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI, isActive = false))
-                personal = keys.insert(AiFixture.createUserProviderOf(userId = admin.id!!, providerId = provider.id!!))
                 validKey = "dummy-key-${RandomFixture.randomId()}"
             }
 
@@ -65,7 +62,8 @@ class AiSharedKeyServicesTest :
                     replacement = "dummy-key-${RandomFixture.randomId()}"
                 }
 
-                Then("개인 키를 보존하고 기존 운영 계정의 같은 공용 행을 사용한다") {
+                Then("최초 관리자 소유권과 교체 관리자의 개인 키를 유지한다") {
+                    val personal = keys.insert(AiFixture.createUserProviderOf(userId = nextAdmin.id!!, providerId = provider.id!!))
                     val providerId = provider.id!!
                     getSharedKey.getAiSharedKey(loginId = admin.id!!, providerId = providerId).lastFour shouldBe null
                     val created =
@@ -75,8 +73,8 @@ class AiSharedKeyServicesTest :
                             request = PutAiSharedKeyRequest(validKey),
                         )
                     created.lastFour shouldBe validKey.takeLast(4)
-                    val shared = keys.findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = providerId)!!
-                    shared.userId shouldBe UserProvider.SHARED_OWNER_ID
+                    val shared = keys.findByUserIdAndProviderId(userId = admin.id!!, providerId = providerId)!!
+                    shared.userId shouldBe admin.id
                     shared.isDefault shouldBe true
                     (shared.apiKey != validKey && cipher.decrypt(shared.apiKey) == validKey) shouldBe true
 
@@ -86,43 +84,90 @@ class AiSharedKeyServicesTest :
                             providerId = providerId,
                             request = PutAiSharedKeyRequest(replacement),
                         )
-                    val saved = keys.findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = providerId)!!
+                    val saved = keys.findByUserIdAndProviderId(userId = admin.id!!, providerId = providerId)!!
                     saved.id shouldBe shared.id
+                    saved.userId shouldBe shared.userId
+                    saved.userRole shouldBe shared.userRole
                     saved.createdAt shouldBe shared.createdAt
                     saved.apiKey shouldNotBe shared.apiKey
                     (cipher.decrypt(saved.apiKey) == replacement) shouldBe true
                     keys.findAllByRole(Role.SUPER_ADMIN).map { it.id } shouldBe listOf(shared.id)
                     keys.findById(personal.id!!)!!.apiKey shouldBe personal.apiKey
-                    if (nextAdmin.id != UserProvider.SHARED_OWNER_ID) {
-                        keys.findByUserIdAndProviderId(userId = nextAdmin.id!!, providerId = providerId) shouldBe null
-                    }
+                    keys.findByUserIdAndProviderId(userId = nextAdmin.id!!, providerId = providerId)?.id shouldBe personal.id
                     rotated.lastFour shouldBe replacement.takeLast(4)
                     getSharedKey.getAiSharedKey(loginId = admin.id!!, providerId = providerId).lastFour shouldBe rotated.lastFour
                 }
             }
 
-            When("다른 계정의 SUPER_ADMIN 키만 저장되어 있으면") {
-                lateinit var otherKey: UserProvider
+            When("공용 행이 여러 개면") {
+                lateinit var first: UserProvider
+                lateinit var later: UserProvider
+                lateinit var incoming: String
 
                 beforeTest {
                     if (it.type != TestType.Test) {
                         return@beforeTest
                     }
-                    val other = users.insert(UserFixture.createRandomValidSuperAdmin())
-                    otherKey =
+                    val providerId = provider.id!!
+                    first =
                         keys.insert(
                             UserProvider(
-                                userId = other.id!!,
-                                providerId = provider.id!!,
+                                userId = nextAdmin.id!!,
+                                providerId = providerId,
                                 userRole = Role.SUPER_ADMIN,
                                 apiKey = cipher.encrypt(validKey),
                             ),
                         )
+                    later =
+                        keys.insert(
+                            UserProvider(
+                                userId = admin.id!!,
+                                providerId = providerId,
+                                userRole = Role.SUPER_ADMIN,
+                                apiKey = cipher.encrypt("dummy-other-${RandomFixture.randomId()}"),
+                            ),
+                        )
+                    incoming = "dummy-replacement-${RandomFixture.randomId()}"
                 }
 
-                Then("운영 공용 키 상태에 다른 계정의 키를 표시하지 않는다") {
-                    getSharedKey.getAiSharedKey(loginId = admin.id!!, providerId = provider.id!!).lastFour shouldBe null
-                    keys.findById(otherKey.id!!)!!.apiKey shouldBe otherKey.apiKey
+                Then("채널과 같은 가장 작은 ID의 행을 표시하고 교체한다") {
+                    val providerId = provider.id!!
+                    getSharedKey.getAiSharedKey(loginId = admin.id!!, providerId = providerId).lastFour shouldBe validKey.takeLast(4)
+                    putSharedKey.putAiSharedKey(loginId = admin.id!!, providerId = providerId, request = PutAiSharedKeyRequest(incoming))
+
+                    val updated = keys.findById(first.id!!)!!
+                    updated.userId shouldBe first.userId
+                    updated.userRole shouldBe first.userRole
+                    (cipher.decrypt(updated.apiKey) == incoming) shouldBe true
+                    (keys.findById(later.id!!)!!.apiKey == later.apiKey) shouldBe true
+                }
+            }
+
+            When("최초 등록 관리자가 같은 제공자에 개인 키를 이미 가지고 있으면") {
+                lateinit var personal: UserProvider
+
+                beforeTest {
+                    if (it.type != TestType.Test) {
+                        return@beforeTest
+                    }
+                    personal = keys.insert(AiFixture.createUserProviderOf(userId = admin.id!!, providerId = provider.id!!))
+                }
+
+                val register =
+                    suspend {
+                        putSharedKey.putAiSharedKey(
+                            loginId = admin.id!!,
+                            providerId = provider.id!!,
+                            request = PutAiSharedKeyRequest(validKey),
+                        )
+                    }
+
+                Then("충돌 오류를 반환하고 개인 행과 공용 키 상태를 보존한다") {
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.AI_SHARED_KEY_PERSONAL_CONFLICT.message) { register() }
+                    val saved = keys.findById(personal.id!!)!!
+                    saved.userRole shouldBe personal.userRole
+                    (saved.apiKey == personal.apiKey) shouldBe true
+                    keys.findFirstSharedByProviderId(provider.id!!) shouldBe null
                 }
             }
 
@@ -136,7 +181,7 @@ class AiSharedKeyServicesTest :
                     existing =
                         keys.insert(
                             UserProvider(
-                                userId = UserProvider.SHARED_OWNER_ID,
+                                userId = nextAdmin.id!!,
                                 providerId = provider.id!!,
                                 userRole = Role.SUPER_ADMIN,
                                 apiKey = cipher.encrypt(validKey),
@@ -184,7 +229,7 @@ class AiSharedKeyServicesTest :
                     shouldThrowWithMessage<BusinessException>(code.message) {
                         getDailyUsage.getAiDailyUsage(loginId = loginId, date = date)
                     }
-                    keys.findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = providerId) shouldBe null
+                    keys.findByUserIdAndProviderId(userId = admin.id!!, providerId = providerId) shouldBe null
                     vendor.requestedApiKeys.isEmpty() shouldBe true
                 }
             }

@@ -8,7 +8,6 @@ import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
-import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiApiKeyValidationRequest
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
@@ -56,11 +55,13 @@ import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -87,9 +88,9 @@ class AiAdminHttpContractTest :
         Given("Ktor, PostgreSQL과 테스트 제공자") {
             lateinit var admin: User
             lateinit var nonAdmin: User
+            lateinit var nextAdmin: User
             lateinit var provider: AiProvider
             lateinit var model: AvailableModel
-            var insertedSharedOwner = false
 
             beforeTest {
                 if (it.type != TestType.Test) {
@@ -100,7 +101,7 @@ class AiAdminHttpContractTest :
                         tx.required {
                             nonAdmin = users.insert(UserFixture.createRandomValidUser())
                             admin = users.insert(UserFixture.createRandomValidSuperAdmin())
-                            insertedSharedOwner = AiFixture.insertSharedKeyOwnerIfAbsent()
+                            nextAdmin = users.insert(UserFixture.createRandomValidSuperAdmin())
                             provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI))
                             model = models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!))
                         }
@@ -117,9 +118,7 @@ class AiAdminHttpContractTest :
                             AiProviders.deleteWhere { AiProviders.id eq provider.id!! }
                             users.deleteById(admin.id!!)
                             users.deleteById(nonAdmin.id!!)
-                            if (insertedSharedOwner) {
-                                users.deleteById(UserProvider.SHARED_OWNER_ID)
-                            }
+                            users.deleteById(nextAdmin.id!!)
                         }
                     }.await()
             }
@@ -185,7 +184,7 @@ class AiAdminHttpContractTest :
                                                 userProviderId =
                                                     keys
                                                         .findByUserIdAndProviderId(
-                                                            userId = UserProvider.SHARED_OWNER_ID,
+                                                            userId = admin.id!!,
                                                             providerId = providerId,
                                                         )!!
                                                         .id!!,
@@ -210,26 +209,33 @@ class AiAdminHttpContractTest :
                 }
             }
 
-            When("같은 제공자에 두 최초 등록 요청이 겹치면") {
-                Then("공용 행 한 건을 만들고, 이후 교체도 그 ID를 유지한다") {
+            When("두 관리자의 최초 등록 요청이 같은 제공자에서 겹치면") {
+                Then("공용 행 한 건을 만들고 첫 관리자와 행 ID를 유지한다") {
                     val config = ServiceTestEnvironment.applicationConfig()
-                    val token =
+                    val jwt = Algorithm.HMAC256(SecurityConfig.from(config).jwtSecret)
+
+                    fun token(user: User) =
                         JWT
                             .create()
-                            .withSubject(admin.id.toString())
-                            .withClaim("role", admin.role.name)
-                            .sign(Algorithm.HMAC256(SecurityConfig.from(config).jwtSecret))
+                            .withSubject(user.id.toString())
+                            .withClaim("role", user.role.name)
+                            .sign(jwt)
+
                     val providerId = provider.id!!
                     val keyPath = "/api/ai/providers/$providerId/shared-key"
                     val validatingRequests = AtomicInteger()
-                    val ready = CompletableDeferred<Unit>()
+                    val firstValidating = CompletableDeferred<Unit>()
+                    val finishFirstValidation = CompletableDeferred<Unit>()
+                    val secondValidating = CompletableDeferred<Unit>()
                     val vendor =
                         object : AiClient by FakeAiClient() {
                             override suspend fun validateApiKey(request: AiApiKeyValidationRequest) {
-                                if (validatingRequests.incrementAndGet() == 2) {
-                                    ready.complete(Unit)
+                                if (validatingRequests.incrementAndGet() == 1) {
+                                    firstValidating.complete(Unit)
+                                    withTimeout(10_000) { finishFirstValidation.await() }
+                                } else {
+                                    secondValidating.complete(Unit)
                                 }
-                                withTimeout(10_000) { ready.await() }
                             }
                         }
 
@@ -237,13 +243,15 @@ class AiAdminHttpContractTest :
                         environment { this.config = MapApplicationConfig() }
                         application { configureAiHttpContract(config = config, vendor = vendor) }
 
-                        suspend fun putKey(key: String) =
-                            client
-                                .put(keyPath) {
-                                    bearerAuth(token)
-                                    contentType(ContentType.Application.Json)
-                                    setBody(buildJsonObject { put("apiKey", key) }.toString())
-                                }.successData()
+                        suspend fun putKey(
+                            user: User,
+                            key: String,
+                        ) = client
+                            .put(keyPath) {
+                                bearerAuth(token(user))
+                                contentType(ContentType.Application.Json)
+                                setBody(buildJsonObject { put("apiKey", key) }.toString())
+                            }.successData()
 
                         suspend fun sharedIds() =
                             CoroutineScope(Dispatchers.IO)
@@ -257,12 +265,26 @@ class AiAdminHttpContractTest :
                                 }.await()
 
                         val submitted = List(2) { "dummy-concurrent-${RandomFixture.randomId()}" }
-                        val responses = coroutineScope { submitted.map { key -> async { putKey(key) } }.awaitAll() }
+                        val responses =
+                            coroutineScope {
+                                val first = async { putKey(user = admin, key = submitted[0]) }
+                                withTimeout(10_000) { firstValidating.await() }
+                                val second =
+                                    async(start = CoroutineStart.UNDISPATCHED) {
+                                        putKey(user = nextAdmin, key = submitted[1])
+                                    }
+                                try {
+                                    withTimeoutOrNull(250) { secondValidating.await() } shouldBe null
+                                } finally {
+                                    finishFirstValidation.complete(Unit)
+                                }
+                                listOf(first, second).awaitAll()
+                            }
                         responses shouldBe submitted.map { key -> buildJsonObject { put("lastFour", key.takeLast(4)) } }
 
                         val first = sharedIds().single()
-                        first.first shouldBe UserProvider.SHARED_OWNER_ID
-                        putKey("dummy-rotation-${RandomFixture.randomId()}")
+                        first.first shouldBe admin.id
+                        putKey(user = nextAdmin, key = "dummy-rotation-${RandomFixture.randomId()}")
                         sharedIds() shouldBe listOf(first)
                     }
                 }

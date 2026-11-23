@@ -1123,13 +1123,12 @@ class ClaudeAiSummaryServiceTest :
                             if (it.type != TestType.Test) {
                                 return@beforeTest
                             }
-                            AiFixture.insertSharedKeyOwnerIfAbsent()
                             activateProvider()
                             activateModel()
                             val shared =
                                 keys.insert(
                                     UserProvider(
-                                        userId = UserProvider.SHARED_OWNER_ID,
+                                        userId = admin.id!!,
                                         providerId = provider.id!!,
                                         userRole = Role.SUPER_ADMIN,
                                         apiKey = cipher.encrypt(apiKey),
@@ -1166,7 +1165,7 @@ class ClaudeAiSummaryServiceTest :
                             val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
                             shouldNotThrow<BusinessException> { action() }
 
-                            keys.findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = provider.id!!)?.id shouldBe
+                            keys.findByUserIdAndProviderId(userId = admin.id!!, providerId = provider.id!!)?.id shouldBe
                                 job.userProviderId
                             jobs.findById(job.id!!)!!.let {
                                 it.status shouldBe AiJobStatus.C

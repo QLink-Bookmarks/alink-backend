@@ -169,6 +169,7 @@ internal fun putAiSharedKeyDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.NotFound) {
                 body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND) }
             }
+            code(HttpStatusCode.Conflict) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_SHARED_KEY_PERSONAL_CONFLICT) } }
             code(HttpStatusCode.UnprocessableEntity) {
                 body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE, ErrorCode.AI_VENDOR_REQUEST_REJECTED) }
             }

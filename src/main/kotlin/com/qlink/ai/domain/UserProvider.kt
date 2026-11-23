@@ -17,13 +17,20 @@ class UserProvider(
     val isDefault: Boolean
         get() = userRole == Role.SUPER_ADMIN
 
+    fun replaceApiKey(apiKey: String): UserProvider =
+        UserProvider(
+            id = id,
+            userId = userId,
+            providerId = providerId,
+            userRole = userRole,
+            apiKey = apiKey,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+        )
+
     fun validateAccessibleBy(userId: Long) {
         if (this.userId != userId && !isDefault) {
             throw BusinessException(ErrorCode.AI_USER_PROVIDER_ACCESS_DENIED)
         }
-    }
-
-    companion object {
-        const val SHARED_OWNER_ID = 1L
     }
 }

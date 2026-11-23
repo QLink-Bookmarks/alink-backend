@@ -129,6 +129,7 @@ enum class ErrorCode(
     AI_ADMIN_MODEL_NOT_FOUND("AI_404_0007", 404, "관리할 AI 모델을 찾을 수 없어요"),
     AI_PROVIDER_DUPLICATE_TYPE("AI_409_0001", 409, "이미 등록된 AI 업체예요"),
     AI_MODEL_DUPLICATE("AI_409_0002", 409, "이 제공자에 이미 등록된 모델이에요"),
+    AI_SHARED_KEY_PERSONAL_CONFLICT("AI_409_0003", 409, "이 제공자의 개인 키가 이미 등록되어 있어요"),
     AI_PROVIDER_CLIENT_MISSING("AI_422_0002", 422, "실행 어댑터가 없는 업체는 활성화할 수 없어요"),
     AI_PROVIDER_INACTIVE("AI_422_0003", 422, "비활성 AI 제공자는 사용할 수 없어요"),
     AI_MODEL_INACTIVE("AI_422_0004", 422, "비활성 AI 모델은 사용할 수 없어요"),
