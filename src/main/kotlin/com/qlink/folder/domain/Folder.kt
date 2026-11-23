@@ -10,8 +10,6 @@ import com.qlink.common.error.requiresEmoji
 import kotlin.random.Random
 import kotlin.time.Instant
 
-private const val GUIDE_FOLDER_NAME = "ALink Tips"
-private const val GUIDE_FOLDER_EMOJI = "💡"
 private const val MAX_FOLDER_NAME_LENGTH = 100
 private const val MAX_FOLDER_EMOJI_LENGTH = 20
 private val DEFAULT_FOLDER_EMOJIS = listOf("📁", "🗂️", "🔥", "✨", "📚", "🧠", "🚀", "🌿")
@@ -121,8 +119,6 @@ class Folder(
     }
 
     companion object {
-        fun createGuide(ownerId: Long): Folder = Folder(ownerId = ownerId, name = GUIDE_FOLDER_NAME, emoji = GUIDE_FOLDER_EMOJI)
-
         fun create(
             ownerId: Long,
             name: String,

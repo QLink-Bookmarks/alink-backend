@@ -54,7 +54,7 @@ class SignInGuideServiceTest :
         Given("새로 가입하는 소셜 사용자") {
             When("처음 로그인하면") {
                 val signIn = suspend { service.signIn(request) }
-                Then("개인 가이드 폴더와 정해진 순서의 네 링크 및 본문 행을 저장한다") {
+                Then("폴더 없이 미분류 가이드 링크와 본문 행을 저장한다") {
                     val refreshToken = signIn().response.refreshToken.shouldNotBeNull()
                     val provider =
                         providers
@@ -64,15 +64,12 @@ class SignInGuideServiceTest :
                             ).shouldNotBeNull()
                     users.findById(provider.userId).shouldNotBeNull()
                     tokens.findByToken(refreshToken).shouldNotBeNull().userId shouldBe provider.userId
-                    val folder = folders.findAllByOwnerId(provider.userId).single()
-                    folder.name shouldBe "ALink Tips"
-                    folder.emoji shouldBe "💡"
-                    folder.sharedAt shouldBe null
+                    folders.findAllByOwnerId(provider.userId) shouldBe emptyList()
                     val rows =
                         links.search(
                             ownerId = provider.userId,
                             keyword = null,
-                            folderId = folder.id.shouldNotBeNull(),
+                            folderId = null,
                             isFavorite = null,
                             sort = LinkSort.of(orderKey = null, order = null),
                             cursor = null,
@@ -84,6 +81,7 @@ class SignInGuideServiceTest :
                     rows.zip(GuideDefinition.entries).forEach { (row, definition) ->
                         val link = links.findById(row.id).shouldNotBeNull()
                         link.ownerId shouldBe provider.userId
+                        link.folderId shouldBe null
                         link.sourceType shouldBe SourceType.INPUT
                         link.status shouldBe LinkStatus.C
                         link.thumbnailUrl shouldBe definition.preview.thumbnailUrl
@@ -114,7 +112,7 @@ class SignInGuideServiceTest :
             }
             When("같은 사용자가 다시 로그인하면") {
                 val signIn = suspend { service.signIn(request) }
-                Then("기존 폴더와 링크를 다시 생성하지 않는다") {
+                Then("가이드 링크를 다시 생성하지 않는다") {
                     signIn()
                     val provider =
                         providers
@@ -122,17 +120,16 @@ class SignInGuideServiceTest :
                                 providerType = AuthProviderType.KAKAO,
                                 providerId = providerId,
                             ).shouldNotBeNull()
-                    val before = folders.findAllByOwnerId(provider.userId).single()
-                    val folderId = before.id.shouldNotBeNull()
-                    val ids = links.findAllByFolderIds(listOf(folderId)).map { it.id }
+                    val urls = links.findAllUrlsByOwnerId(provider.userId)
                     val refreshToken = signIn().response.refreshToken.shouldNotBeNull()
-                    folders.findAllByOwnerId(provider.userId).map { it.id } shouldBe listOf(folderId)
-                    links.findAllByFolderIds(listOf(folderId)).map { it.id } shouldBe ids
+                    folders.findAllByOwnerId(provider.userId) shouldBe emptyList()
+                    links.findAllUrlsByOwnerId(provider.userId) shouldBe urls
+                    urls shouldBe GuideDefinition.entries.map { it.url }
                     tokens.findByToken(refreshToken).shouldNotBeNull()
                 }
             }
         }
-        Given("가이드 폴더가 없는 기존 사용자") {
+        Given("가이드 링크가 없는 기존 사용자") {
             var existingUserId = 0L
             beforeTest {
                 if (it.type != TestType.Test) return@beforeTest

@@ -14,8 +14,6 @@ import com.qlink.auth.repository.RefreshTokenRepository
 import com.qlink.common.error.ErrorCode
 import com.qlink.common.error.requirePresent
 import com.qlink.common.transaction.TransactionRunner
-import com.qlink.folder.domain.Folder
-import com.qlink.folder.repository.FolderRepository
 import com.qlink.guide.domain.GuideDefinition
 import com.qlink.guide.domain.GuidePage
 import com.qlink.link.domain.Link
@@ -37,7 +35,6 @@ class SignInService(
     private val authResourceClientRouter: AuthResourceClientRouter,
     private val authTokenService: AuthTokenService,
     private val randomUserNameGenerator: RandomUserNameGenerator,
-    private val folderRepository: FolderRepository,
     private val linkRepository: LinkRepository,
     private val linkContentRepository: LinkContentRepository,
 ) {
@@ -92,22 +89,19 @@ class SignInService(
             ),
         )
 
-        provisionGuideFolder(ownerId = userId, now = Clock.System.now())
+        provisionGuideLinks(ownerId = userId, now = Clock.System.now())
         return user
     }
 
-    private suspend fun provisionGuideFolder(
+    private suspend fun provisionGuideLinks(
         ownerId: Long,
         now: Instant,
     ) {
-        val folder = folderRepository.insert(Folder.createGuide(ownerId))
-        val folderId = folder.id.requirePresent(ErrorCode.AUTH_SIGN_IN_FOLDER_ID_REQUIRED)
         for (definition in GuideDefinition.entries.reversed()) {
             val link =
                 linkRepository.insert(
                     Link.createGuide(
                         ownerId = ownerId,
-                        folderId = folderId,
                         url = definition.url,
                         title = definition.title,
                         tags = definition.tags,

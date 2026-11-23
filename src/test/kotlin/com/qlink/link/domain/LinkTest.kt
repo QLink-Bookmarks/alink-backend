@@ -799,7 +799,6 @@ class LinkTest :
         Given("가이드 링크 값") {
             When("가이드 링크를 생성하면") {
                 val ownerId = RandomFixture.randomId()
-                val folderId = RandomFixture.randomId()
                 val url = RandomFixture.randomUrl()
                 val title = RandomFixture.randomSentenceWithMax(100)
                 val tags = RandomFixture.randomSentenceList(maxSize = 3)
@@ -809,7 +808,6 @@ class LinkTest :
                 val link =
                     Link.createGuide(
                         ownerId = ownerId,
-                        folderId = folderId,
                         url = url,
                         title = title,
                         tags = tags,
@@ -818,9 +816,9 @@ class LinkTest :
                         isVideo = isVideo,
                         now = now,
                     )
-                Then("지정 데이터와 일반 링크 초기 상태를 보존한다") {
+                Then("지정 데이터와 미분류 일반 링크 초기 상태를 보존한다") {
                     link.ownerId shouldBe ownerId
-                    link.folderId shouldBe folderId
+                    link.folderId shouldBe null
                     link.url shouldBe url
                     link.title shouldBe title
                     link.tags shouldBe tags.distinct()

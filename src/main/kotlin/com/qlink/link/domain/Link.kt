@@ -298,7 +298,6 @@ class Link(
 
         fun createGuide(
             ownerId: Long,
-            folderId: Long,
             url: String,
             title: String,
             tags: List<String>,
@@ -309,7 +308,6 @@ class Link(
         ): Link =
             Link(
                 ownerId = ownerId,
-                folderId = folderId,
                 url = url,
                 title = title,
                 tags = tags,

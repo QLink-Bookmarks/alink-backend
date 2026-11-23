@@ -40,7 +40,7 @@ internal fun signInDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.InternalServerError) {
                 description = "가입 가이드 저장 정보 오류"
                 body<ApiResponse<ErrorDetail>> {
-                    examples(ErrorCode.AUTH_SIGN_IN_FOLDER_ID_REQUIRED, ErrorCode.AUTH_SIGN_IN_LINK_ID_REQUIRED)
+                    examples(ErrorCode.AUTH_SIGN_IN_LINK_ID_REQUIRED)
                 }
             }
         }

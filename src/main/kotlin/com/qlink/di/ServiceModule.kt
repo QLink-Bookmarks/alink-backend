@@ -182,7 +182,6 @@ fun serviceModule() =
                 authResourceClientRouter = get(),
                 authTokenService = get(),
                 randomUserNameGenerator = get(),
-                folderRepository = get(),
                 linkRepository = get(),
                 linkContentRepository = get(),
             )
