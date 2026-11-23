@@ -17,6 +17,7 @@ data class GetFoldersContentResponse(
     val name: String,
     val emoji: String?,
     val isShared: Boolean,
+    val isPublic: Boolean,
     val shareCounts: Int,
     val linkCounts: Int,
     val myLinkCounts: Int,
@@ -41,4 +42,32 @@ data class GetFolderMemberResponse(
 @Serializable
 data class UpdateFolderResponse(
     val id: Long,
+    val isPublic: Boolean,
 )
+
+@Serializable
+data class FolderPrivacyResponse(
+    val isPublic: Boolean,
+)
+
+@Serializable
+data class PublicFolderResponse(
+    val id: Long,
+    val name: String,
+    val emoji: String?,
+    val myLinkCounts: Int,
+)
+
+internal fun SearchFoldersQuery.toFoldersContentResponse(): GetFoldersContentResponse =
+    GetFoldersContentResponse(
+        id = id,
+        ownerId = ownerId,
+        ownerNickname = ownerNickname,
+        name = name,
+        emoji = emoji,
+        isShared = sharedAt != null,
+        isPublic = turnsPublicAt != null,
+        shareCounts = shareCounts,
+        linkCounts = linkCounts,
+        myLinkCounts = myLinkCounts,
+    )

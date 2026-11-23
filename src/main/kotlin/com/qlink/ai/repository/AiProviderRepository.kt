@@ -11,7 +11,10 @@ interface AiProviderRepository {
 
     suspend fun insert(aiProvider: AiProvider): AiProvider
 
-    suspend fun findById(providerId: Long): AiProvider?
+    suspend fun findById(
+        providerId: Long,
+        forUpdate: Boolean = false,
+    ): AiProvider?
 
     suspend fun findByType(type: AiProviderType): AiProvider?
 

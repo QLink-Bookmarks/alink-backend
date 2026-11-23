@@ -36,20 +36,27 @@ class PatchLinkService(
         val result =
             tx.required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
-                request.folderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)) }
+                val requestedFolderId = request.folderId?.takeUnless { it == 0L }
+                val lockedTarget = requestedFolderId?.let { folderRepository.findAllByIdsForKeyShare(listOf(it)).singleOrNull() }
 
                 val link =
                     linkRepository.findByIdForUpdate(linkId)?.also { it.validateOwner(loginId) }
                         ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
 
-                val targetFolderId = request.resolveFolderId(link, loginId)
+                val target =
+                    when {
+                        request.folderId == null -> link.folderId?.let { folderRepository.findById(it) }
+                        requestedFolderId == null -> null
+                        else -> folderAccessValidator.validateWritable(lockedTarget, loginId)
+                    }
+                val targetIsPublic = target?.isPublished == true
                 val targetMemo = request.resolveMemo(link)
                 val targetTags = request.resolveTags(link)
                 val todoChangeSet = request.resolveTodoChangeSet(linkId, loginId)
 
                 val updatedLink =
                     link.update(
-                        folderId = targetFolderId,
+                        folderId = target?.id,
                         url = link.url,
                         title = link.title,
                         summary = link.summary,
@@ -59,6 +66,7 @@ class PatchLinkService(
                         sourceType = link.sourceType,
                         previewPublicBaseUrl = urlResolver.publicBaseUrl,
                         previewEnvironment = urlResolver.environment,
+                        turnsPublicAt = link.publishedAtIn(targetIsPublic),
                     )
 
                 val savedLink =
@@ -70,6 +78,7 @@ class PatchLinkService(
                             folderId = updatedLink.folderId,
                             memo = updatedLink.memo,
                             tags = updatedLink.tags,
+                            turnsPublicAt = updatedLink.turnsPublicAt,
                         )
                     }
 
@@ -88,6 +97,7 @@ class PatchLinkService(
                             memo = savedLink.memo,
                             tags = savedLink.tags,
                             todos = todoRepository.findAllByLinkIdForLinkDetail(linkId),
+                            isPublic = savedLink.isPublishedIn(targetIsPublic),
                         ),
                     deletedTodoIds = deletedTodoIds,
                     updatedTodos = updatedTodos,
@@ -100,21 +110,6 @@ class PatchLinkService(
         result.createdTodos.forEach { scheduleTodoNotificationService.createForTodo(it) }
 
         return result.response
-    }
-
-    private suspend fun PatchLinkRequest.resolveFolderId(
-        link: Link,
-        loginId: Long,
-    ): Long? {
-        val folderId = folderId ?: return link.folderId
-
-        if (folderId == 0L) {
-            return null
-        }
-
-        folderAccessValidator.validateWritable(folderId, loginId)
-
-        return folderId
     }
 
     private fun PatchLinkRequest.resolveMemo(link: Link): String? =
@@ -201,7 +196,8 @@ class PatchLinkService(
     private fun Link.hasSamePatchFieldsAs(other: Link): Boolean =
         folderId == other.folderId &&
             memo == other.memo &&
-            tags == other.tags
+            tags == other.tags &&
+            turnsPublicAt == other.turnsPublicAt
 
     private data class TodoChangeSet(
         val todosToUpdate: List<Todo>,

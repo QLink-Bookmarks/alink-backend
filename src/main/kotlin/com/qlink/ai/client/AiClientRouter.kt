@@ -1,6 +1,10 @@
 package com.qlink.ai.client
 
 import com.qlink.ai.domain.AiProviderType
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.common.coroutines.catchingFailure
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
 
@@ -25,12 +29,16 @@ class AiClientRouter(
         baseUrl: String,
         apiKey: String,
     ) {
-        requireSupported(providerType)
-            .validateApiKey(
-                AiApiKeyValidationRequest(
-                    baseUrl = baseUrl,
-                    apiKey = apiKey,
-                ),
+        catchingFailure {
+            requireSupported(providerType).validateApiKey(
+                AiApiKeyValidationRequest(baseUrl = baseUrl, apiKey = apiKey),
             )
+        }.onFailure {
+            throw when (it) {
+                is BusinessException -> it
+                is AiApiKeyValidationException -> BusinessException(aiVendorErrorCode(it.statusCode))
+                else -> BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }

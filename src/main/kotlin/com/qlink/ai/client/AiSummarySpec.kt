@@ -39,17 +39,26 @@ object AiSummarySpec {
             nullableFolderId = false,
         )
 
+    val claudeJsonSchema: JsonObject =
+        summarySchema(
+            includeAdditionalProperties = true,
+            nullableReminderAt = true,
+            nullableFolderId = true,
+            idType = "integer",
+        )
+
     private fun summarySchema(
         includeAdditionalProperties: Boolean,
         nullableReminderAt: Boolean,
         nullableFolderId: Boolean,
+        idType: String = "number",
     ): JsonObject =
         buildJsonObject {
             put("type", "object")
             putAdditionalProperties(includeAdditionalProperties)
             putJsonObject("properties") {
                 putJsonObject("id") {
-                    put("type", "number")
+                    put("type", idType)
                     put("description", "link id given in the prompt")
                 }
                 putJsonObject("title") {
@@ -68,12 +77,12 @@ object AiSummarySpec {
                         put(
                             "type",
                             buildJsonArray {
-                                add(JsonPrimitive("number"))
+                                add(JsonPrimitive(idType))
                                 add(JsonPrimitive("null"))
                             },
                         )
                     } else {
-                        put("type", "number")
+                        put("type", idType)
                     }
                     put("description", "folder id selected from the folders given in the prompt. Use null for 미분류.")
                 }

@@ -80,6 +80,7 @@ enum class ErrorCode(
     LINK_PREVIEW_OWNER_NOT_FOUND("LINK_404_0007", 404, "로그인 사용자를 찾을 수 없어요"),
 
     LINK_COPY_NOT_SHARED_FOLDER("LINK_422_0001", 422, "공유 폴더가 아니에요"),
+    LINK_PUBLIC_FOLDER_REQUIRED("LINK_422_0002", 422, "전체 공개 폴더의 링크만 전체 공개할 수 있어요"),
 
     LINK_INLINE_FAVICON_MODE_INVALID("LINK_500_0001", 500, "인라인 파비콘을 처리할 수 없는 프리뷰 모드예요"),
     LINK_INLINE_FAVICON_TOO_LARGE("LINK_500_0002", 500, "인라인 파비콘이 최대 크기를 넘었어요"),
@@ -111,6 +112,10 @@ enum class ErrorCode(
     AI_API_KEY_MISSING("AI_500_0001", 500, "AI API 키가 설정되지 않았어요"),
     AI_SUMMARY_LINK_MISMATCH("AI_500_0002", 500, "AI 응답의 링크가 요청한 링크와 달라요"),
     AI_EMPTY_RESPONSE("AI_502_0001", 502, "AI 응답이 비어 있어요"),
+    AI_SUMMARY_INPUT_EMPTY("AI_400_0011", 400, "AI 요약에 필요한 입력이 비어 있어요"),
+    AI_SUMMARY_INPUT_LIMIT_REACHED("AI_422_0006", 422, "AI가 처리할 수 있는 입력 길이를 초과했어요"),
+    AI_SUMMARY_PROMPT_BLOCKED("AI_422_0007", 422, "AI 제공자가 요약 입력을 차단했어요"),
+    AI_SUMMARY_OUTPUT_BLOCKED("AI_502_0010", 502, "AI 제공자가 요약 출력을 차단했어요"),
     AI_PROVIDER_BASE_URL_INVALID("AI_400_0004", 400, "AI 제공자 공식 HTTPS 주소를 입력해 주세요"),
     AI_MODEL_NAME_BLANK("AI_400_0005", 400, "모델 식별자를 입력해 주세요"),
     AI_MODEL_NAME_OVER_MAX("AI_400_0006", 400, "모델 식별자는 최대 100자예요"),
@@ -124,9 +129,24 @@ enum class ErrorCode(
     AI_ADMIN_MODEL_NOT_FOUND("AI_404_0007", 404, "관리할 AI 모델을 찾을 수 없어요"),
     AI_PROVIDER_DUPLICATE_TYPE("AI_409_0001", 409, "이미 등록된 AI 업체예요"),
     AI_MODEL_DUPLICATE("AI_409_0002", 409, "이 제공자에 이미 등록된 모델이에요"),
+    AI_SHARED_KEY_PERSONAL_CONFLICT("AI_409_0003", 409, "이 제공자의 개인 키가 이미 등록되어 있어요"),
     AI_PROVIDER_CLIENT_MISSING("AI_422_0002", 422, "실행 어댑터가 없는 업체는 활성화할 수 없어요"),
     AI_PROVIDER_INACTIVE("AI_422_0003", 422, "비활성 AI 제공자는 사용할 수 없어요"),
     AI_MODEL_INACTIVE("AI_422_0004", 422, "비활성 AI 모델은 사용할 수 없어요"),
+    AI_VENDOR_PERMISSION_DENIED("AI_403_0003", 403, "AI 제공자 요청 권한이 없어요"),
+    AI_VENDOR_REQUEST_REJECTED("AI_422_0005", 422, "AI 제공자가 요청을 거부했어요"),
+    AI_VENDOR_RATE_LIMITED("AI_429_0001", 429, "AI 제공자 요청이 너무 많아요"),
+    AI_VENDOR_QUOTA_EXHAUSTED("AI_429_0002", 429, "AI 제공자 사용 한도를 모두 사용했어요"),
+
+    AI_SUMMARY_SOURCE_URL_INVALID("AI_400_0010", 400, "AI가 가져올 원문 주소가 올바르지 않아요"),
+    AI_SUMMARY_FETCH_FAILED("AI_502_0002", 502, "AI가 원문을 가져오지 못했어요"),
+    AI_SUMMARY_FETCH_URL_MISMATCH("AI_502_0003", 502, "AI가 요청한 주소와 다른 원문을 가져왔어요"),
+    AI_SUMMARY_REFUSED("AI_502_0004", 502, "AI가 요약 요청을 거절했어요"),
+    AI_SUMMARY_OUTPUT_LIMIT_REACHED("AI_502_0005", 502, "AI가 출력 토큰 한도에 도달했어요"),
+    AI_SUMMARY_INCOMPLETE("AI_502_0006", 502, "AI가 요약 응답을 끝내지 못했어요"),
+    AI_SUMMARY_RESPONSE_INVALID("AI_502_0007", 502, "AI 요약 응답의 형식이 올바르지 않아요"),
+    AI_SUMMARY_USAGE_INVALID("AI_502_0008", 502, "AI 응답의 토큰 사용량이 올바르지 않아요"),
+    AI_SUMMARY_OUTPUT_LIMIT_UNAVAILABLE("AI_502_0009", 502, "Claude 요약의 출력 토큰 한도를 설정해 주세요"),
 
     // Todo
     TODO_TITLE_BLANK("TODO_400_0001", 400, "액션 제목이 입력되지 않았어요"),

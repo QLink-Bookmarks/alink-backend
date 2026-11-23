@@ -9,6 +9,7 @@ import com.qlink.auth.domain.Role
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
@@ -35,6 +36,18 @@ class DbUserProviderRepository : UserProviderRepository {
                 it.fromDomain(userProvider)
             }.single()
             .toUserProviderDomain()
+
+    override suspend fun findFirstSharedByProviderId(providerId: Long): UserProvider? =
+        UserProviders
+            .selectAll()
+            .where { (UserProviders.providerId eq providerId) and (UserProviders.userRole eq Role.SUPER_ADMIN) }
+            .orderBy(UserProviders.id to SortOrder.ASC)
+            .limit(1)
+            .singleOrNull()
+            ?.toUserProviderDomain()
+
+    override suspend fun insertIfAbsent(userProvider: UserProvider): Boolean =
+        UserProviders.insertIgnore { it.fromDomain(userProvider) }.insertedCount == 1
 
     override suspend fun findByUserIdAndProviderId(
         userId: Long,

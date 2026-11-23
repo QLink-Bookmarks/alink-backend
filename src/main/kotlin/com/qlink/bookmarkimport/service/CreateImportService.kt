@@ -79,6 +79,12 @@ class CreateImportService(
                 myUrls = linkRepository.findAllUrlsByOwnerId(loginId),
                 now = now,
             )
+        val publicFolderIds =
+            folderRepository
+                .findAllByIdsForKeyShare(plan.links.mapNotNull { it.folder?.folderId })
+                .filter { it.isOwnedBy(loginId) && it.isPublished }
+                .mapNotNull { it.id }
+                .toSet()
         val bookmarkImport =
             bookmarkImportRepository.insert(
                 BookmarkImport.create(
@@ -93,7 +99,15 @@ class CreateImportService(
             )
         val importId = bookmarkImport.id!!
         val savedFolders = folderRepository.insertAll(ImportPlanDomainService.newFolders(plan))
-        val savedLinks = linkRepository.insertAll(ImportPlanDomainService.links(plan = plan, savedNewFolders = savedFolders))
+        val savedLinks =
+            linkRepository.insertAll(
+                ImportPlanDomainService.links(
+                    plan = plan,
+                    savedNewFolders = savedFolders,
+                    publicFolderIds = publicFolderIds,
+                    now = Clock.System.now(),
+                ),
+            )
         linkContentRepository.insertAll(
             savedLinks.map {
                 LinkContent.create(

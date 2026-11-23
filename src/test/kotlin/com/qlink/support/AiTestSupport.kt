@@ -1,33 +1,24 @@
 package com.qlink.support
 
 import com.qlink.ai.client.AiApiKeyValidationException
-import com.qlink.ai.client.AiApiKeyValidationRequest
 import com.qlink.ai.client.AiClient
 import com.qlink.ai.client.AiClientRouter
-import com.qlink.ai.client.AiSummaryClientRequest
-import com.qlink.ai.client.AiSummaryClientResponse
-import com.qlink.ai.client.AiSummaryTodo
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.dto.AiApiKeyValidationRequest
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.ai.dto.AiSummaryTodo
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.UserProviderRepository
-import com.qlink.ai.service.CompleteAiSummaryService
-import com.qlink.ai.service.FailAiSummaryService
-import com.qlink.ai.worker.AiSummaryDispatcher
-import com.qlink.ai.worker.AiSummaryWorker
 import com.qlink.auth.domain.Role
 import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.error.ErrorCode
-import com.qlink.config.WorkerConfig
 import com.qlink.support.fixture.RandomFixture
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry
-import kotlinx.coroutines.channels.Channel
 import org.koin.dsl.module
-import org.slf4j.LoggerFactory
-import kotlin.time.Duration.Companion.minutes
 
 fun aiTestModule() =
     module {
@@ -45,67 +36,6 @@ fun aiTestModule() =
         single<AiClientRouter> {
             AiClientRouter(
                 clients = listOf(get<FakeAiClient>()),
-            )
-        }
-
-        single {
-            Channel<Long>(capacity = Channel.BUFFERED)
-        }
-
-        single {
-            AiSummaryDispatcher(channel = get())
-        }
-
-        single {
-            CompleteAiSummaryService(
-                tx = get(),
-                aiJobRepository = get(),
-                dailyUsageRepository = get(),
-                folderRepository = get(),
-                folderMemberRepository = get(),
-                linkRepository = get(),
-                todoRepository = get(),
-                scheduleTodoNotificationService = get(),
-                urlResolver = get(),
-                log = LoggerFactory.getLogger(CompleteAiSummaryService::class.java),
-            )
-        }
-
-        single {
-            FailAiSummaryService(
-                tx = get(),
-                aiJobRepository = get(),
-                linkRepository = get(),
-                urlResolver = get(),
-            )
-        }
-
-        single {
-            AiSummaryWorker(
-                tx = get(),
-                aiJobRepository = get(),
-                userProviderRepository = get(),
-                availableModelRepository = get(),
-                aiProviderRepository = get(),
-                dailyUsageRepository = get(),
-                folderRepository = get(),
-                linkRepository = get(),
-                completeAiSummaryService = get(),
-                failAiSummaryService = get(),
-                aiClientRouter = get(),
-                apiKeyCipher = get(),
-                channel = get(),
-                config =
-                    WorkerConfig(
-                        pollInterval = 10.minutes,
-                        importThumbnailConcurrency = 3,
-                        importThumbnailParallelism = 2,
-                        importThumbnailBatchSize = 100,
-                        aiSummaryParallelism = 1,
-                    ),
-                meterRegistry = SimpleMeterRegistry(),
-                traceIdLength = ServiceTestEnvironment.TRACE_ID_LENGTH,
-                log = LoggerFactory.getLogger(AiSummaryWorker::class.java),
             )
         }
     }

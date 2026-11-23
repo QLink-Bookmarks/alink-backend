@@ -24,6 +24,7 @@ class Folder(
     val sharedAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
+    val turnsPublicAt: Instant? = null,
 ) {
     init {
         validateName(name)
@@ -32,6 +33,9 @@ class Folder(
 
     val isShared: Boolean
         get() = sharedAt != null
+
+    val isPublished: Boolean
+        get() = turnsPublicAt != null
 
     fun isOwnedBy(userId: Long): Boolean = ownerId == userId
 
@@ -82,6 +86,7 @@ class Folder(
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            turnsPublicAt = turnsPublicAt,
         )
 
     fun delegateTo(newOwnerId: Long): Folder =
@@ -93,7 +98,27 @@ class Folder(
             sharedAt = sharedAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            turnsPublicAt = turnsPublicAt,
         )
+
+    fun setPublic(
+        isPublic: Boolean,
+        now: Instant,
+    ): Folder {
+        if (isPublic == isPublished) return this
+        val turnsPublicAt = now.takeIf { isPublic }
+
+        return Folder(
+            id = id,
+            ownerId = ownerId,
+            name = name,
+            emoji = emoji,
+            sharedAt = sharedAt,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            turnsPublicAt = turnsPublicAt,
+        )
+    }
 
     companion object {
         fun createGuide(ownerId: Long): Folder = Folder(ownerId = ownerId, name = GUIDE_FOLDER_NAME, emoji = GUIDE_FOLDER_EMOJI)

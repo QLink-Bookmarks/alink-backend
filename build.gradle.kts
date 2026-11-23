@@ -112,6 +112,7 @@ tasks.check {
 }
 
 tasks.withType<ShadowJar> {
+    isZip64 = true
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
     mergeServiceFiles()
 }
@@ -123,6 +124,7 @@ dependencies {
     implementation(ktorLibs.server.netty)
 
     // Http
+    implementation(libs.anthropic.java)
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.compression)
     implementation(ktorLibs.server.contentNegotiation)
@@ -136,6 +138,9 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.firebase.admin)
     implementation(libs.expo.server.sdk)
+    implementation(libs.openai.java)
+    implementation(libs.google.genai)
+    implementation(libs.okhttp)
 
     // Storage
     implementation(libs.aws.s3)

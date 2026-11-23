@@ -8,6 +8,10 @@ interface UserProviderRepository {
 
     suspend fun save(userProvider: UserProvider): UserProvider
 
+    suspend fun findFirstSharedByProviderId(providerId: Long): UserProvider?
+
+    suspend fun insertIfAbsent(userProvider: UserProvider): Boolean
+
     suspend fun findByUserIdAndProviderId(
         userId: Long,
         providerId: Long,

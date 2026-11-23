@@ -9,6 +9,7 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.getMemberTodos
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.dto.GetTodoCountsResponse
@@ -73,7 +74,7 @@ class GetTodoCountsServiceTest :
             var cursor: String? = null
             do {
                 val page =
-                    getTodosService.getTodos(
+                    getTodosService.getMemberTodos(
                         loginId = ownerId,
                         status = status,
                         order = null,

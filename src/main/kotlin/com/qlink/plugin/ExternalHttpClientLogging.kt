@@ -10,12 +10,15 @@ import io.ktor.http.Parameters
 import io.ktor.http.URLBuilder
 import io.ktor.http.formUrlEncode
 import io.ktor.http.takeFrom
+import io.ktor.util.AttributeKey
 import org.slf4j.LoggerFactory
 import kotlin.time.TimeSource
 
 class ExternalHttpClientLoggingConfig {
     lateinit var httpLogging: HttpLoggingConfig
 }
+
+internal val omitExternalHttpResponseDetails = AttributeKey<Unit>("OmitExternalHttpResponseDetails")
 
 val ExternalHttpClientLogging =
     createClientPlugin("ExternalHttpClientLogging", ::ExternalHttpClientLoggingConfig) {
@@ -27,6 +30,7 @@ val ExternalHttpClientLogging =
             val url = request.urlWithoutQuery()
             val query =
                 request.queryWithoutKey().sanitizeExternalHttpLog(httpLogging)
+            val omitDetails = request.attributes.contains(omitExternalHttpResponseDetails)
             val startedAt = TimeSource.Monotonic.markNow()
 
             log.info("[EXTERNAL_HTTP_REQUEST] method={} url={} query={}", method, url, query)
@@ -40,12 +44,20 @@ val ExternalHttpClientLogging =
                             url,
                             "FAILED",
                             startedAt.elapsedNow().inWholeMilliseconds,
-                            it.message,
-                            it,
+                            it.message.takeUnless { omitDetails },
+                            it.takeUnless { omitDetails },
                         )
                         throw it
                     }
-            val response = call.response.bodyAsText()
+            val response =
+                if (omitDetails) {
+                    "-"
+                } else {
+                    call.response
+                        .bodyAsText()
+                        .sanitizeExternalHttpLog(httpLogging)
+                        .toSingleLine()
+                }
 
             log.info(
                 "[EXTERNAL_HTTP_RESPONSE] method={} url={} status={} durationMs={} response={}",
@@ -53,7 +65,7 @@ val ExternalHttpClientLogging =
                 url,
                 call.response.status.value,
                 startedAt.elapsedNow().inWholeMilliseconds,
-                response.sanitizeExternalHttpLog(httpLogging).toSingleLine(),
+                response,
             )
 
             call

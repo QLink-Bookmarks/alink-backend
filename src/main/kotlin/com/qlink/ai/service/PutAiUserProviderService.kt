@@ -1,6 +1,5 @@
 package com.qlink.ai.service
 
-import com.qlink.ai.client.AiApiKeyValidationException
 import com.qlink.ai.client.AiClientRouter
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.PutAiUserProviderRequest
@@ -33,13 +32,11 @@ class PutAiUserProviderService(
                     ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
 
             provider.validateActive()
-            runCatching {
-                aiClientRouter.validateApiKey(
-                    providerType = provider.type,
-                    baseUrl = provider.baseUrl,
-                    apiKey = request.apiKey,
-                )
-            }.onFailure { throw it.toBusinessException() }
+            aiClientRouter.validateApiKey(
+                providerType = provider.type,
+                baseUrl = provider.baseUrl,
+                apiKey = request.apiKey,
+            )
 
             val userProvider =
                 UserProvider(
@@ -50,24 +47,5 @@ class PutAiUserProviderService(
 
             val saved = userProviderRepository.save(userProvider)
             PutAiUserProviderResponse(id = saved.id!!)
-        }
-
-    private fun Throwable.toBusinessException(): BusinessException =
-        when (this) {
-            is BusinessException -> {
-                this
-            }
-
-            is AiApiKeyValidationException -> {
-                when (statusCode) {
-                    401, 403 -> BusinessException(ErrorCode.AI_API_KEY_INVALID, this)
-                    in 500..599 -> BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE, this)
-                    else -> BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR, this)
-                }
-            }
-
-            else -> {
-                BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR, this)
-            }
         }
 }

@@ -3,9 +3,12 @@ package com.qlink.di
 import com.qlink.ai.service.AiAdminValidator
 import com.qlink.ai.service.CreateAiProviderService
 import com.qlink.ai.service.CreateAvailableModelService
+import com.qlink.ai.service.GetAiDailyUsageService
 import com.qlink.ai.service.GetAiProviderModelsService
 import com.qlink.ai.service.GetAiProviderService
 import com.qlink.ai.service.GetAiProvidersService
+import com.qlink.ai.service.GetAiSharedKeyService
+import com.qlink.ai.service.PutAiSharedKeyService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
@@ -36,7 +39,9 @@ import com.qlink.folder.service.DeleteFolderMemberService
 import com.qlink.folder.service.DeleteFolderService
 import com.qlink.folder.service.FolderAccessValidator
 import com.qlink.folder.service.GetFolderMembersService
+import com.qlink.folder.service.GetFolderService
 import com.qlink.folder.service.GetFoldersService
+import com.qlink.folder.service.SetFolderPrivacyService
 import com.qlink.folder.service.TransferFolderOwnerService
 import com.qlink.folder.service.UpdateFolderService
 import com.qlink.image.service.UploadImageService
@@ -48,13 +53,13 @@ import com.qlink.link.service.GetLinkDetailService
 import com.qlink.link.service.GetLinksService
 import com.qlink.link.service.PatchLinkService
 import com.qlink.link.service.SetLinkFavoriteService
+import com.qlink.link.service.SetLinkPrivacyService
 import com.qlink.link.service.UpdateLinkService
 import com.qlink.notification.service.GetNotificationsService
 import com.qlink.notification.service.GetUnreadNotificationCountService
 import com.qlink.notification.service.ReadNotificationService
 import com.qlink.notification.service.ScheduleTodoNotificationService
 import com.qlink.notification.service.SendAnnouncementService
-import com.qlink.notification.service.SendNotificationService
 import com.qlink.post.service.CreatePostService
 import com.qlink.post.service.DeletePostService
 import com.qlink.post.service.GetPostService
@@ -99,6 +104,28 @@ fun serviceModule() =
                 availableModelRepository = get(),
                 aiClientRouter = get(),
             )
+        }
+        single {
+            GetAiSharedKeyService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                userProviderRepository = get(),
+                apiKeyCipher = get(),
+            )
+        }
+        single {
+            PutAiSharedKeyService(
+                tx = get(),
+                adminValidator = get(),
+                aiProviderRepository = get(),
+                userProviderRepository = get(),
+                aiClientRouter = get(),
+                apiKeyCipher = get(),
+            )
+        }
+        single {
+            GetAiDailyUsageService(tx = get(), adminValidator = get(), dailyUsageRepository = get())
         }
         single {
             AiAdminValidator(userRepository = get())
@@ -287,10 +314,7 @@ fun serviceModule() =
         }
 
         single {
-            FolderAccessValidator(
-                folderRepository = get(),
-                folderMemberRepository = get(),
-            )
+            FolderAccessValidator(folderRepository = get(), folderMemberRepository = get())
         }
 
         single {
@@ -307,6 +331,23 @@ fun serviceModule() =
                 tx = get(),
                 folderRepository = get(),
                 userRepository = get(),
+            )
+        }
+
+        single {
+            SetFolderPrivacyService(
+                tx = get(),
+                userRepository = get(),
+                folderRepository = get(),
+                linkRepository = get(),
+            )
+        }
+
+        single {
+            GetFolderService(
+                tx = get(),
+                folderRepository = get(),
+                folderAccessValidator = get(),
             )
         }
 
@@ -384,6 +425,7 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderRepository = get(),
                 folderAccessValidator = get(),
                 scheduleTodoNotificationService = get(),
                 urlResolver = get(),
@@ -407,8 +449,11 @@ fun serviceModule() =
                 linkRepository = get(),
                 todoRepository = get(),
                 userRepository = get(),
+                folderAccessValidator = get(),
             )
         }
+
+        single { SetLinkPrivacyService(tx = get(), linkRepository = get(), userRepository = get(), folderRepository = get()) }
 
         single {
             UpdateLinkService(
@@ -623,19 +668,6 @@ fun serviceModule() =
                 notificationRepository = get(),
                 linkRepository = get(),
                 taskScheduler = get(),
-            )
-        }
-
-        single {
-            SendNotificationService(
-                tx = get(),
-                notificationRepository = get(),
-                userRepository = get(),
-                deviceTokenRepository = get(),
-                senderRouter = get(),
-                todoRepository = get(),
-                linkRepository = get(),
-                log = LoggerFactory.getLogger(SendNotificationService::class.java),
             )
         }
 

@@ -1,0 +1,305 @@
+package com.qlink.ai.worker.service
+
+import com.qlink.ai.client.AiClientRouter
+import com.qlink.ai.domain.AiJob
+import com.qlink.ai.domain.AiJob.Companion.DEFAULT_FAILURE_MESSAGE
+import com.qlink.ai.domain.AiProvider
+import com.qlink.ai.domain.AvailableModel
+import com.qlink.ai.domain.UserProvider
+import com.qlink.ai.domain.service.AiModelAvailabilityDomainService
+import com.qlink.ai.dto.AiSummaryClientRequest
+import com.qlink.ai.dto.AiSummaryClientResponse
+import com.qlink.ai.dto.AiSummaryCompletion
+import com.qlink.ai.dto.AiSummaryExecutionResult
+import com.qlink.ai.dto.AiSummarySnapshot
+import com.qlink.ai.repository.AiJobRepository
+import com.qlink.ai.repository.AiProviderRepository
+import com.qlink.ai.repository.AvailableModelRepository
+import com.qlink.ai.repository.DailyUsageRepository
+import com.qlink.ai.repository.UserProviderRepository
+import com.qlink.auth.domain.Role
+import com.qlink.common.coroutines.catchingFailure
+import com.qlink.common.crypto.ApiKeyCipher
+import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
+import com.qlink.common.error.messageOrFallback
+import com.qlink.common.error.requireTrue
+import com.qlink.common.transaction.TransactionRunner
+import com.qlink.folder.repository.FolderRepository
+import com.qlink.link.repository.LinkRepository
+import io.ktor.client.call.NoTransformationFoundException
+import io.ktor.serialization.JsonConvertException
+import kotlinx.serialization.SerializationException
+import org.slf4j.Logger
+import java.io.IOException
+import java.time.LocalDate
+import java.time.ZoneOffset
+
+class ProcessAiSummaryService(
+    private val tx: TransactionRunner,
+    private val aiJobRepository: AiJobRepository,
+    private val userProviderRepository: UserProviderRepository,
+    private val availableModelRepository: AvailableModelRepository,
+    private val aiProviderRepository: AiProviderRepository,
+    private val dailyUsageRepository: DailyUsageRepository,
+    private val folderRepository: FolderRepository,
+    private val linkRepository: LinkRepository,
+    private val aiClientRouter: AiClientRouter,
+    private val apiKeyCipher: ApiKeyCipher,
+    private val log: Logger,
+) {
+    suspend fun proceed(jobId: Long): AiSummaryExecutionResult {
+        val isStarted = tx.required { aiJobRepository.markStarted(aiJobId = jobId, staleAfter = AiJob.STALE_AFTER) }
+        if (!isStarted) {
+            log.info("[WORKER] Job is not runnable. jobId=$jobId")
+            return AiSummaryExecutionResult.Skipped
+        }
+
+        val context =
+            tx.readOnly {
+                val job =
+                    aiJobRepository
+                        .findById(jobId)
+                        ?.also { log.info("[WORKER] Job has been loaded. jobId=$jobId") }
+                        ?: run {
+                            log.warn("[WORKER] Job load failed. jobId=$jobId")
+                            return@readOnly null
+                        }
+                val userProvider =
+                    userProviderRepository
+                        .findById(job.userProviderId)
+                        ?.also {
+                            log.info(
+                                "[WORKER] User provider has been loaded. jobId=$jobId, userProviderId=${job.userProviderId}",
+                            )
+                        }
+                        ?: run {
+                            log.warn("[WORKER] User provider load failed. jobId=$jobId, userProviderId=${job.userProviderId}")
+                            return@readOnly null
+                        }
+                val providerModels =
+                    if (userProvider.userRole == Role.SUPER_ADMIN) {
+                        availableModelRepository.findAllByProviderId(userProvider.providerId)
+                    } else {
+                        emptyList()
+                    }
+                val requestModel =
+                    (providerModels.find { it.id == job.requestModelId } ?: availableModelRepository.findById(job.requestModelId))
+                        ?.also {
+                            log.info(
+                                "[WORKER] Request model has been loaded. jobId=$jobId, requestModelId=${job.requestModelId}",
+                            )
+                        }
+                        ?: run {
+                            log.warn("[WORKER] Request model load failed. jobId=$jobId, requestModelId=${job.requestModelId}")
+                            return@readOnly null
+                        }
+                val provider =
+                    aiProviderRepository
+                        .findById(userProvider.providerId)
+                        ?.also {
+                            log.info(
+                                "[WORKER] AI provider has been loaded. jobId=$jobId, providerId=${userProvider.providerId}",
+                            )
+                        }
+                        ?: run {
+                            log.warn("[WORKER] AI provider load failed. jobId=$jobId, providerId=${userProvider.providerId}")
+                            return@readOnly null
+                        }
+                val link =
+                    linkRepository
+                        .findById(job.linkId)
+                        ?.also { log.info("[WORKER] Link has been loaded. jobId=$jobId, linkId=${job.linkId}") }
+                        ?: run {
+                            log.warn("[WORKER] Link load failed. jobId=$jobId, linkId=${job.linkId}")
+                            return@readOnly null
+                        }
+                val apiKey =
+                    apiKeyCipher
+                        .decrypt(userProvider.apiKey)
+                        ?.also {
+                            log.info(
+                                "[WORKER] User provider API key has been decrypted. jobId=$jobId, userProviderId=${userProvider.id}",
+                            )
+                        }
+                        ?: run {
+                            log.warn("[WORKER] User provider API key decrypt failed. jobId=$jobId, userProviderId=${userProvider.id}")
+                            return@readOnly null
+                        }
+
+                val selectableFolderIds = folderRepository.findAllByOwnerId(link.ownerId).mapNotNull { it.id }.toSet()
+                val availableModels =
+                    catchingFailure {
+                        selectAvailableModels(
+                            userProvider = userProvider,
+                            provider = provider,
+                            requestModel = requestModel,
+                            providerModels = providerModels,
+                        )
+                    }
+                AiSummaryContext(
+                    job = job,
+                    userProvider = userProvider,
+                    provider = provider,
+                    apiKey = apiKey,
+                    availableModels = availableModels,
+                    selectableFolderIds = selectableFolderIds,
+                    fixedFolderId = job.extractFixedFolderId(),
+                    snapshot =
+                        AiSummarySnapshot(
+                            jobId = job.id!!,
+                            linkId = link.id!!,
+                            folderId = link.folderId,
+                        ),
+                )
+            } ?: return AiSummaryExecutionResult.Aborted
+
+        log.info(
+            "[WORKER] Job Context has been loaded as jobId=$jobId, userProvider=${context.userProvider.id}, provider=${context.provider.type}",
+        )
+
+        return catchingFailure { summarize(context) }
+            .fold(
+                onSuccess = { result ->
+                    AiSummaryExecutionResult.Summarized(
+                        linkId = context.snapshot.linkId,
+                        completion =
+                            catchingFailure {
+                                AiSummaryCompletion(
+                                    snapshot = context.snapshot,
+                                    responseModelId = result.model.id!!,
+                                    candidateFolderId =
+                                        context.fixedFolderId
+                                            ?: result.response.folderId?.takeIf { it in context.selectableFolderIds },
+                                    response = result.response,
+                                )
+                            },
+                    )
+                },
+                onFailure = { AiSummaryExecutionResult.Failed(jobId = context.job.id, error = it) },
+            )
+    }
+
+    private suspend fun selectAvailableModels(
+        userProvider: UserProvider,
+        provider: AiProvider,
+        requestModel: AvailableModel,
+        providerModels: List<AvailableModel>,
+    ): List<AvailableModel> {
+        val models =
+            if (userProvider.userRole == Role.SUPER_ADMIN) {
+                provider.validateActive()
+                AiModelAvailabilityDomainService.selectableModels(
+                    provider = provider,
+                    models = providerModels,
+                )
+            } else {
+                AiModelAvailabilityDomainService.validateUsable(provider = provider, model = requestModel)
+                listOf(requestModel)
+            }
+        if (models.isEmpty()) return emptyList()
+
+        val usages =
+            dailyUsageRepository
+                .findAllByUserProviderAndUsageDate(
+                    userProviderId = userProvider.id!!,
+                    modelIds = models.map { it.id!! },
+                    usageDate = LocalDate.now(ZoneOffset.UTC),
+                ).associateBy { it.modelId }
+        return models.filterNot { model -> usages[model.id]?.isOverLimit(model) == true }
+    }
+
+    private suspend fun summarize(context: AiSummaryContext): AiSummaryResult {
+        val availableModels = context.availableModels.getOrThrow()
+        var lastFailure: Throwable? = null
+        val cycles = if (context.userProvider.userRole == Role.SUPER_ADMIN) MAX_MODEL_CYCLES else 1
+
+        repeat(cycles) {
+            availableModels.forEach { model ->
+                log.info("[WORKER] Trial model=${model.model}")
+
+                val summary =
+                    catchingFailure {
+                        revalidateAttempt(providerId = context.provider.id!!, modelId = model.id!!)
+                        aiClientRouter.summarize(
+                            AiSummaryClientRequest(
+                                providerType = context.provider.type,
+                                baseUrl = context.provider.baseUrl,
+                                apiKey = context.apiKey,
+                                model = model.model,
+                                prompt = context.job.prompt,
+                                requestedUrl = context.job.requestedUrl,
+                            ),
+                        )
+                    }
+                val result = summary.getOrNull()
+                if (result == null) {
+                    lastFailure =
+                        when (val failure = summary.exceptionOrNull()) {
+                            is IOException -> {
+                                BusinessException(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE)
+                            }
+
+                            is JsonConvertException, is NoTransformationFoundException, is SerializationException -> {
+                                BusinessException(ErrorCode.AI_EMPTY_RESPONSE)
+                            }
+
+                            else -> {
+                                failure
+                            }
+                        }
+                    return@forEach
+                }
+
+                (result.linkId == null || result.linkId == context.job.linkId).requireTrue(ErrorCode.AI_SUMMARY_LINK_MISMATCH)
+                return AiSummaryResult(model = model, response = result)
+            }
+        }
+
+        if (lastFailure is BusinessException) {
+            throw lastFailure
+        }
+        throw IllegalStateException(lastFailure.messageOrFallback(DEFAULT_FAILURE_MESSAGE), lastFailure)
+    }
+
+    private suspend fun revalidateAttempt(
+        providerId: Long,
+        modelId: Long,
+    ) {
+        tx.readOnly {
+            val provider = aiProviderRepository.findById(providerId) ?: throw BusinessException(ErrorCode.AI_PROVIDER_NOT_FOUND)
+            val model = availableModelRepository.findById(modelId) ?: throw BusinessException(ErrorCode.AI_MODEL_NOT_FOUND)
+            AiModelAvailabilityDomainService.validateUsable(provider = provider, model = model)
+        }
+    }
+
+    private fun AiJob.extractFixedFolderId(): Long? =
+        prompt
+            .lineSequence()
+            .dropWhile { it.trim() != "## Fixed Folder ID" }
+            .drop(1)
+            .firstOrNull { it.trim().startsWith("- ") }
+            ?.trim()
+            ?.removePrefix("- ")
+            ?.toLongOrNull()
+
+    private data class AiSummaryContext(
+        val job: AiJob,
+        val userProvider: UserProvider,
+        val provider: AiProvider,
+        val apiKey: String,
+        val availableModels: Result<List<AvailableModel>>,
+        val selectableFolderIds: Set<Long>,
+        val fixedFolderId: Long?,
+        val snapshot: AiSummarySnapshot,
+    )
+
+    private data class AiSummaryResult(
+        val model: AvailableModel,
+        val response: AiSummaryClientResponse,
+    )
+
+    private companion object {
+        const val MAX_MODEL_CYCLES = 5
+    }
+}

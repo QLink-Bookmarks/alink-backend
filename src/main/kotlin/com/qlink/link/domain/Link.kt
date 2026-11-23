@@ -31,6 +31,7 @@ class Link(
     val favoriteAt: Instant? = null,
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
+    val turnsPublicAt: Instant? = null,
 ) {
     val tags: List<String> = tags.distinct()
 
@@ -49,6 +50,31 @@ class Link(
     fun hasUrl(url: String): Boolean = this.url == url
 
     fun hasFolderChangedSince(startedFolderId: Long?): Boolean = folderId != startedFolderId
+
+    fun publishedAtIn(folderIsPublic: Boolean): Instant? = turnsPublicAt.takeIf { folderId != null && folderIsPublic }
+
+    fun isPublishedIn(folderIsPublic: Boolean): Boolean = publishedAtIn(folderIsPublic) != null
+
+    fun resolveUpdatedVisibility(
+        sourceIsPublic: Boolean,
+        targetIsPublic: Boolean,
+        isPublic: Boolean?,
+        now: Instant,
+    ): Instant? =
+        when (isPublic) {
+            true -> {
+                targetIsPublic.requireTrue(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
+                publishedAtIn(sourceIsPublic) ?: now
+            }
+
+            false -> {
+                null
+            }
+
+            null -> {
+                publishedAtIn(sourceIsPublic && targetIsPublic)
+            }
+        }
 
     fun validateOwner(ownerId: Long) {
         if (this.ownerId != ownerId) {
@@ -70,6 +96,7 @@ class Link(
         favoriteAt: Instant? = this.favoriteAt,
         faviconUrl: String? = this.faviconUrl,
         isVideo: Boolean = this.isVideo,
+        turnsPublicAt: Instant? = this.turnsPublicAt.takeIf { folderId == this.folderId },
     ): Link {
         if (thumbnailUrl != this.thumbnailUrl && thumbnailUrl != null) {
             validatePreviewUrl(
@@ -106,12 +133,14 @@ class Link(
             favoriteAt = favoriteAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            turnsPublicAt = turnsPublicAt,
         )
     }
 
     fun addToFolder(
         newOwnerId: Long,
         folderId: Long?,
+        turnsPublicAt: Instant? = null,
     ): Link =
         Link(
             ownerId = newOwnerId,
@@ -126,6 +155,7 @@ class Link(
             isVideo = isVideo,
             sourceType = SourceType.COPY,
             status = LinkStatus.C,
+            turnsPublicAt = turnsPublicAt,
         )
 
     fun changeFavorite(
@@ -156,6 +186,7 @@ class Link(
                     favoriteAt = resolveFavoriteAt(isFavorite, now),
                     createdAt = createdAt,
                     updatedAt = updatedAt,
+                    turnsPublicAt = turnsPublicAt,
                 )
             }
         }
@@ -196,9 +227,35 @@ class Link(
                     favoriteAt = favoriteAt,
                     createdAt = createdAt,
                     updatedAt = updatedAt,
+                    turnsPublicAt = turnsPublicAt,
                 )
             }
         }
+
+    fun copyAiStatus(
+        status: LinkStatus,
+        workModelId: Long?,
+    ): Link =
+        Link(
+            id = id,
+            ownerId = ownerId,
+            folderId = folderId,
+            url = url,
+            title = title,
+            summary = summary,
+            memo = memo,
+            tags = tags,
+            thumbnailUrl = thumbnailUrl,
+            faviconUrl = faviconUrl,
+            isVideo = isVideo,
+            sourceType = sourceType,
+            status = status,
+            workModelId = workModelId,
+            favoriteAt = favoriteAt,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            turnsPublicAt = turnsPublicAt,
+        )
 
     private fun resolveFavoriteAt(
         isFavorite: Boolean,
@@ -230,6 +287,15 @@ class Link(
     }
 
     companion object {
+        fun resolveNewVisibility(
+            folderIsPublic: Boolean,
+            isPublic: Boolean?,
+            now: Instant,
+        ): Instant? {
+            if (isPublic == true) folderIsPublic.requireTrue(ErrorCode.LINK_PUBLIC_FOLDER_REQUIRED)
+            return now.takeIf { folderIsPublic && isPublic != false }
+        }
+
         fun createGuide(
             ownerId: Long,
             folderId: Long,
@@ -271,6 +337,7 @@ class Link(
             status: LinkStatus,
             previewPublicBaseUrl: String,
             previewEnvironment: String,
+            turnsPublicAt: Instant? = null,
         ): Link {
             (sourceType != SourceType.IMPORT).requireTrue(ErrorCode.LINK_SOURCE_TYPE_NOT_ALLOWED)
             thumbnailUrl?.let {
@@ -302,6 +369,7 @@ class Link(
                 isVideo = isVideo,
                 sourceType = sourceType,
                 status = status,
+                turnsPublicAt = turnsPublicAt,
             )
         }
 
@@ -311,6 +379,7 @@ class Link(
             url: String,
             title: String,
             createdAt: Instant,
+            turnsPublicAt: Instant? = null,
         ): Link =
             Link(
                 ownerId = ownerId,
@@ -322,6 +391,7 @@ class Link(
                 status = LinkStatus.C,
                 createdAt = createdAt,
                 updatedAt = createdAt,
+                turnsPublicAt = turnsPublicAt,
             )
 
         private fun validatePreviewUrl(

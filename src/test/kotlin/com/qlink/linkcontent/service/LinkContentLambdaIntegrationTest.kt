@@ -14,6 +14,7 @@ import com.qlink.linkcontent.domain.ContentFailureCode
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.domain.LinkContent
 import com.qlink.linkcontent.repository.LinkContentRepository
+import com.qlink.linkcontent.worker.service.CollectLinkContentService
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.dbNow
 import com.qlink.support.fixture.LinkContentFixture

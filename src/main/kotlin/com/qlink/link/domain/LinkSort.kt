@@ -43,6 +43,21 @@ class LinkSort private constructor(
             }
         }
 
+        fun forPublicFolder(
+            orderKey: String?,
+            order: String?,
+        ): LinkSort {
+            val sort =
+                if (orderKey != null) {
+                    ofKey(orderKey = orderKey, order = order)
+                } else {
+                    order?.let(::ofOrder) ?: DEFAULT
+                }
+            (sort.orderKey == LinkOrderKey.CREATED_AT || (orderKey != null && sort.orderKey == LinkOrderKey.TITLE))
+                .requireTrue(ErrorCode.COMMON_INVALID_SORT_ORDER)
+            return sort
+        }
+
         private fun ofKey(
             orderKey: String,
             order: String?,

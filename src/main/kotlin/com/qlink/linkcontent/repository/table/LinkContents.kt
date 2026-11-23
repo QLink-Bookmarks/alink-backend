@@ -1,5 +1,6 @@
 package com.qlink.linkcontent.repository.table
 
+import com.qlink.config.AbbreviatedTextColumnType
 import com.qlink.link.repository.table.Links
 import com.qlink.linkcontent.domain.CollectedPage
 import com.qlink.linkcontent.domain.ContentFailureCode
@@ -36,7 +37,7 @@ object LinkContents : Table("link_contents") {
     val author = varchar("author", CollectedPage.MAX_AUTHOR_LENGTH).nullable()
     val publishedAt = timestamp("published_at").nullable()
     val language = varchar("language", CollectedPage.MAX_LANGUAGE_LENGTH).nullable()
-    val contentText = text("content_text").nullable()
+    val contentText = registerColumn("content_text", AbbreviatedTextColumnType(logLimit = 5)).nullable()
     val contentLength = integer("content_length").nullable()
     val contentHash = char("content_hash", 64).nullable()
     val isTruncated = bool("is_truncated").default(false)

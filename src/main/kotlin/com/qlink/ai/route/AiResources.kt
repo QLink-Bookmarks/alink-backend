@@ -14,6 +14,11 @@ class AiResources {
             val parent: Providers = Providers(),
             val id: Long,
         ) {
+            @Resource("shared-key")
+            class SharedKey(
+                val parent: ById,
+            )
+
             @Resource("active")
             class Active(
                 val parent: ById,
@@ -42,6 +47,12 @@ class AiResources {
             )
         }
     }
+
+    @Resource("daily-usage")
+    class DailyUsage(
+        val parent: AiResources = AiResources(),
+        val date: String? = null,
+    )
 
     @Resource("users/providers")
     class UserProviders(

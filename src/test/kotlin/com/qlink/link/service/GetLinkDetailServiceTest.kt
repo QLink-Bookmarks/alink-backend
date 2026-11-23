@@ -7,6 +7,7 @@ import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.common.error.BusinessException
 import com.qlink.common.error.ErrorCode
+import com.qlink.common.scroll.ScrollRequest
 import com.qlink.folder.domain.Folder
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
@@ -14,6 +15,7 @@ import com.qlink.link.domain.Link
 import com.qlink.link.domain.LinkStatus
 import com.qlink.link.dto.LinkContentResponse
 import com.qlink.link.repository.LinkRepository
+import com.qlink.link.service.GetLinksService
 import com.qlink.linkcontent.domain.ContentFailureCode
 import com.qlink.linkcontent.domain.ContentStatus
 import com.qlink.linkcontent.repository.LinkContentRepository
@@ -26,6 +28,9 @@ import com.qlink.support.fixture.LinkFixture
 import com.qlink.support.fixture.RandomFixture
 import com.qlink.support.fixture.TodoFixture
 import com.qlink.support.fixture.UserFixture
+import com.qlink.support.fixture.withPublication
+import com.qlink.support.getMemberLinkDetail
+import com.qlink.support.getPublicLinks
 import com.qlink.support.koinGet
 import com.qlink.todo.domain.RepeatDay
 import com.qlink.todo.domain.Todo
@@ -39,6 +44,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotContain
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.time.LocalTime
 import kotlin.time.Clock
 import kotlin.time.toKotlinInstant
@@ -46,6 +54,7 @@ import kotlin.time.toKotlinInstant
 class GetLinkDetailServiceTest :
     BaseServiceTest({
         val getLinkDetailService = koinGet<GetLinkDetailService>()
+        val getPublicFolderLinksService = koinGet<GetLinksService>()
         val userRepository = koinGet<UserRepository>()
         val linkRepository = koinGet<LinkRepository>()
         val folderRepository = koinGet<FolderRepository>()
@@ -131,7 +140,7 @@ class GetLinkDetailServiceTest :
                 val expectedFolderId = folder.id
                 val expectedFolderName = folder.name
                 val expectedFolderEmoji = folder.emoji
-                val actual = getLinkDetailService.getLinkDetail(user.id!!, link.id)
+                val actual = getLinkDetailService.getMemberLinkDetail(user.id!!, link.id)
 
                 Then("성공한다") {
                     actual.id shouldBe link.id
@@ -152,6 +161,7 @@ class GetLinkDetailServiceTest :
                     actual.workModel shouldBe model.model
                     actual.todos shouldContainExactly todos.map { it.toExpectedTodo() }
                     actual.isFavorite shouldBe false
+                    Json.encodeToJsonElement(actual).jsonObject["isOwner"] shouldBe JsonPrimitive(true)
                 }
             }
 
@@ -163,7 +173,7 @@ class GetLinkDetailServiceTest :
                             favoriteAt = RandomFixture.randomPastInstant(),
                         ),
                     )
-                val actual = getLinkDetailService.getLinkDetail(user.id!!, link.id!!)
+                val actual = getLinkDetailService.getMemberLinkDetail(user.id!!, link.id!!)
 
                 Then("isFavorite가 true로 조회된다") {
                     actual.id shouldBe link.id
@@ -178,7 +188,7 @@ class GetLinkDetailServiceTest :
                             ownerId = user.id!!,
                         ),
                     )
-                val actual = getLinkDetailService.getLinkDetail(user.id!!, link.id!!)
+                val actual = getLinkDetailService.getMemberLinkDetail(user.id!!, link.id!!)
 
                 Then("폴더 정보 없이 성공한다") {
                     actual.id shouldBe link.id
@@ -194,10 +204,11 @@ class GetLinkDetailServiceTest :
                 val invalidLinkId = RandomFixture.randomId()
                 val getDetail =
                     suspend {
-                        getLinkDetailService.getLinkDetail(user.id!!, invalidLinkId)
+                        getLinkDetailService.getPublicLinkDetail(invalidLinkId)
                     }
 
                 Then("예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = user.id!!, linkId = invalidLinkId) shouldBe null
                     shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         getDetail()
                     }
@@ -213,11 +224,12 @@ class GetLinkDetailServiceTest :
                     )
                 val getDetail =
                     suspend {
-                        getLinkDetailService.getLinkDetail(user.id!!, link.id!!)
+                        getLinkDetailService.getPublicLinkDetail(link.id!!)
                     }
 
                 Then("예외를 반환한다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_DIFFERENT_OWNER.message) {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = user.id!!, linkId = link.id!!) shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) {
                         getDetail()
                     }
                 }
@@ -228,13 +240,21 @@ class GetLinkDetailServiceTest :
             lateinit var member: User
             lateinit var outsider: User
             lateinit var sharedLink: Link
+            lateinit var privateLink: Link
+            var published = false
 
             beforeTest {
                 val owner = userRepository.insert(UserFixture.createRandomValidUser())
                 member = userRepository.insert(UserFixture.createRandomValidUser())
                 outsider = userRepository.insert(UserFixture.createRandomValidUser())
+                published = true
                 val sharedFolder =
-                    folderRepository.insert(FolderFixture.createFolderWith(ownerId = owner.id!!, sharedAt = Clock.System.now()))
+                    folderRepository.insert(
+                        FolderFixture
+                            .createSharedFolderOf(
+                                owner.id!!,
+                            ).withPublication(published),
+                    )
                 folderMemberRepository.insertIfAbsent(
                     FolderMemberFixture.createOwnerMember(folderId = sharedFolder.id!!, userId = owner.id!!),
                 )
@@ -249,27 +269,55 @@ class GetLinkDetailServiceTest :
                             thumbnailUrl = RandomFixture.randomPreviewUrl(),
                             faviconUrl = RandomFixture.randomPreviewUrl(kind = "favicon"),
                             isVideo = true,
+                            isPublic = published,
                         ),
                     )
+                privateLink =
+                    linkRepository.insert(LinkFixture.createRandomLinkOf(ownerId = owner.id!!, folderId = sharedFolder.id))
             }
 
             When("멤버가 상세를 조회하면") {
                 val linkId = sharedLink.id!!
-                val response = getLinkDetailService.getLinkDetail(member.id!!, linkId)
+                val response = getLinkDetailService.getMemberLinkDetail(member.id!!, linkId)
 
                 Then("저장된 이미지 값이 보인다") {
                     val stored = linkRepository.findById(linkId)!!
                     response.thumbnailUrl shouldBe stored.thumbnailUrl
                     response.faviconUrl shouldBe stored.faviconUrl
                     response.isVideo shouldBe stored.isVideo
+                    Json.encodeToJsonElement(response).jsonObject["isOwner"] shouldBe JsonPrimitive(false)
                 }
             }
 
-            When("비회원이 상세를 조회하면") {
-                val getDetail = suspend { getLinkDetailService.getLinkDetail(outsider.id!!, sharedLink.id!!) }
+            When("비회원이 공개 링크 상세를 조회하면") {
+                Then("익명과 같은 공개 상세가 보인다") {
+                    val linkId = sharedLink.id!!
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = outsider.id!!, linkId = linkId) shouldBe null
+                    val stored = linkRepository.findById(linkId)!!.let { it.title to it.url }
+                    val detail = getLinkDetailService.getPublicLinkDetail(linkId)
+                    (detail.title to detail.url) shouldBe stored
+                }
+            }
 
-                Then("공유 폴더 접근 오류가 난다") {
-                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED.message) { getDetail() }
+            When("비회원이 비공개 링크 상세를 조회하면") {
+                val getDetail = suspend { getLinkDetailService.getPublicLinkDetail(privateLink.id!!) }
+
+                Then("찾을 수 없는 링크와 같은 예외를 반환한다") {
+                    getLinkDetailService.getMemberLinkDetailOrNull(viewerId = outsider.id!!, linkId = privateLink.id!!) shouldBe null
+                    shouldThrowWithMessage<BusinessException>(ErrorCode.LINK_NOT_FOUND.message) { getDetail() }
+                }
+            }
+
+            When("게스트가 같은 공개 링크를 조회하면") {
+                Then("공개 목록에는 원문 표시 필드만 들어간다") {
+                    val result = getPublicFolderLinksService.getPublicLinks(sharedLink.folderId!!, null, null, ScrollRequest())
+                    val stored = linkRepository.findById(sharedLink.id!!).shouldNotBeNull()
+                    val item = result.contents.single()
+
+                    item.title shouldBe stored.title
+                    item.url shouldBe stored.url
+                    Json.encodeToJsonElement(item).jsonObject.keys shouldBe
+                        setOf("id", "title", "url", "thumbnailUrl", "faviconUrl", "isVideo", "contentExcerpt")
                 }
             }
         }
@@ -329,7 +377,7 @@ class GetLinkDetailServiceTest :
 
             When("행이 없으면") {
                 val links = fixture
-                val response = getLinkDetailService.getLinkDetail(links.ownerId, links.withoutRow)
+                val response = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.withoutRow)
 
                 Then("content가 null이다") {
                     response.content shouldBe null
@@ -338,7 +386,7 @@ class GetLinkDetailServiceTest :
 
             When("PENDING이면") {
                 val links = fixture
-                val response = getLinkDetailService.getLinkDetail(links.ownerId, links.pending)
+                val response = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.pending)
 
                 Then("content.excerpt가 null이고 isPending이 참이다") {
                     response.content shouldBe LinkContentResponse(excerpt = null, isPending = true)
@@ -347,7 +395,7 @@ class GetLinkDetailServiceTest :
 
             When("COLLECTED이면") {
                 val links = fixture
-                val response = getLinkDetailService.getLinkDetail(links.ownerId, links.collected)
+                val response = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.collected)
 
                 Then("content.excerpt가 발췌이고 isPending이 거짓이며 본문 전체는 응답에 없다") {
                     val stored = linkContentRepository.findByLinkId(links.collected).shouldNotBeNull()
@@ -358,7 +406,7 @@ class GetLinkDetailServiceTest :
 
             When("COLLECTED인데 발췌가 없는(3자 이하) 본문이면") {
                 val links = fixture
-                val response = getLinkDetailService.getLinkDetail(links.ownerId, links.tinyCollected)
+                val response = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.tinyCollected)
 
                 Then("content.excerpt가 null이고 isPending이 거짓이다") {
                     linkContentRepository.findByLinkId(links.tinyCollected).shouldNotBeNull().status shouldBe ContentStatus.COLLECTED
@@ -368,8 +416,8 @@ class GetLinkDetailServiceTest :
 
             When("FAILED·BLOCKED이면") {
                 val links = fixture
-                val failed = getLinkDetailService.getLinkDetail(links.ownerId, links.failed)
-                val blocked = getLinkDetailService.getLinkDetail(links.ownerId, links.blocked)
+                val failed = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.failed)
+                val blocked = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.blocked)
 
                 Then("content.excerpt가 null이고 isPending이 거짓이다") {
                     failed.content shouldBe LinkContentResponse(excerpt = null, isPending = false)
@@ -379,8 +427,8 @@ class GetLinkDetailServiceTest :
 
             When("공유 폴더 멤버가 보면") {
                 val links = fixture
-                val asOwner = getLinkDetailService.getLinkDetail(links.ownerId, links.collected)
-                val asMember = getLinkDetailService.getLinkDetail(links.memberId, links.collected)
+                val asOwner = getLinkDetailService.getMemberLinkDetail(links.ownerId, links.collected)
+                val asMember = getLinkDetailService.getMemberLinkDetail(links.memberId, links.collected)
 
                 Then("소유자와 같은 content가 나온다") {
                     asMember.content.shouldNotBeNull()

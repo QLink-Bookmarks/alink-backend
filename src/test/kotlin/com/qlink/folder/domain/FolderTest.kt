@@ -380,6 +380,49 @@ class FolderTest :
             }
         }
 
+        Given("소유자와 공개 상태가 정해진 폴더") {
+            val ownerId = RandomFixture.randomId()
+            val memberId = RandomFixture.randomId()
+            val outsiderId = RandomFixture.randomId()
+            val private = FolderFixture.createValidUnsharedFolder(ownerId)
+            val public = FolderFixture.createFolderWith(ownerId = ownerId, isPublic = true)
+
+            When("소유자와 멤버, 외부인의 소유권을 확인하면") {
+                Then("현재 소유자만 소유권을 가진다") {
+                    public.isOwnedBy(ownerId) shouldBe true
+                    public.isOwnedBy(memberId) shouldBe false
+                    public.isOwnedBy(outsiderId) shouldBe false
+                }
+            }
+
+            val now = RandomFixture.randomPastInstant()
+
+            When("비공개 폴더를 공개하면") {
+                val updated = private.setPublic(isPublic = true, now = now)
+
+                Then("공개 상태가 된다") {
+                    updated.turnsPublicAt shouldBe now
+                }
+            }
+
+            When("공개 폴더를 다시 공개하면") {
+                val updated = public.setPublic(isPublic = true, now = now)
+
+                Then("공개 상태가 유지된다") {
+                    updated.turnsPublicAt shouldBe public.turnsPublicAt
+                }
+            }
+
+            When("공개 폴더를 비공개로 바꾸면") {
+                val updated = public.setPublic(isPublic = false, now = now)
+
+                Then("비공개 상태가 되고 다시 공개할 수 있다") {
+                    updated.turnsPublicAt shouldBe null
+                    updated.setPublic(isPublic = true, now = now).turnsPublicAt shouldBe now
+                }
+            }
+        }
+
         Given("신규 사용자") {
             When("가이드 폴더를 만들면") {
                 val ownerId = RandomFixture.randomId()

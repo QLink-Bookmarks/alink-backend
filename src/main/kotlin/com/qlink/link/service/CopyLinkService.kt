@@ -7,6 +7,7 @@ import com.qlink.common.error.requireTrue
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.folder.repository.FolderRepository
 import com.qlink.foldermember.repository.FolderMemberRepository
+import com.qlink.link.domain.Link
 import com.qlink.link.dto.CopyLinkRequest
 import com.qlink.link.dto.CopyLinkResponse
 import com.qlink.link.repository.LinkRepository
@@ -35,28 +36,30 @@ class CopyLinkService(
             .required {
                 userRepository.emptyById(loginId).requireFalse(ErrorCode.LINK_OWNER_NOT_FOUND)
 
-                folderRepository
-                    .findById(request.fromFolderId)
-                    ?.also { it.sharedAt ?: throw BusinessException(ErrorCode.LINK_COPY_NOT_SHARED_FOLDER) }
-                    ?.also {
-                        folderMemberRepository
-                            .existsByFolderIdAndUserId(folderId = it.id!!, userId = loginId)
-                            .requireTrue(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
-                    }
-                    ?: throw BusinessException(ErrorCode.LINK_SHARE_FOLDER_NOT_FOUND)
+                val folders =
+                    folderRepository
+                        .findAllByIdsForKeyShare(listOfNotNull(request.fromFolderId, request.toFolderId))
+                        .associateBy { it.id }
+                val source =
+                    folders[request.fromFolderId]
+                        ?.also { it.sharedAt ?: throw BusinessException(ErrorCode.LINK_COPY_NOT_SHARED_FOLDER) }
+                        ?.also {
+                            folderMemberRepository
+                                .existsByFolderIdAndUserId(folderId = it.id!!, userId = loginId)
+                                .requireTrue(ErrorCode.LINK_SHARED_FOLDER_ACCESS_DENIED)
+                        }
+                        ?: throw BusinessException(ErrorCode.LINK_SHARE_FOLDER_NOT_FOUND)
 
-                val personalFolderId =
+                val target =
                     request.toFolderId?.let { toFolderId ->
-                        folderRepository
-                            .findById(toFolderId)
+                        folders[toFolderId]
                             ?.also { it.validateOwner(loginId) }
-                            ?.id
                             ?: throw BusinessException(ErrorCode.LINK_TARGET_FOLDER_NOT_FOUND)
                     }
 
                 val link =
                     linkRepository
-                        .findById(linkId)
+                        .findByIdForShare(linkId)
                         ?.also { found ->
                             found.folderId
                                 ?.let { (it == request.fromFolderId).requireTrue(ErrorCode.LINK_COPY_FOLDER_MISMATCH) }
@@ -64,7 +67,19 @@ class CopyLinkService(
                         }
                         ?: throw BusinessException(ErrorCode.LINK_NOT_FOUND)
 
-                val copiedLink = linkRepository.insert(link.addToFolder(newOwnerId = loginId, folderId = personalFolderId))
+                val copiedLink =
+                    linkRepository.insert(
+                        link.addToFolder(
+                            newOwnerId = loginId,
+                            folderId = target?.id,
+                            turnsPublicAt =
+                                Link.resolveNewVisibility(
+                                    folderIsPublic = target?.isPublished == true,
+                                    isPublic = link.isPublishedIn(source.isPublished) && target?.isPublished == true,
+                                    now = Clock.System.now(),
+                                ),
+                        ),
+                    )
                 linkContentRepository.insertAll(
                     listOf(
                         LinkContent.create(

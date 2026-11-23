@@ -1,5 +1,6 @@
 package com.qlink.di
 
+import com.qlink.config.AbbreviatedSqlLogger
 import com.qlink.config.DataSourceConfig
 import com.qlink.config.FlywayConfig
 import com.qlink.config.string
@@ -8,8 +9,11 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.server.config.ApplicationConfig
 import org.flywaydb.core.Flyway
+import org.jetbrains.exposed.v1.core.DatabaseConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.koin.dsl.module
+import org.postgresql.PGProperty
+import org.slf4j.LoggerFactory
 import javax.sql.DataSource
 
 fun dataModule(
@@ -43,8 +47,12 @@ fun dataModule(
                 )
             }
 
+        val configuredJdbcUrl = resolvedDataSourceConfig.jdbcUrl
+        val separator = if ('?' in configuredJdbcUrl) "&" else "?"
+        val errorDetailOption = PGProperty.LOG_SERVER_ERROR_DETAIL.getName()
+
         HikariConfig().apply {
-            jdbcUrl = resolvedDataSourceConfig.jdbcUrl
+            jdbcUrl = "$configuredJdbcUrl$separator$errorDetailOption=false"
             username = resolvedDataSourceConfig.username
             password = resolvedDataSourceConfig.password
             driverClassName = resolvedDataSourceConfig.driverClassName
@@ -61,7 +69,13 @@ fun dataModule(
     }
 
     single {
-        Database.connect(get<DataSource>())
+        Database.connect(
+            datasource = get<DataSource>(),
+            databaseConfig =
+                DatabaseConfig {
+                    sqlLogger = AbbreviatedSqlLogger(log = LoggerFactory.getLogger(AbbreviatedSqlLogger::class.java))
+                },
+        )
     }
 
     single {

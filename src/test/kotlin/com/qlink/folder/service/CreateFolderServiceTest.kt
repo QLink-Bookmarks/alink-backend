@@ -49,11 +49,30 @@ class CreateFolderServiceTest :
                     actual.name shouldBe request.name
                     actual.emoji shouldBe request.emoji
                     actual.sharedAt shouldNotBe null
+                    actual.turnsPublicAt shouldBe null
+                    actual.turnsPublicAt shouldBe null
 
                     val member = folderMemberRepository.findByFolderIdAndUserId(response.id, user.id!!)
                     member shouldNotBe null
                     member!!.userName shouldBe user.nickname
                     member.role shouldBe MemberRole.OWNER
+                }
+            }
+
+            When("공개 폴더를 개인 폴더로 생성하면") {
+                val request =
+                    CreateFolderRequest(
+                        name = RandomFixture.randomSentenceWithMax(100),
+                        isShared = false,
+                        isPublic = true,
+                    )
+
+                Then("활성 공개 ID가 저장되고 공유 상태는 비활성이다") {
+                    val result = createFolderService.createFolder(user.id!!, request)
+                    val stored = folderRepository.findById(result.id)!!
+
+                    stored.turnsPublicAt shouldNotBe null
+                    stored.isShared shouldBe false
                 }
             }
 
