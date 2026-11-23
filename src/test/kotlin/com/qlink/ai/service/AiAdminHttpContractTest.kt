@@ -15,8 +15,19 @@ import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
 import com.qlink.ai.repository.table.AiProviders
 import com.qlink.auth.domain.Role
+import com.qlink.common.crypto.ApiKeyCipher
 import com.qlink.common.transaction.TransactionRunner
 import com.qlink.config.SecurityConfig
+import com.qlink.di.pluginModule
+import com.qlink.di.repositoryModule
+import com.qlink.di.serviceModule
+import com.qlink.plugin.configureDocs
+import com.qlink.plugin.configureRequestValidation
+import com.qlink.plugin.configureResources
+import com.qlink.plugin.configureRouting
+import com.qlink.plugin.configureSecurity
+import com.qlink.plugin.configureSerialization
+import com.qlink.plugin.configureStatusPages
 import com.qlink.support.BaseServiceTest
 import com.qlink.support.FakeAiClient
 import com.qlink.support.ServiceTestEnvironment
@@ -26,7 +37,6 @@ import com.qlink.support.fixture.UserFixture
 import com.qlink.support.koinGet
 import com.qlink.user.domain.User
 import com.qlink.user.repository.UserRepository
-import com.zaxxer.hikari.HikariDataSource
 import io.kotest.core.test.TestType
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.bearerAuth
@@ -39,7 +49,9 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.application.install
+import io.ktor.server.config.ApplicationConfig
+import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -56,7 +68,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
-import org.koin.ktor.ext.getKoin
+import org.koin.dsl.module
+import org.koin.ktor.plugin.KoinIsolated
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.concurrent.atomic.AtomicInteger
@@ -126,8 +139,8 @@ class AiAdminHttpContractTest :
                     val adminToken = token(admin)
 
                     testApplication {
-                        environment { this.config = config }
-                        application { configureVendor(vendor) }
+                        environment { this.config = MapApplicationConfig() }
+                        application { configureAiHttpContract(config = config, vendor = vendor) }
 
                         client.get(keyPath).status shouldBe HttpStatusCode.Unauthorized
                         client.get(keyPath) { bearerAuth(token(nonAdmin)) }.status shouldBe HttpStatusCode.Forbidden
@@ -209,8 +222,8 @@ class AiAdminHttpContractTest :
                         }
 
                     testApplication {
-                        environment { this.config = config }
-                        application { configureVendor(vendor) }
+                        environment { this.config = MapApplicationConfig() }
+                        application { configureAiHttpContract(config = config, vendor = vendor) }
 
                         suspend fun putKey(key: String) =
                             client
@@ -241,10 +254,31 @@ class AiAdminHttpContractTest :
         }
     })
 
-private fun Application.configureVendor(vendor: AiClient) {
-    val dataSource = getKoin().get<HikariDataSource>()
-    monitor.subscribe(ApplicationStopped) { dataSource.close() }
-    getKoin().declare(AiClientRouter(clients = listOf(vendor)))
+private fun Application.configureAiHttpContract(
+    config: ApplicationConfig,
+    vendor: AiClient,
+) {
+    val tx = koinGet<TransactionRunner>()
+    val cipher = koinGet<ApiKeyCipher>()
+    install(KoinIsolated) {
+        modules(
+            pluginModule(config),
+            repositoryModule(),
+            serviceModule(),
+            module {
+                single { tx }
+                single { cipher }
+                single { AiClientRouter(clients = listOf(vendor)) }
+            },
+        )
+    }
+    configureSerialization()
+    configureSecurity()
+    configureResources()
+    configureDocs()
+    configureStatusPages()
+    configureRequestValidation()
+    configureRouting()
 }
 
 private suspend fun HttpResponse.successData(): JsonObject {
