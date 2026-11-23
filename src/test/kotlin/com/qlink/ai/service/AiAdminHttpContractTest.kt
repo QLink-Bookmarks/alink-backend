@@ -8,6 +8,7 @@ import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
 import com.qlink.ai.domain.DailyUsage
+import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiApiKeyValidationRequest
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
@@ -88,6 +89,7 @@ class AiAdminHttpContractTest :
             lateinit var nonAdmin: User
             lateinit var provider: AiProvider
             lateinit var model: AvailableModel
+            var insertedSharedOwner = false
 
             beforeTest {
                 if (it.type != TestType.Test) {
@@ -96,8 +98,9 @@ class AiAdminHttpContractTest :
                 CoroutineScope(Dispatchers.IO)
                     .async {
                         tx.required {
-                            admin = users.insert(UserFixture.createRandomValidSuperAdmin())
                             nonAdmin = users.insert(UserFixture.createRandomValidUser())
+                            admin = users.insert(UserFixture.createRandomValidSuperAdmin())
+                            insertedSharedOwner = AiFixture.insertSharedKeyOwnerIfAbsent()
                             provider = providers.insert(AiFixture.createRandomValidAiProvider(type = AiProviderType.OPENAI))
                             model = models.insert(AiFixture.createRandomAvailableModelOf(providerId = provider.id!!))
                         }
@@ -114,6 +117,9 @@ class AiAdminHttpContractTest :
                             AiProviders.deleteWhere { AiProviders.id eq provider.id!! }
                             users.deleteById(admin.id!!)
                             users.deleteById(nonAdmin.id!!)
+                            if (insertedSharedOwner) {
+                                users.deleteById(UserProvider.SHARED_OWNER_ID)
+                            }
                         }
                     }.await()
             }
@@ -176,7 +182,13 @@ class AiAdminHttpContractTest :
                                     tx.required {
                                         usages.insert(
                                             DailyUsage(
-                                                userProviderId = keys.findDefaultByProviderId(providerId)!!.id!!,
+                                                userProviderId =
+                                                    keys
+                                                        .findByUserIdAndProviderId(
+                                                            userId = UserProvider.SHARED_OWNER_ID,
+                                                            providerId = providerId,
+                                                        )!!
+                                                        .id!!,
                                                 modelId = model.id!!,
                                                 usageDate = day,
                                                 requests = RandomFixture.randomInt(1, 100),
@@ -237,7 +249,10 @@ class AiAdminHttpContractTest :
                             CoroutineScope(Dispatchers.IO)
                                 .async {
                                     tx.readOnly {
-                                        keys.findAllByRole(Role.SUPER_ADMIN).filter { it.providerId == providerId }.map { it.id }
+                                        keys
+                                            .findAllByRole(Role.SUPER_ADMIN)
+                                            .filter { it.providerId == providerId }
+                                            .map { it.userId to it.id }
                                     }
                                 }.await()
 
@@ -245,9 +260,10 @@ class AiAdminHttpContractTest :
                         val responses = coroutineScope { submitted.map { key -> async { putKey(key) } }.awaitAll() }
                         responses shouldBe submitted.map { key -> buildJsonObject { put("lastFour", key.takeLast(4)) } }
 
-                        val firstId = sharedIds().single()
+                        val first = sharedIds().single()
+                        first.first shouldBe UserProvider.SHARED_OWNER_ID
                         putKey("dummy-rotation-${RandomFixture.randomId()}")
-                        sharedIds() shouldBe listOf(firstId)
+                        sharedIds() shouldBe listOf(first)
                     }
                 }
             }

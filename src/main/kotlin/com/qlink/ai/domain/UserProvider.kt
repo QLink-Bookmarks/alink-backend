@@ -7,7 +7,7 @@ import kotlin.time.Instant
 
 class UserProvider(
     val id: Long? = null,
-    val userId: Long?,
+    val userId: Long,
     val providerId: Long,
     val userRole: Role = Role.NORMAL,
     val apiKey: String,
@@ -21,5 +21,9 @@ class UserProvider(
         if (this.userId != userId && !isDefault) {
             throw BusinessException(ErrorCode.AI_USER_PROVIDER_ACCESS_DENIED)
         }
+    }
+
+    companion object {
+        const val SHARED_OWNER_ID = 1L
     }
 }

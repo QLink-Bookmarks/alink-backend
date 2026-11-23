@@ -37,9 +37,9 @@ class PutAiSharedKeyService(
                 baseUrl = provider.baseUrl,
                 apiKey = request.apiKey,
             )
-            userProviderRepository.saveShared(
+            userProviderRepository.save(
                 UserProvider(
-                    userId = null,
+                    userId = UserProvider.SHARED_OWNER_ID,
                     providerId = providerId,
                     userRole = Role.SUPER_ADMIN,
                     apiKey = apiKeyCipher.encrypt(request.apiKey),

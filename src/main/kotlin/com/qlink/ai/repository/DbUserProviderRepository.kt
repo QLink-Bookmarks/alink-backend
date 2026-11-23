@@ -36,21 +36,6 @@ class DbUserProviderRepository : UserProviderRepository {
             }.single()
             .toUserProviderDomain()
 
-    override suspend fun saveShared(userProvider: UserProvider): UserProvider =
-        UserProviders
-            .upsertReturning(
-                UserProviders.providerId,
-                UserProviders.isPrimarySharedKey,
-                onUpdate = {
-                    it[UserProviders.apiKey] = userProvider.apiKey
-                    it.refreshUserProviderUpdatedAt()
-                },
-            ) {
-                it.fromDomain(userProvider)
-                it[UserProviders.isPrimarySharedKey] = true
-            }.single()
-            .toUserProviderDomain()
-
     override suspend fun findByUserIdAndProviderId(
         userId: Long,
         providerId: Long,
@@ -76,13 +61,6 @@ class DbUserProviderRepository : UserProviderRepository {
             .where { UserProviders.userId eq userId }
             .orderBy(UserProviders.id to SortOrder.ASC)
             .map { it.toUserProviderDomain() }
-
-    override suspend fun findDefaultByProviderId(providerId: Long): UserProvider? =
-        UserProviders
-            .selectAll()
-            .where { (UserProviders.providerId eq providerId) and (UserProviders.isPrimarySharedKey eq true) }
-            .singleOrNull()
-            ?.toUserProviderDomain()
 
     override suspend fun findAllByRole(userProviderRole: Role): List<UserProvider> =
         UserProviders

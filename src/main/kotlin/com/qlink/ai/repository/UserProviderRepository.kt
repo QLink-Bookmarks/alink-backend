@@ -8,8 +8,6 @@ interface UserProviderRepository {
 
     suspend fun save(userProvider: UserProvider): UserProvider
 
-    suspend fun saveShared(userProvider: UserProvider): UserProvider
-
     suspend fun findByUserIdAndProviderId(
         userId: Long,
         providerId: Long,
@@ -18,8 +16,6 @@ interface UserProviderRepository {
     suspend fun findById(userProviderId: Long): UserProvider?
 
     suspend fun findAllByUserId(userId: Long): List<UserProvider>
-
-    suspend fun findDefaultByProviderId(providerId: Long): UserProvider?
 
     suspend fun findAllByRole(userProviderRole: Role): List<UserProvider>
 

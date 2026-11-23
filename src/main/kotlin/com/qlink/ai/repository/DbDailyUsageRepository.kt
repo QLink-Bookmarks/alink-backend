@@ -1,6 +1,7 @@
 package com.qlink.ai.repository
 
 import com.qlink.ai.domain.DailyUsage
+import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiDailyUsageQuery
 import com.qlink.ai.dto.toAiDailyUsageQuery
 import com.qlink.ai.repository.table.AiProviders
@@ -71,8 +72,11 @@ class DbDailyUsageRepository : DailyUsageRepository {
             .join(AiProviders, JoinType.INNER, UserProviders.providerId, AiProviders.id)
             .join(AvailableModels, JoinType.INNER, DailyUsages.modelId, AvailableModels.id)
             .select(AiProviders.id, AiProviders.type, AvailableModels.id, AvailableModels.model, requests, tokens)
-            .where { (DailyUsages.usageDate eq usageDate) and (UserProviders.userRole eq Role.SUPER_ADMIN) }
-            .groupBy(AiProviders.id, AiProviders.type, AvailableModels.id, AvailableModels.model)
+            .where {
+                (DailyUsages.usageDate eq usageDate) and
+                    (UserProviders.userId eq UserProvider.SHARED_OWNER_ID) and
+                    (UserProviders.userRole eq Role.SUPER_ADMIN)
+            }.groupBy(AiProviders.id, AiProviders.type, AvailableModels.id, AvailableModels.model)
             .orderBy(AiProviders.id to SortOrder.ASC, AvailableModels.id to SortOrder.ASC)
             .map { it.toAiDailyUsageQuery(requests = requests, tokens = tokens) }
     }

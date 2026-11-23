@@ -1,5 +1,6 @@
 package com.qlink.ai.service
 
+import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiSharedKeyResponse
 import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.UserProviderRepository
@@ -24,12 +25,15 @@ class GetAiSharedKeyService(
             aiProviderRepository.findQuery(providerId) ?: throw BusinessException(ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND)
 
             val lastFour =
-                userProviderRepository.findDefaultByProviderId(providerId)?.let { credential ->
-                    val key =
-                        apiKeyCipher.decrypt(credential.apiKey)?.takeIf { it.length > 4 }
-                            ?: throw BusinessException(ErrorCode.AI_API_KEY_MISSING)
-                    key.takeLast(4)
-                }
+                userProviderRepository
+                    .findByUserIdAndProviderId(userId = UserProvider.SHARED_OWNER_ID, providerId = providerId)
+                    ?.takeIf { it.isDefault }
+                    ?.let { credential ->
+                        val key =
+                            apiKeyCipher.decrypt(credential.apiKey)?.takeIf { it.length > 4 }
+                                ?: throw BusinessException(ErrorCode.AI_API_KEY_MISSING)
+                        key.takeLast(4)
+                    }
             AiSharedKeyResponse(lastFour)
         }
 }

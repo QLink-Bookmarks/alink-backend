@@ -33,12 +33,13 @@ class GetAiDailyUsageServiceTest :
         val keys = koinGet<UserProviderRepository>()
         val usages = koinGet<DailyUsageRepository>()
 
-        Given("공용 키 여러 건과 개인 키의 사용량이 있는 제공자") {
+        Given("운영 계정 공용 키와 다른 계정의 키 사용량이 있는 제공자") {
             lateinit var admin: User
             lateinit var provider: AiProvider
             lateinit var model: AvailableModel
             lateinit var date: LocalDate
-            lateinit var sharedUsages: List<DailyUsage>
+            lateinit var shared: UserProvider
+            lateinit var sharedUsage: DailyUsage
 
             beforeTest {
                 if (it.type != TestType.Test) {
@@ -50,7 +51,19 @@ class GetAiDailyUsageServiceTest :
                 model = models.insert(AiFixture.createRandomAvailableModelOf(providerId = providerId, isActive = false))
                 val modelId = model.id!!
                 date = RandomFixture.randomDateTime().toLocalDate()
-                val personal = keys.insert(AiFixture.createUserProviderOf(userId = admin.id!!, providerId = providerId))
+                val personalOwner = users.insert(UserFixture.createRandomValidUser())
+                val otherAdmin = users.insert(UserFixture.createRandomValidSuperAdmin())
+                AiFixture.insertSharedKeyOwnerIfAbsent()
+                val personal = keys.insert(AiFixture.createUserProviderOf(userId = personalOwner.id!!, providerId = providerId))
+                val otherDefault =
+                    keys.insert(
+                        UserProvider(
+                            userId = otherAdmin.id!!,
+                            providerId = providerId,
+                            userRole = Role.SUPER_ADMIN,
+                            apiKey = RandomFixture.randomFixedSentence(40),
+                        ),
+                    )
                 val requestCount = RandomFixture.randomInt(1, 100)
 
                 fun newUsage(
@@ -59,21 +72,20 @@ class GetAiDailyUsageServiceTest :
                     tokens: Int,
                 ) = DailyUsage(userProviderId = keyId, modelId = modelId, usageDate = day, requests = requestCount, tokens = tokens)
 
-                sharedUsages =
-                    List(2) {
-                        val key =
-                            keys.insert(
-                                UserProvider(
-                                    userId = null,
-                                    providerId = providerId,
-                                    userRole = Role.SUPER_ADMIN,
-                                    apiKey = RandomFixture.randomFixedSentence(40),
-                                ),
-                            )
-                        usages.insert(newUsage(key.id!!, date.plusDays(1), RandomFixture.randomInt(1, 100)))
-                        usages.insert(newUsage(key.id, date, Int.MAX_VALUE - RandomFixture.randomInt(1, 100)))
-                    }
+                shared =
+                    keys.insert(
+                        UserProvider(
+                            userId = UserProvider.SHARED_OWNER_ID,
+                            providerId = providerId,
+                            userRole = Role.SUPER_ADMIN,
+                            apiKey = RandomFixture.randomFixedSentence(40),
+                        ),
+                    )
+                val sharedId = shared.id!!
+                usages.insert(newUsage(sharedId, date.plusDays(1), RandomFixture.randomInt(1, 100)))
+                sharedUsage = usages.insert(newUsage(sharedId, date, Int.MAX_VALUE - RandomFixture.randomInt(1, 100)))
                 usages.insert(newUsage(personal.id!!, date, RandomFixture.randomInt(1, 100)))
+                usages.insert(newUsage(otherDefault.id!!, date, RandomFixture.randomInt(1, 100)))
             }
 
             When("사용량이 있는 UTC 날짜를 조회하면") {
@@ -87,8 +99,8 @@ class GetAiDailyUsageServiceTest :
                                 providerType = provider.type,
                                 modelId = model.id!!,
                                 model = model.model,
-                                requests = sharedUsages.sumOf { it.requests.toLong() },
-                                tokens = sharedUsages.sumOf { it.tokens.toLong() },
+                                requests = sharedUsage.requests.toLong(),
+                                tokens = sharedUsage.tokens.toLong(),
                             ),
                         )
                 }
@@ -104,20 +116,12 @@ class GetAiDailyUsageServiceTest :
                     if (it.type != TestType.Test) {
                         return@beforeTest
                     }
-                    val key =
-                        keys.insert(
-                            UserProvider(
-                                userId = null,
-                                providerId = provider.id!!,
-                                userRole = Role.SUPER_ADMIN,
-                                apiKey = RandomFixture.randomFixedSentence(40),
-                            ),
-                        )
+                    val keyId = shared.id!!
                     val modelId = model.id!!
                     leapUsage =
                         usages.insert(
                             DailyUsage(
-                                userProviderId = key.id!!,
+                                userProviderId = keyId,
                                 modelId = modelId,
                                 usageDate = leapDay,
                                 requests = RandomFixture.randomInt(1, 100),
@@ -127,7 +131,7 @@ class GetAiDailyUsageServiceTest :
                     nextUsage =
                         usages.insert(
                             DailyUsage(
-                                userProviderId = key.id,
+                                userProviderId = keyId,
                                 modelId = modelId,
                                 usageDate = nextDay,
                                 requests = leapUsage.requests + 1,

@@ -14,10 +14,22 @@ import com.qlink.ai.dto.AiSummaryTodo
 import com.qlink.ai.dto.AiSummaryTodoRequest
 import com.qlink.link.domain.Link
 import com.qlink.todo.domain.RepeatDay
+import com.qlink.user.repository.table.Users
+import com.qlink.user.repository.table.fromDomain
+import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import kotlin.random.Random
 import kotlin.time.Instant
 
 object AiFixture {
+    fun insertSharedKeyOwnerIfAbsent(): Boolean {
+        val owner = UserFixture.createRandomValidSuperAdmin()
+        return Users
+            .insertIgnore {
+                it[id] = UserProvider.SHARED_OWNER_ID
+                it.fromDomain(owner)
+            }.insertedCount == 1
+    }
+
     fun createUserProviderOf(
         userId: Long,
         providerId: Long,
