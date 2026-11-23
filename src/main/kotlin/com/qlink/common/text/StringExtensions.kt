@@ -1,7 +1,10 @@
 package com.qlink.common.text
 
+import com.qlink.common.error.BusinessException
+import com.qlink.common.error.ErrorCode
 import java.security.MessageDigest
 import java.text.Normalizer
+import kotlin.time.Instant
 
 private const val ELLIPSIS = "…"
 private val WHITESPACE_RUN = Regex("(?U)\\s+")
@@ -23,6 +26,18 @@ fun String.takeKeepingSurrogatePairs(maxLength: Int): String =
 fun String.toNfc(): String = Normalizer.normalize(this, Normalizer.Form.NFC)
 
 fun String.collapseWhitespace(): String = replace(WHITESPACE_RUN, " ").trim()
+
+fun String.parseUtcDayStart(): Instant {
+    if (length != 10) {
+        throw BusinessException(ErrorCode.COMMON_BAD_REQUEST)
+    }
+
+    return try {
+        Instant.parse("${this}T00:00:00Z")
+    } catch (_: IllegalArgumentException) {
+        throw BusinessException(ErrorCode.COMMON_BAD_REQUEST)
+    }
+}
 
 fun String.sha256Hex(): String =
     MessageDigest
