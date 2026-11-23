@@ -298,6 +298,7 @@ module "ecs" {
     AWS_S3_PUBLIC_BASE_URL       = module.cloudfront.public_base_url
     LINK_PREVIEW_LAMBDA_FUNCTION = "alink-link-preview-dev:live"
     LINK_PREVIEW_LAMBDA_ENDPOINT = ""
+    AI_CLAUDE_MAX_OUTPUT_TOKENS  = "8192"
   }
   task_secret_values = merge(
     {
