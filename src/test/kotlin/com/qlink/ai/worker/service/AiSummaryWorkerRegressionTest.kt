@@ -425,11 +425,14 @@ class AiSummaryWorkerRegressionTest :
                         },
                     aiProviders =
                         object : AiProviderRepository by aiProviderRepository {
-                            override suspend fun findById(providerId: Long): AiProvider? =
+                            override suspend fun findById(
+                                providerId: Long,
+                                forUpdate: Boolean,
+                            ): AiProvider? =
                                 if (isMissing() && errorCode == ErrorCode.AI_PROVIDER_NOT_FOUND) {
                                     null
                                 } else {
-                                    aiProviderRepository.findById(providerId)
+                                    aiProviderRepository.findById(providerId = providerId, forUpdate = forUpdate)
                                 }
                         },
                     afterUsageLoaded = afterUsageLoaded,

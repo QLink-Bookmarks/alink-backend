@@ -1,11 +1,15 @@
 package com.qlink.ai.route
 
+import com.qlink.ai.dto.AiDailyUsageResponse
 import com.qlink.ai.dto.AiProviderDetailResponse
 import com.qlink.ai.dto.AiProviderModelsResponse
 import com.qlink.ai.dto.AiProviderResponse
+import com.qlink.ai.dto.AiSharedKeyResponse
 import com.qlink.ai.dto.CreateAiProviderRequest
 import com.qlink.ai.dto.CreateAiResourceResponse
 import com.qlink.ai.dto.CreateAvailableModelRequest
+import com.qlink.ai.dto.PutAiSharedKeyRequest
+import com.qlink.ai.dto.PutAiSharedKeyResponse
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.PutAiUserProviderResponse
 import com.qlink.ai.dto.UpdateAiActiveRequest
@@ -124,6 +128,76 @@ internal fun getAiProviderDocs(): RouteConfig.() -> Unit =
             code(HttpStatusCode.NotFound) {
                 body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND) }
             }
+        }
+    }
+
+internal fun getAiSharedKeyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 제공자 공용 키 조회 (현재 DB 관리자 권한 필요)"
+        description = "등록된 키의 끝 네 글자를 반환합니다. 등록된 키가 없으면 null을 반환합니다."
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<AiSharedKeyResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND) }
+            }
+            code(HttpStatusCode.InternalServerError) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_API_KEY_MISSING) } }
+        }
+    }
+
+internal fun putAiSharedKeyDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 제공자 공용 키 등록 및 교체 (현재 DB 관리자 권한 필요)"
+        request { body<PutAiSharedKeyRequest>() }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<PutAiSharedKeyResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) {
+                body<ApiResponse<ErrorDetail>> {
+                    examples(
+                        ErrorCode.COMMON_BAD_REQUEST,
+                        ErrorCode.AI_PROVIDER_NOT_SUPPORTED,
+                        ErrorCode.AI_API_KEY_INVALID,
+                        ErrorCode.AI_PROVIDER_BASE_URL_INVALID,
+                    )
+                }
+            }
+            code(HttpStatusCode.Forbidden) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED, ErrorCode.AI_VENDOR_PERMISSION_DENIED) }
+            }
+            code(HttpStatusCode.NotFound) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND, ErrorCode.AI_ADMIN_PROVIDER_NOT_FOUND) }
+            }
+            code(HttpStatusCode.Conflict) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_SHARED_KEY_PERSONAL_CONFLICT) } }
+            code(HttpStatusCode.UnprocessableEntity) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_VENDOR_TEMPORARY_UNAVAILABLE, ErrorCode.AI_VENDOR_REQUEST_REJECTED) }
+            }
+            code(HttpStatusCode.TooManyRequests) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_VENDOR_RATE_LIMITED, ErrorCode.AI_VENDOR_QUOTA_EXHAUSTED) }
+            }
+            code(HttpStatusCode.InternalServerError) {
+                body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_INTERNAL_SERVER_ERROR) }
+            }
+        }
+    }
+
+internal fun getAiDailyUsageDocs(): RouteConfig.() -> Unit =
+    {
+        summary = "AI 공용 키 일일 사용량 조회 (현재 DB 관리자 권한 필요)"
+        description = "지정한 UTC 날짜의 공용 키 사용량을 제공자와 모델별로 합산합니다."
+        request {
+            queryParameter<String>("date") {
+                description = "UTC 날짜 (YYYY-MM-DD)"
+                required = true
+            }
+        }
+        response {
+            code(HttpStatusCode.OK) { body<ApiResponse<AiDailyUsageResponse>>() }
+            authErrorResponse()
+            code(HttpStatusCode.BadRequest) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.COMMON_BAD_REQUEST) } }
+            code(HttpStatusCode.Forbidden) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_REQUIRED) } }
+            code(HttpStatusCode.NotFound) { body<ApiResponse<ErrorDetail>> { examples(ErrorCode.AI_ADMIN_USER_NOT_FOUND) } }
         }
     }
 

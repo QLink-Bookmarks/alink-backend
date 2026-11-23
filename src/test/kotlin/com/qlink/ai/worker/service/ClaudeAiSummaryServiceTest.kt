@@ -14,10 +14,12 @@ import com.qlink.ai.domain.AiJobStatus
 import com.qlink.ai.domain.AiProvider
 import com.qlink.ai.domain.AiProviderType
 import com.qlink.ai.domain.AvailableModel
+import com.qlink.ai.domain.DailyUsage
 import com.qlink.ai.domain.UserProvider
 import com.qlink.ai.dto.AiApiKeyValidationRequest
 import com.qlink.ai.dto.AiSummaryClientRequest
 import com.qlink.ai.dto.AiSummaryRequest
+import com.qlink.ai.dto.PutAiSharedKeyRequest
 import com.qlink.ai.dto.PutAiUserProviderRequest
 import com.qlink.ai.dto.UpdateAiActiveRequest
 import com.qlink.ai.dto.UpdateAiProviderRequest
@@ -26,7 +28,9 @@ import com.qlink.ai.repository.AiProviderRepository
 import com.qlink.ai.repository.AvailableModelRepository
 import com.qlink.ai.repository.DailyUsageRepository
 import com.qlink.ai.repository.UserProviderRepository
+import com.qlink.ai.service.GetAiDailyUsageService
 import com.qlink.ai.service.GetAiProviderModelsService
+import com.qlink.ai.service.PutAiSharedKeyService
 import com.qlink.ai.service.PutAiUserProviderService
 import com.qlink.ai.service.UpdateAiProviderActiveService
 import com.qlink.ai.service.UpdateAiProviderService
@@ -1104,6 +1108,90 @@ class ClaudeAiSummaryServiceTest :
                             .toString() shouldBe "$baseUrl/v1/models?limit=1"
                         recordedUsage(job) shouldBe null
                         todos.findAllByLinkId(job.linkId) shouldBe emptyList()
+                    }
+                }
+
+                if (useSdk) {
+                    When("대기 중인 공용 Claude 작업의 키를 다른 관리자가 교체하면") {
+                        lateinit var job: AiJob
+                        lateinit var nextAdmin: User
+                        lateinit var fallback: AvailableModel
+                        lateinit var previousUsage: DailyUsage
+                        lateinit var replacement: String
+
+                        beforeTest {
+                            if (it.type != TestType.Test) {
+                                return@beforeTest
+                            }
+                            activateProvider()
+                            activateModel()
+                            val shared =
+                                keys.insert(
+                                    UserProvider(
+                                        userId = admin.id!!,
+                                        providerId = provider.id!!,
+                                        userRole = Role.SUPER_ADMIN,
+                                        apiKey = cipher.encrypt(apiKey),
+                                    ),
+                                )
+                            job = submitSummary(userProviderId = shared.id!!, modelId = model.id!!)
+                            nextAdmin = users.insert(UserFixture.createRandomValidSuperAdmin())
+                            replacement = "dummy-rotated-${RandomFixture.randomId()}"
+                            fallback =
+                                models.insert(
+                                    AiFixture.createRandomAvailableModelOf(providerId = provider.id!!, priority = model.priority + 1),
+                                )
+                            previousUsage =
+                                usage.insert(
+                                    DailyUsage(
+                                        userProviderId = job.userProviderId,
+                                        modelId = model.id!!,
+                                        usageDate = LocalDate.now(ZoneOffset.UTC).minusDays(1),
+                                        requests = RandomFixture.randomInt(1, 100),
+                                        tokens = RandomFixture.randomInt(1, 1_000),
+                                    ),
+                                )
+                            http.nextMessageStatus = HttpStatusCode.ServiceUnavailable
+                            http.messagesBody =
+                                fixture.messagesResponse(finalText = fixture.summaryJson(linkId = job.linkId, folderId = null))
+                        }
+
+                        Then("SDK 폴백이 새 키를 사용하고 기존 작업과 사용량 참조를 유지한다") {
+                            app.koin.get<PutAiSharedKeyService>().putAiSharedKey(
+                                loginId = nextAdmin.id!!,
+                                providerId = provider.id!!,
+                                request = PutAiSharedKeyRequest(replacement),
+                            )
+                            val action = suspend { app.koin.get<AiSummaryWorker>().proceed(job.id!!) }
+                            shouldNotThrow<BusinessException> { action() }
+
+                            keys.findByUserIdAndProviderId(userId = admin.id!!, providerId = provider.id!!)?.id shouldBe
+                                job.userProviderId
+                            jobs.findById(job.id!!)!!.let {
+                                it.status shouldBe AiJobStatus.C
+                                it.userProviderId shouldBe job.userProviderId
+                                it.responseModelId shouldBe fallback.id
+                            }
+                            http.requests.map { it.method } shouldBe listOf("GET", "POST", "POST")
+                            http.requests.all { it.headers.getFirst("x-api-key") == replacement } shouldBe true
+                            http.requests.filter { it.method == "POST" }.map(::summaryModel) shouldBe listOf(model.model, fallback.model)
+                            val preserved =
+                                usage.findByUserIdAndProviderIdAndUsageDate(
+                                    userProviderId = job.userProviderId,
+                                    modelId = model.id!!,
+                                    usageDate = previousUsage.usageDate,
+                                )!!
+                            preserved.id shouldBe previousUsage.id
+                            preserved.requests shouldBe previousUsage.requests
+                            preserved.tokens shouldBe previousUsage.tokens
+
+                            val report =
+                                app.koin.get<GetAiDailyUsageService>().getAiDailyUsage(
+                                    loginId = nextAdmin.id!!,
+                                    date = LocalDate.now(ZoneOffset.UTC).toString(),
+                                )
+                            report.items.associate { it.modelId to it.requests } shouldBe mapOf(fallback.id to 1L)
+                        }
                     }
                 }
 

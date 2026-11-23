@@ -58,11 +58,18 @@ class DbAiProviderRepository : AiProviderRepository {
             .single()
             .toAiProviderDomain()
 
-    override suspend fun findById(providerId: Long): AiProvider? =
+    override suspend fun findById(
+        providerId: Long,
+        forUpdate: Boolean,
+    ): AiProvider? =
         AiProviders
             .selectAll()
             .where { AiProviders.id eq providerId }
-            .singleOrNull()
+            .apply {
+                if (forUpdate) {
+                    forUpdate()
+                }
+            }.singleOrNull()
             ?.toAiProviderDomain()
 
     override suspend fun findByType(type: AiProviderType): AiProvider? =
