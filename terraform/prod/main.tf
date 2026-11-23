@@ -155,6 +155,7 @@ module "ecs" {
     AWS_S3_PUBLIC_BASE_URL       = "https://${var.images_domain}"
     LINK_PREVIEW_LAMBDA_FUNCTION = "alink-link-preview-prod:live"
     LINK_PREVIEW_LAMBDA_ENDPOINT = ""
+    AI_CLAUDE_MAX_OUTPUT_TOKENS  = "8192"
   }
   task_secret_values = merge(
     {
